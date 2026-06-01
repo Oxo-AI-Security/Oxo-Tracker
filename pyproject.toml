@@ -1,0 +1,21 @@
+[project]
+name = "ai-test-platform"
+version = "0.1.0"
+description = "Internal API wrapper for AI automated testing workflows."
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "fastapi>=0.115.4",
+    "uvicorn[standard]>=0.30.6",
+    "python-dotenv>=1.1.0",
+    "pydantic>=2.8.2",
+    "pydantic-settings>=2.6.0",
+    "aiverify-moonshot[all]==0.7.6",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
