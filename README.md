@@ -1,15 +1,49 @@
 # Oxo Tracker
 
-Oxo Tracker is a secure AI evaluation workspace built on top of Moonshot. It provides a FastAPI backend and a Vue 3 frontend for managing agents, connector endpoints, payloads, benchmark runs, red-team sessions, and custom configurable connectors.
+Oxo Tracker is a secure AI evaluation workspace for testing model agents, prompt safety, connector behavior, and red-team resilience. It combines a FastAPI backend, a Vue 3 workspace, and local Moonshot assets so evaluation teams can configure targets, run benchmark suites, inspect prompt traces, and keep adversarial conversations in one place.
 
-## Features
+The product is designed for AI security review workflows where teams need repeatable tests, visible evidence, and side-by-side comparison between clean and attacked interactions.
 
-- Agents workspace for model endpoints, red-team sessions, and configurable connectors.
-- Connector builder for HTTP, SSE, and WebSocket based custom AI applications.
-- Payload management for cookbooks, recipes, datasets, attack modules, and prompt templates.
-- Benchmark wizard for selecting endpoints and tests.
-- Red-team chat sessions with payload and attack-module comparison flows.
-- Local Moonshot asset integration through `data/moonshot-data`.
+![Benchmark run details](docs/images/benchmark-run-details.png)
+
+## Product Highlights
+
+- **Benchmark orchestration**: launch cookbook and recipe based evaluations against selected model endpoints, then inspect progress, prompt traces, errors, reports, and downloadable run output.
+- **Red-team workspace**: maintain adversarial chat sessions with payload selection, attack-module controls, context strategy options, and clean comparison conversations.
+- **Payload library**: browse and curate cookbooks, recipes, datasets, attack modules, and prompt templates used by evaluation runs.
+- **Agent and connector management**: create model endpoints and configurable connectors for HTTP, SSE, and WebSocket based AI applications.
+- **Agent security review**: upload design documents, diagrams, prompts, tool specs, and screenshots to extract application functions and build a review map.
+- **Local-first evidence store**: keep benchmark jobs, red-team sessions, settings, and generated reports in project data directories for repeatable local review.
+
+## Interface Preview
+
+### Red-team comparison
+
+Use the Agents workspace to run adversarial prompts with payloads while keeping a clean comparison thread visible for the same target endpoint.
+
+![Red-team workspace](docs/images/red-team-workspace.png)
+
+### Evaluation suites
+
+Use the Cookbooks view to inspect built-in and custom evaluation suites, select test coverage, and organize reusable safety scenarios.
+
+![Cookbooks](docs/images/cookbooks.png)
+
+## Core Workflow
+
+1. Configure model agents or custom application connectors.
+2. Select payload assets such as cookbooks, recipes, datasets, prompt templates, and attack modules.
+3. Run a benchmark or open a red-team session against the selected endpoint.
+4. Inspect prompt traces, model responses, judge results, errors, and generated reports.
+5. Save evidence locally and export reports for review.
+
+## Architecture
+
+Oxo Tracker uses a Python backend for API orchestration and Moonshot integration, and a Vue frontend for the evaluation workspace.
+
+- Backend: FastAPI, local job runtime, Moonshot service adapters, settings and report stores.
+- Frontend: Vue 3, Vite, Pinia, Naive UI, evaluation views, red-team chat workspace, and connector builder.
+- Data: local Moonshot assets, benchmark job JSON files, red-team sessions, generated reports, and settings.
 
 ## Project Layout
 
