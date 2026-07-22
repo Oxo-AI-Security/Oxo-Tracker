@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import benchmarks, health, moonshot_explicit, settings as settings_route
+from app.api.routes import agent_security_review, benchmarks, health, moonshot_explicit, settings as settings_route
 from app.core.config import get_settings
 from app.integrations.moonshot.client import initialize_moonshot
 
@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
     app.include_router(moonshot_explicit.router, prefix="/api/v1")
     app.include_router(benchmarks.router, prefix="/api/v1")
     app.include_router(settings_route.router, prefix="/api/v1")
+    app.include_router(agent_security_review.router, prefix="/api/v1")
     return app
 
 

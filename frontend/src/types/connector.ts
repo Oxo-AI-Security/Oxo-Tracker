@@ -1,6 +1,7 @@
 export type ConnectorProtocol = 'http' | 'sse' | 'websocket'
 export type ConnectorSource = 'built-in' | 'user-created'
 export type AuthType = 'none' | 'bearer' | 'api-key' | 'cookie' | 'basic'
+export type RequestBodyType = 'json' | 'form' | 'raw' | 'none'
 
 export interface ConnectorOwner {
   id: string
@@ -14,6 +15,7 @@ export interface AuthConfig {
   type: AuthType
   secretRef?: string
   headerName?: string
+  username?: string
   usernameRef?: string
   passwordRef?: string
 }
@@ -22,25 +24,39 @@ export interface HttpRequestConfig {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH'
   path: string
   headers: Record<string, string>
+  queryParams?: Record<string, string>
+  bodyType?: RequestBodyType
+  formFields?: Record<string, string>
   bodyTemplate: string
 }
 
 export interface SseStreamConfig {
   path: string
+  method?: 'GET' | 'POST'
+  headers?: Record<string, string>
+  queryParams?: Record<string, string>
+  bodyType?: RequestBodyType
+  formFields?: Record<string, string>
+  bodyTemplate?: string
   eventField: string
   dataPrefix?: string
 }
 
 export interface WebSocketConfig {
   path: string
+  headers?: Record<string, string>
+  queryParams?: Record<string, string>
   messageTemplate: string
   responseMessageField: string
 }
 
 export interface ResponseExtractConfig {
-  type: 'json-path' | 'text' | 'event-data'
+  type: 'json-path' | 'text' | 'event-data' | 'text-fragment'
   path: string
   fallbackPath?: string
+  prefix?: string
+  suffix?: string
+  selectedText?: string
 }
 
 export interface ConnectorConfig {
@@ -59,6 +75,7 @@ export interface ConnectorConfig {
   params: {
     timeout: number
     connector_config: {
+      description?: string
       transport: ConnectorProtocol
       auth: AuthConfig
       request?: HttpRequestConfig
@@ -107,4 +124,16 @@ export interface ConnectorTestResult {
   rawResponse: string
   extractedResponse: string
   error?: string
+}
+
+export interface ConnectorAIConfigureResult {
+  status: 'completed' | 'partial' | 'error'
+  stage: 'analysis' | 'request' | 'response' | 'completed'
+  message: string
+  missingInformation: string[]
+  config?: ConnectorConfig
+  testPrompt: string
+  testResult?: ConnectorTestResult
+  provider: string
+  model: string
 }

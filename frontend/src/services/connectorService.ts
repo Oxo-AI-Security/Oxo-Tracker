@@ -1,5 +1,5 @@
 import { moonshotApi } from '../api/moonshot'
-import type { ConnectorConfig, ConnectorEndpointItem, ConnectorListItem, ConnectorProtocol, ConnectorTestResult, CurrentUser } from '../types/connector'
+import type { ConnectorAIConfigureResult, ConnectorConfig, ConnectorEndpointItem, ConnectorListItem, ConnectorProtocol, ConnectorTestResult, CurrentUser } from '../types/connector'
 import type { EndpointCreatePayload } from '../types/moonshot'
 
 const META_KEY = 'oxo-connector-endpoint-meta'
@@ -26,6 +26,7 @@ export const connectorService = {
   },
 
   async saveConnector(config: ConnectorConfig) {
+    config.params.connector_config.description = config.description || ''
     const payload: EndpointCreatePayload = {
       name: config.name,
       connector_type: config.connector_type || CONFIGURABLE_CONNECTOR,
@@ -68,6 +69,10 @@ export const connectorService = {
   async testConnector(config: ConnectorConfig, testPrompt: string): Promise<ConnectorTestResult> {
     return moonshotApi.testConnector(config, testPrompt)
   },
+
+  async configureWithAI(requestInformation: string): Promise<ConnectorAIConfigureResult> {
+    return moonshotApi.configureConnectorWithAI(requestInformation)
+  },
 }
 
 export function defaultConnectorConfig(protocol: ConnectorProtocol = 'http', connectorType = CONFIGURABLE_CONNECTOR): ConnectorConfig {
@@ -84,13 +89,13 @@ export function defaultConnectorConfig(protocol: ConnectorProtocol = 'http', con
     max_calls_per_second: 10,
     max_concurrency: 1,
     params: {
-      timeout: 30000,
+      timeout: 30,
       connector_config: {
         transport: protocol,
-        auth: { type: 'bearer', secretRef: 'CUSTOM_APP_TOKEN' },
-        request: protocol === 'http' ? { method: 'POST', path: '', headers: { 'content-type': 'application/json' }, bodyTemplate: '{"message":"{{ prompt }}"}' } : undefined,
-        stream: protocol === 'sse' ? { path: '', eventField: 'data' } : undefined,
-        websocket: protocol === 'websocket' ? { path: '', messageTemplate: '{"message":"{{ prompt }}"}', responseMessageField: 'message' } : undefined,
+        auth: { type: 'none' },
+        request: protocol === 'http' ? { method: 'POST', path: '', headers: { 'content-type': 'application/json' }, queryParams: {}, bodyType: 'json', formFields: {}, bodyTemplate: '{"message":"{{ prompt }}"}' } : undefined,
+        stream: protocol === 'sse' ? { path: '', method: 'GET', headers: { accept: 'text/event-stream' }, queryParams: { prompt: '{{ prompt }}' }, bodyType: 'none', formFields: {}, bodyTemplate: '', eventField: 'data' } : undefined,
+        websocket: protocol === 'websocket' ? { path: '', headers: {}, queryParams: {}, messageTemplate: '{"message":"{{ prompt }}"}', responseMessageField: 'message' } : undefined,
         response: { type: 'json-path', path: '$.output', fallbackPath: '$.choices.0.message.content' },
       },
     },
@@ -103,12 +108,14 @@ export function applyTemplate(config: ConnectorConfig, protocol: ConnectorProtoc
 }
 
 export function endpointToConfig(endpoint: ConnectorEndpointItem): ConnectorConfig {
-  const params = normalizeParams(endpoint.params)
+  const params = endpoint.connector_type === CONFIGURABLE_CONNECTOR
+    ? normalizeParams(endpoint.params)
+    : (endpoint.params as ConnectorConfig['params'])
   const meta = readMeta()[endpoint.id]
   return {
     id: endpoint.id,
     name: endpoint.name,
-    description: '',
+    description: typeof params.connector_config?.description === 'string' ? params.connector_config.description : '',
     connector_type: endpoint.connector_type,
     uri: endpoint.uri,
     token: endpoint.token || '',
@@ -161,7 +168,33 @@ function toConnectorGroup(type: string, endpoints: ConnectorEndpointItem[]): Con
 }
 
 function normalizeParams(params: Record<string, unknown>) {
-  if (params.connector_config) return params as ConnectorConfig['params']
+  if (params.connector_config) {
+    const normalized = params as ConnectorConfig['params']
+    const config = normalized.connector_config
+    const timeout = Number(normalized.timeout || 30)
+    normalized.timeout = timeout > 1000 ? Math.max(1, Math.round(timeout / 1000)) : Math.max(1, timeout)
+    config.auth ||= { type: 'none' }
+    config.response ||= { type: 'json-path', path: '$.output' }
+    if (config.request) {
+      config.request.headers ||= { 'content-type': 'application/json' }
+      config.request.queryParams ||= {}
+      config.request.bodyType ||= 'json'
+      config.request.formFields ||= {}
+    }
+    if (config.stream) {
+      config.stream.method ||= 'GET'
+      config.stream.headers ||= { accept: 'text/event-stream' }
+      config.stream.queryParams ||= {}
+      config.stream.bodyType ||= 'none'
+      config.stream.formFields ||= {}
+      config.stream.bodyTemplate ||= ''
+    }
+    if (config.websocket) {
+      config.websocket.headers ||= {}
+      config.websocket.queryParams ||= {}
+    }
+    return normalized
+  }
   return defaultConnectorConfig('http').params
 }
 

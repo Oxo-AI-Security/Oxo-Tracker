@@ -18,8 +18,11 @@ import type {
   DatasetCreatePayload,
   DatasetUpdatePayload,
   RunnerRecord,
+  AIConnectionTestResult,
   AppSettings,
+  AppSettingsUpdate,
 } from '../types/moonshot'
+import type { ConnectorAIConfigureResult } from '../types/connector'
 
 export const moonshotApi = {
   async health() {
@@ -55,6 +58,14 @@ export const moonshotApi = {
       extractedResponse: string
       error?: string
     }>('/api/v1/moonshot/connectors/test', { config, test_prompt: testPrompt })
+    return data
+  },
+  async configureConnectorWithAI(requestInformation: string) {
+    const { data } = await http.post<ConnectorAIConfigureResult>('/api/v1/moonshot/connectors/ai-configure', {
+      request_information: requestInformation,
+    }, {
+      timeout: 210_000,
+    })
     return data
   },
   async getRecipes() {
@@ -262,8 +273,19 @@ export const moonshotApi = {
     const { data } = await http.get<AppSettings>('/api/v1/settings')
     return data
   },
-  async updateSettings(payload: Partial<AppSettings>) {
+  async updateSettings(payload: AppSettingsUpdate) {
     const { data } = await http.patch<AppSettings>('/api/v1/settings', payload)
+    return data
+  },
+  async revealAIProviderApiKey(provider: string) {
+    const { data } = await http.post<{ provider: string; apiKey: string }>(
+      '/api/v1/settings/ai/api-key/reveal',
+      { provider },
+    )
+    return data
+  },
+  async testAIProviderConnection(payload: { provider: string; model: string; baseUrl: string; apiKey?: string }) {
+    const { data } = await http.post<AIConnectionTestResult>('/api/v1/settings/ai/test-connection', payload)
     return data
   },
 }

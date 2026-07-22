@@ -1,3 +1,5 @@
+import asyncio
+import base64
 import json
 import shutil
 import time
@@ -5,9 +7,11 @@ from pathlib import Path
 from typing import Any
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 
 from fastapi import APIRouter, Body, HTTPException
 
+from app.services.connector_ai_service import ConnectorAIError, ConnectorAIService
 from app.services.moonshot_api_service import MoonshotApiService
 
 router = APIRouter(prefix="/moonshot", tags=["Moonshot Explicit API"])
@@ -91,32 +95,51 @@ def test_connector(data: dict[str, Any] = Body(...)):
     try:
         params = config.get("params") or {}
         connector_config = params.get("connector_config") or {}
-        request_config = connector_config.get("request") or connector_config.get("stream") or connector_config.get("websocket") or {}
+        transport = str(connector_config.get("transport") or "http").lower()
+        if transport not in {"http", "sse", "websocket"}:
+            raise ValueError("Transport must be http, sse, or websocket.")
+        request_config = _request_config_for_transport(connector_config, transport)
         url = str(config.get("uri") or "")
         if not url:
             raise ValueError("Request URL is required.")
-        body_template = request_config.get("bodyTemplate") or request_config.get("messageTemplate") or '{"prompt":"{{ prompt }}"}'
-        body = body_template.replace("{{ prompt }}", str(prompt)).replace("{{prompt}}", str(prompt)).encode("utf-8")
+        path = str(request_config.get("path") or "")
+        if path:
+            url = f"{url.rstrip('/')}/{path.lstrip('/')}"
+        url = _apply_query_params(url, request_config.get("queryParams") or {}, str(prompt))
+        _validate_connector_url(url, transport)
+        body = _build_connector_body(request_config, str(prompt))
         headers = dict(request_config.get("headers") or {})
+        _apply_content_type(headers, request_config, body)
         auth = connector_config.get("auth") or {}
         token = str(config.get("token") or "")
-        if auth.get("type") == "bearer" and token:
-            headers[auth.get("headerName") or "Authorization"] = f"Bearer {token}"
-        if auth.get("type") == "api-key" and token:
-            headers[auth.get("headerName") or "x-api-key"] = token
-        if auth.get("type") == "cookie" and token:
-            headers[auth.get("headerName") or "Cookie"] = token
-        method = request_config.get("method") or "POST"
-        req = urllib_request.Request(url, data=body, headers=headers, method=method)
-        timeout = max(1, min(120, int((params.get("timeout") or 30000) / 1000)))
-        with urllib_request.urlopen(req, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
-            status_code = response.status
+        _apply_connector_auth(headers, auth, token)
+        timeout_value = float(params.get("timeout") or 30)
+        if timeout_value > 1000:
+            timeout_value /= 1000
+        timeout = max(1, min(120, timeout_value))
+        if transport == "websocket":
+            method = "WEBSOCKET"
+            raw = asyncio.run(_send_websocket_once(url, headers, body.decode("utf-8") if body is not None else ""))
+            status_code = 101
+        else:
+            method = request_config.get("method") or ("GET" if body is None else "POST")
+            req = urllib_request.Request(url, data=body, headers=headers, method=method)
+            with urllib_request.urlopen(req, timeout=timeout) as response:
+                raw = _read_connector_response_body(response, transport)
+                status_code = response.status
         extracted = _extract_connector_response(raw, connector_config.get("response") or {})
         return {
             "status": "success",
             "duration": round((time.perf_counter() - started) * 1000),
-            "requestPreview": json.dumps({"url": url, "method": method, "headers": _mask_headers(headers), "body": body.decode("utf-8")}, indent=2),
+            "requestPreview": json.dumps(
+                {
+                    "url": url,
+                    "method": method,
+                    "headers": _mask_headers(headers),
+                    "body": body.decode("utf-8") if body is not None else None,
+                },
+                indent=2,
+            ),
             "rawResponse": raw,
             "extractedResponse": extracted,
             "httpStatus": status_code,
@@ -126,27 +149,186 @@ def test_connector(data: dict[str, Any] = Body(...)):
         return {"status": "error", "duration": round((time.perf_counter() - started) * 1000), "requestPreview": json.dumps({"url": config.get("uri"), "error": "HTTP error"}, indent=2), "rawResponse": raw, "extractedResponse": "", "error": f"HTTP {exc.code}: {exc.reason}"}
     except (URLError, ValueError, TimeoutError) as exc:
         return {"status": "error", "duration": round((time.perf_counter() - started) * 1000), "requestPreview": json.dumps({"url": config.get("uri")}, indent=2), "rawResponse": "", "extractedResponse": "", "error": str(exc)}
+    except Exception as exc:
+        return {"status": "error", "duration": round((time.perf_counter() - started) * 1000), "requestPreview": json.dumps({"url": config.get("uri")}, indent=2), "rawResponse": "", "extractedResponse": "", "error": str(exc)}
+
+
+@router.post("/connectors/ai-configure", summary="Generate and verify a configurable connector with the active AI model")
+def ai_configure_connector(data: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    request_information = str(data.get("request_information") or "").strip()
+    partial_config: dict[str, Any] | None = None
+    test_prompt = "Hello"
+    ai_service: ConnectorAIService | None = None
+    try:
+        ai_service = ConnectorAIService()
+        draft = ai_service.generate_draft(request_information)
+        partial_config = draft["config"]
+        test_prompt = str(draft.get("testPrompt") or "Hello")
+        missing = list(draft.get("missingInformation") or [])
+        if missing:
+            return {
+                "status": "partial",
+                "stage": "analysis",
+                "message": "AI filled the fields it could, but more request information is required.",
+                "missingInformation": missing,
+                "config": partial_config,
+                "testPrompt": test_prompt,
+                "provider": ai_service.provider,
+                "model": ai_service.model,
+            }
+
+        test_result = test_connector({"config": partial_config, "test_prompt": test_prompt})
+        if test_result.get("status") != "success":
+            reason = str(test_result.get("error") or "The target request failed.")
+            return {
+                "status": "partial",
+                "stage": "request",
+                "message": f"The generated request could not be completed: {reason}",
+                "missingInformation": _request_failure_suggestions(reason),
+                "config": partial_config,
+                "testPrompt": test_prompt,
+                "testResult": test_result,
+                "provider": ai_service.provider,
+                "model": ai_service.model,
+            }
+
+        raw_response = str(test_result.get("rawResponse") or "")
+        try:
+            response_mapping = ai_service.infer_response(
+                raw_response=raw_response,
+                extracted_hint=str(test_result.get("extractedResponse") or ""),
+            )
+        except ConnectorAIError as error:
+            return {
+                "status": "partial",
+                "stage": "response",
+                "message": str(error),
+                "missingInformation": [
+                    "Provide a representative successful response body or identify the field that contains the assistant answer."
+                ],
+                "config": partial_config,
+                "testPrompt": test_prompt,
+                "testResult": test_result,
+                "provider": ai_service.provider,
+                "model": ai_service.model,
+            }
+
+        partial_config["params"]["connector_config"]["response"] = response_mapping
+        extracted = _extract_connector_response(raw_response, response_mapping)
+        test_result["extractedResponse"] = extracted
+        if extracted and not response_mapping.get("selectedText"):
+            response_mapping["selectedText"] = extracted
+        if not extracted:
+            return {
+                "status": "partial",
+                "stage": "response",
+                "message": "The request succeeded, but AI could not verify the assistant answer field in the response.",
+                "missingInformation": [
+                    "Provide a representative successful response body or identify the exact response field that contains the assistant answer."
+                ],
+                "config": partial_config,
+                "testPrompt": test_prompt,
+                "testResult": test_result,
+                "provider": ai_service.provider,
+                "model": ai_service.model,
+            }
+
+        return {
+            "status": "completed",
+            "stage": "completed",
+            "message": "AI generated, requested, and verified the connector configuration.",
+            "missingInformation": [],
+            "config": partial_config,
+            "testPrompt": test_prompt,
+            "testResult": test_result,
+            "provider": ai_service.provider,
+            "model": ai_service.model,
+        }
+    except ConnectorAIError as error:
+        return {
+            "status": "error",
+            "stage": "analysis",
+            "message": str(error),
+            "missingInformation": [],
+            "config": partial_config,
+            "testPrompt": test_prompt,
+            "provider": ai_service.provider if ai_service else "",
+            "model": ai_service.model if ai_service else "",
+        }
+    except Exception:
+        return {
+            "status": "error",
+            "stage": "analysis",
+            "message": "AI configuration stopped unexpectedly. The fields already generated have been kept.",
+            "missingInformation": ["Try again or add a complete cURL example and a successful response sample."],
+            "config": partial_config,
+            "testPrompt": test_prompt,
+            "provider": ai_service.provider if ai_service else "",
+            "model": ai_service.model if ai_service else "",
+        }
+
+
+def _request_failure_suggestions(reason: str) -> list[str]:
+    lowered = reason.lower()
+    suggestions: list[str] = []
+    if "401" in lowered or "403" in lowered or "unauthorized" in lowered or "forbidden" in lowered:
+        suggestions.append("Provide a valid Bearer token, API key, Cookie, or Basic Auth credential.")
+    if "404" in lowered or "not found" in lowered:
+        suggestions.append("Confirm the complete request URL and path.")
+    if "timed out" in lowered or "timeout" in lowered:
+        suggestions.append("Confirm the service is reachable and provide an appropriate timeout.")
+    if "name or service" in lowered or "getaddrinfo" in lowered or "refused" in lowered:
+        suggestions.append("Confirm the host is reachable from this machine.")
+    if not suggestions:
+        suggestions.append("Provide a complete cURL example, required credentials, and any mandatory headers or query parameters.")
+    return suggestions
 
 
 def _extract_connector_response(raw: str, response_config: dict[str, Any]) -> str:
     if response_config.get("type") == "text":
         return raw
+    if response_config.get("type") == "text-fragment":
+        extracted = _extract_text_fragment(raw, response_config)
+        return extracted if extracted is not None else raw
     if response_config.get("type") == "event-data":
-        for line in raw.splitlines():
-            if line.startswith("data:"):
-                return line.replace("data:", "", 1).strip()
-        return raw
-    try:
-        parsed = json.loads(raw)
-    except Exception:
-        return raw
+        payloads = _event_payloads(raw)
+        return "".join(payloads) if payloads else raw
+    parsed = _parse_json_or_event_payload(raw)
+    event_payloads = _event_payloads(raw)
     for path in (response_config.get("path"), response_config.get("fallbackPath")):
         if not path:
             continue
-        value = _read_json_path(parsed, path)
-        if value is not None:
-            return str(value)
-    return ""
+        streamed_values: list[str] = []
+        for payload in event_payloads:
+            try:
+                value = _read_json_path(json.loads(payload), path)
+            except (TypeError, ValueError):
+                continue
+            if value is not None:
+                streamed_values.append(str(value))
+        if streamed_values:
+            return "".join(streamed_values)
+        if parsed is not None:
+            value = _read_json_path(parsed, path)
+            if value is not None:
+                return str(value)
+    return raw if parsed is None else ""
+
+
+def _extract_text_fragment(raw: str, response_config: dict[str, Any]) -> str | None:
+    prefix = str(response_config.get("prefix") or "")
+    suffix = str(response_config.get("suffix") or "")
+    if prefix and prefix in raw:
+        start = raw.find(prefix) + len(prefix)
+        if suffix:
+            end = raw.find(suffix, start)
+            if end >= 0:
+                return raw[start:end]
+        return raw[start:]
+    selected = str(response_config.get("selectedText") or "")
+    if selected and selected in raw:
+        return selected
+    return None
 
 
 def _read_json_path(data: Any, path: str) -> Any:
@@ -161,8 +343,135 @@ def _read_json_path(data: Any, path: str) -> Any:
     return current
 
 
+def _parse_json_or_event_payload(raw: str) -> Any | None:
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+    for payload in _event_payloads(raw):
+        try:
+            return json.loads(payload)
+        except Exception:
+            continue
+    return None
+
+
+def _event_payloads(raw: str) -> list[str]:
+    return [
+        line.replace("data:", "", 1).strip()
+        for line in raw.splitlines()
+        if line.startswith("data:")
+        and line.replace("data:", "", 1).strip()
+        and line.replace("data:", "", 1).strip() != "[DONE]"
+    ]
+
+
 def _mask_headers(headers: dict[str, Any]) -> dict[str, Any]:
     return {key: ("***" if key.lower() in {"authorization", "cookie", "x-api-key"} else value) for key, value in headers.items()}
+
+
+def _request_config_for_transport(connector_config: dict[str, Any], transport: str) -> dict[str, Any]:
+    key = {"http": "request", "sse": "stream", "websocket": "websocket"}[transport]
+    return dict(connector_config.get(key) or {})
+
+
+def _validate_connector_url(url: str, transport: str) -> None:
+    scheme = urlsplit(url).scheme.lower()
+    allowed = {"ws", "wss"} if transport == "websocket" else {"http", "https"}
+    if scheme not in allowed:
+        expected = "ws:// or wss://" if transport == "websocket" else "http:// or https://"
+        raise ValueError(f"Request URL must start with {expected} for {transport.upper()}.")
+
+
+def _apply_connector_auth(headers: dict[str, Any], auth: dict[str, Any], token: str) -> None:
+    auth_type = str(auth.get("type") or "none")
+    if auth_type == "bearer" and token:
+        headers[auth.get("headerName") or "Authorization"] = f"Bearer {token}"
+    elif auth_type == "api-key" and token:
+        headers[auth.get("headerName") or "x-api-key"] = token
+    elif auth_type == "cookie" and token:
+        headers[auth.get("headerName") or "Cookie"] = token
+    elif auth_type == "basic":
+        username = str(auth.get("username") or "")
+        if username or token:
+            encoded = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
+            headers["Authorization"] = f"Basic {encoded}"
+
+
+def _apply_content_type(headers: dict[str, Any], request_config: dict[str, Any], body: bytes | None) -> None:
+    if body is None:
+        return
+    body_type = request_config.get("bodyType") or "json"
+    content_type = {
+        "form": "application/x-www-form-urlencoded",
+        "raw": "text/plain; charset=utf-8",
+        "json": "application/json",
+    }.get(body_type)
+    if content_type:
+        headers.setdefault("content-type", content_type)
+
+
+def _apply_query_params(url: str, params: dict[str, Any], prompt: str) -> str:
+    if not params:
+        return url
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    for key, value in params.items():
+        query[str(key)] = str(value).replace("{{ prompt }}", prompt).replace("{{prompt}}", prompt)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _build_connector_body(request_config: dict[str, Any], prompt: str) -> bytes | None:
+    body_type = request_config.get("bodyType") or "json"
+    if body_type == "none":
+        return None
+    if body_type == "form":
+        fields = {
+            str(key): str(value).replace("{{ prompt }}", prompt).replace("{{prompt}}", prompt)
+            for key, value in (request_config.get("formFields") or {}).items()
+        }
+        return urlencode(fields).encode("utf-8")
+    body_template = (
+        request_config.get("bodyTemplate")
+        or request_config.get("messageTemplate")
+        or '{"prompt":"{{ prompt }}"}'
+    )
+    replacement = json.dumps(prompt, ensure_ascii=False)[1:-1] if body_type == "json" else prompt
+    return body_template.replace("{{ prompt }}", replacement).replace("{{prompt}}", replacement).encode("utf-8")
+
+
+def _read_connector_response_body(response: Any, transport: str) -> str:
+    if transport != "sse":
+        return response.read().decode("utf-8")
+    lines: list[str] = []
+    total_bytes = 0
+    for _ in range(512):
+        try:
+            line = response.readline()
+        except (TimeoutError, OSError):
+            break
+        if not line:
+            break
+        total_bytes += len(line)
+        if total_bytes > 1_048_576:
+            break
+        decoded = line.decode("utf-8", errors="replace")
+        lines.append(decoded)
+        if decoded.strip() == "data: [DONE]":
+            break
+    return "".join(lines)
+
+
+async def _send_websocket_once(url: str, headers: dict[str, Any], message: str) -> str:
+    try:
+        import websockets
+    except Exception as exc:
+        raise RuntimeError("WebSocket testing requires the 'websockets' package.") from exc
+    async with websockets.connect(url, extra_headers=headers or None) as websocket:
+        if message:
+            await websocket.send(message)
+        response = await websocket.recv()
+        return response if isinstance(response, str) else response.decode("utf-8", errors="replace")
 
 
 @router.post("/endpoints", summary="Create model endpoint")

@@ -9,6 +9,7 @@ dependencies = [
     "python-dotenv>=1.1.0",
     "pydantic>=2.8.2",
     "pydantic-settings>=2.6.0",
+    "PyYAML>=6.0.2",
     "aiverify-moonshot[all]==0.7.6",
 ]
 

@@ -2,10 +2,11 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { darkTheme } from 'naive-ui'
 import { moonshotApi } from '../api/moonshot'
-import type { AppSettings } from '../types/moonshot'
+import type { AISettings, AppSettings } from '../types/moonshot'
 
 export const useSettingsStore = defineStore('settings', () => {
   const theme = ref<AppSettings['theme']>('light')
+  const ai = ref<AISettings | null>(null)
   const loading = ref(false)
 
   const naiveTheme = computed(() => (theme.value === 'dark' ? darkTheme : null))
@@ -20,6 +21,7 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       const settings = await moonshotApi.getSettings()
       applyTheme(settings.theme)
+      ai.value = settings.ai
     } finally {
       loading.value = false
     }
@@ -29,10 +31,12 @@ export const useSettingsStore = defineStore('settings', () => {
     applyTheme(value)
     const settings = await moonshotApi.updateSettings({ theme: value })
     applyTheme(settings.theme)
+    ai.value = settings.ai
   }
 
   return {
     theme,
+    ai,
     loading,
     naiveTheme,
     loadSettings,

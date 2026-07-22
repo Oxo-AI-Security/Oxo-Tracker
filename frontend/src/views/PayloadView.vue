@@ -1,23 +1,68 @@
 <template>
   <div class="payload-shell">
     <GlassPanel v-if="section === 'menu'" class="payload-panel">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Payload library</p>
-          <h2>Payload</h2>
+      <div class="section-heading payload-page-heading">
+        <div class="workspace-title-block">
+          <span class="workspace-title-icon workspace-title-icon--payload">
+            <n-icon><BookOutline /></n-icon>
+          </span>
+          <div class="workspace-title-content">
+            <p class="eyebrow">Payload library</p>
+            <h2>Payload assembly map</h2>
+            <span>Understand how prompt assets become repeatable benchmark suites.</span>
+          </div>
+        </div>
+        <div class="payload-page-summary" aria-label="Payload inventory summary">
+          <strong>{{ payloadSummary.total }}</strong>
+          <span>assets across {{ payloadFlowItems.length }} connected layers</span>
         </div>
       </div>
 
-      <div class="payload-option-grid">
-        <RouterLink v-for="item in payloadItems" :key="item.path" :to="item.path" class="payload-option-card">
-          <span class="payload-option-head">
-            <span class="payload-option-icon">
-              <n-icon size="26"><component :is="item.icon" /></n-icon>
-            </span>
-            <strong>{{ item.name }}</strong>
+      <section class="payload-pipeline" aria-label="Payload relationship">
+        <div v-for="item in payloadFlowItems" :key="item.key" class="payload-pipeline-step">
+          <span class="payload-pipeline-node">{{ item.step }}</span>
+          <span>
+            <strong>{{ item.stage }}</strong>
+            <small>{{ item.name }}</small>
           </span>
-          <small>{{ item.description }}</small>
-          <span class="payload-option-count">{{ item.count }}</span>
+        </div>
+      </section>
+
+      <div class="payload-option-grid payload-option-grid--relationship">
+        <RouterLink
+          v-for="item in payloadFlowItems"
+          :key="item.path"
+          :to="item.path"
+          class="payload-option-card payload-option-card--overview"
+        >
+          <span class="payload-overview-top">
+            <span class="payload-option-head">
+              <span class="payload-option-icon">
+                <n-icon size="26"><component :is="item.icon" /></n-icon>
+              </span>
+              <span>
+                <small>{{ item.role }}</small>
+                <strong>{{ item.name }}</strong>
+              </span>
+            </span>
+            <span class="payload-option-count">{{ item.count }}</span>
+          </span>
+
+          <span class="payload-card-description">{{ item.description }}</span>
+
+          <span class="payload-card-path">
+            <span>
+              <b>Input</b>
+              {{ item.consumes }}
+            </span>
+            <n-icon size="18"><ArrowForwardOutline /></n-icon>
+            <span>
+              <b>Output</b>
+              {{ item.produces }}
+            </span>
+          </span>
+
+          <span class="payload-card-relation">{{ item.relationship }}</span>
         </RouterLink>
       </div>
     </GlassPanel>
@@ -219,6 +264,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import {
   AddOutline,
+  ArrowForwardOutline,
   BookOutline,
   CloseOutline,
   DocumentTextOutline,
@@ -258,36 +304,72 @@ const section = computed(() => {
   return 'menu'
 })
 
-const payloadItems = computed(() => [
+const payloadFlowItems = computed(() => [
   {
-    name: 'Cookbooks',
-    description: 'Group recipes into reusable evaluation suites for benchmark runs.',
-    icon: BookOutline,
-    path: '/payload/cookbooks',
-    count: store.cookbooks.length,
+    key: 'datasets',
+    step: '01',
+    stage: 'Input data',
+    role: 'Prompt corpus',
+    name: 'Datasets',
+    description: 'Store prompt inputs, expected answers, and policy labels used by tests.',
+    analysis: 'Datasets are the raw evaluation material. They answer: what prompts should be sent, and what target or policy label should the model be judged against?',
+    relationship: 'Feeds prompt rows into Recipes',
+    consumes: 'Prompt examples',
+    produces: 'Test rows',
+    icon: FileTrayStackedOutline,
+    path: '/payload/datasets',
+    count: store.datasets.length,
   },
   {
-    name: 'Recipes',
-    description: 'Browse existing recipes and create or edit Oxo-owned benchmark recipes.',
-    icon: DocumentTextOutline,
-    path: '/payload/recipes',
-    count: store.recipes.length,
-  },
-  {
+    key: 'prompt-templates',
+    step: '02',
+    stage: 'Prompt format',
+    role: 'Prompt wrapper',
     name: 'Prompt Templates',
-    description: 'Inspect prompt wrappers used to format datasets before model evaluation.',
+    description: 'Wrap dataset prompts into the exact model-facing instruction format.',
+    analysis: 'Prompt Templates are reusable wrappers around the {{ prompt }} block. They shape how dataset rows are presented before the model responds.',
+    relationship: 'Optionally applied inside Recipes',
+    consumes: '{{ prompt }} token',
+    produces: 'Model-ready prompt',
     icon: NewspaperOutline,
     path: '/payload/prompt-templates',
     count: store.promptTemplates.length,
   },
   {
-    name: 'datasets',
-    description: 'Review prompt corpora that supply inputs and expected answers to recipes.',
-    icon: FileTrayStackedOutline,
-    path: '/payload/datasets',
-    count: store.datasets.length,
+    key: 'recipes',
+    step: '03',
+    stage: 'Test logic',
+    role: 'Evaluation flow',
+    name: 'Recipes',
+    description: 'Combine datasets, optional prompt templates, metrics, labels, and grading rules.',
+    analysis: 'Recipes are the actual test definition. They connect what to ask, how to ask it, and how the response should be evaluated.',
+    relationship: 'Grouped into Cookbooks',
+    consumes: 'Datasets + templates + metrics',
+    produces: 'Reusable test flow',
+    icon: DocumentTextOutline,
+    path: '/payload/recipes',
+    count: store.recipes.length,
+  },
+  {
+    key: 'cookbooks',
+    step: '04',
+    stage: 'Run suites',
+    role: 'Benchmark suite',
+    name: 'Cookbooks',
+    description: 'Bundle related recipes into repeatable suites for benchmark runs.',
+    analysis: 'Cookbooks are the run-ready package. They decide which recipes travel together when a benchmark or regression suite is launched.',
+    relationship: 'Launched by Benchmark',
+    consumes: 'One or more recipes',
+    produces: 'Runnable suite',
+    icon: BookOutline,
+    path: '/payload/cookbooks',
+    count: store.cookbooks.length,
   },
 ])
+
+const payloadSummary = computed(() => ({
+  total: store.datasets.length + store.promptTemplates.length + store.recipes.length + store.cookbooks.length,
+}))
 
 const filteredPromptTemplates = computed(() => {
   const keyword = templateSearch.value.trim().toLowerCase()

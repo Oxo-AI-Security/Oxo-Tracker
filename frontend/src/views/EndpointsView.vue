@@ -1,60 +1,125 @@
 <template>
   <div class="endpoint-shell">
-    <GlassPanel v-if="mode === 'menu'" class="endpoint-panel">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Model targets</p>
-          <h2>Endpoints</h2>
+    <GlassPanel v-if="mode === 'menu'" class="endpoint-panel agents-home-panel">
+      <section class="agents-home-hero">
+        <div class="agents-home-copy workspace-title-block">
+          <span class="workspace-title-icon workspace-title-icon--agents">
+            <n-icon><ShieldCheckmarkOutline /></n-icon>
+          </span>
+          <div class="workspace-title-content">
+            <p class="eyebrow">Agent workspace</p>
+            <h2>Audit and red-team AI applications</h2>
+            <p>
+              Run design-time risk reviews for AI features, or open adversarial testing sessions against live target endpoints.
+            </p>
+          </div>
         </div>
-      </div>
+        <dl class="agents-home-metrics">
+          <div>
+            <dt>Targets</dt>
+            <dd>{{ store.endpoints.length }}</dd>
+          </div>
+          <div>
+            <dt>Sessions</dt>
+            <dd>{{ redTeamSessions.length }}</dd>
+          </div>
+          <div>
+            <dt>Connectors</dt>
+            <dd>{{ connectorCount }}</dd>
+          </div>
+        </dl>
+      </section>
 
-      <div class="payload-option-grid endpoint-option-grid">
-        <button class="payload-option-card endpoint-option-card" type="button" @click="mode = 'list'">
-          <span class="payload-option-head">
-            <span class="payload-option-icon">
-              <n-icon size="26"><CubeOutline /></n-icon>
+      <section class="agents-workbench-grid" aria-label="Primary agent workspaces">
+        <RouterLink class="agents-workbench-card agents-workbench-card--audit" to="/agents/security-review">
+          <span class="agents-workbench-card__topline">
+            <span class="agents-workbench-icon">
+              <n-icon size="28"><ShieldCheckmarkOutline /></n-icon>
             </span>
-            <strong>Endpoints</strong>
+            <span class="agents-workbench-badge">Risk audit</span>
           </span>
-          <small>Create, inspect, and maintain target model connections for evaluations and red-team sessions.</small>
-          <span class="payload-option-count">{{ store.endpoints.length }}</span>
-        </button>
-
-        <button class="payload-option-card endpoint-option-card" type="button" @click="mode = 'sessions'">
-          <span class="payload-option-head">
-            <span class="payload-option-icon">
-              <n-icon size="26"><ChatboxEllipsesOutline /></n-icon>
-            </span>
-            <strong>Red Team Sessions</strong>
+          <span class="agents-workbench-copy">
+            <strong>Agent Security Review</strong>
+            <small>Audit AI feature risk from design documents, prompts, tools, diagrams, screenshots, and architecture notes.</small>
           </span>
-          <small>Resume saved adversarial conversations with selected payloads and attack modules.</small>
-          <span class="payload-option-count">{{ redTeamSessions.length }}</span>
-        </button>
-
-        <RouterLink class="payload-option-card endpoint-option-card" to="/agents/connectors">
-          <span class="payload-option-head">
-            <span class="payload-option-icon">
-              <n-icon size="26"><CubeOutline /></n-icon>
-            </span>
-            <strong>Connector</strong>
+          <span class="agents-workbench-steps">
+            <span>Materials</span>
+            <span>Capability map</span>
+            <span>Risk map</span>
           </span>
-          <small>Create, preview, and manage configurable connectors for custom AI applications.</small>
-          <span class="payload-option-count">{{ connectorCount }}</span>
+          <span class="agents-workbench-action">Open review workspace</span>
         </RouterLink>
-      </div>
+
+        <button class="agents-workbench-card agents-workbench-card--red" type="button" @click="mode = 'sessions'">
+          <span class="agents-workbench-card__topline">
+            <span class="agents-workbench-icon">
+              <n-icon size="28"><ChatboxEllipsesOutline /></n-icon>
+            </span>
+            <span class="agents-workbench-badge">{{ redTeamSessions.length }} saved</span>
+          </span>
+          <span class="agents-workbench-copy">
+            <strong>Red Team Sessions</strong>
+            <small>Help testers run adversarial conversations with payloads, attack modules, clean comparison, and session history.</small>
+          </span>
+          <span class="agents-workbench-steps">
+            <span>Target</span>
+            <span>Payload</span>
+            <span>Compare</span>
+          </span>
+          <span class="agents-workbench-action">Open testing workspace</span>
+        </button>
+      </section>
+
+      <section class="agents-infra-section">
+        <div class="agents-infra-heading">
+          <div>
+            <p class="eyebrow">Configuration layer</p>
+            <h3>Targets and connectors</h3>
+          </div>
+          <span>Used by audits, evaluations, and red-team sessions</span>
+        </div>
+
+        <div class="agents-infra-grid">
+          <button class="agents-infra-card agents-infra-card--targets" type="button" @click="mode = 'list'">
+            <span class="agents-infra-icon">
+              <n-icon size="22"><CubeOutline /></n-icon>
+            </span>
+            <span>
+              <strong>Endpoints</strong>
+              <small>Create and maintain target model or application endpoints.</small>
+            </span>
+            <b>{{ store.endpoints.length }}</b>
+          </button>
+
+          <RouterLink class="agents-infra-card agents-infra-card--connectors" to="/agents/connectors">
+            <span class="agents-infra-icon">
+              <n-icon size="22"><CubeOutline /></n-icon>
+            </span>
+            <span>
+              <strong>Connector</strong>
+              <small>Configure custom AI app protocols, auth, request mapping, and response extraction.</small>
+            </span>
+            <b>{{ connectorCount }}</b>
+          </RouterLink>
+        </div>
+      </section>
     </GlassPanel>
 
     <GlassPanel v-else-if="mode === 'list'" class="endpoint-panel">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Model endpoints</p>
-          <h2>Endpoints</h2>
+          <p class="eyebrow">Model agents</p>
+          <h2>Agents</h2>
         </div>
         <div class="endpoint-heading-actions">
           <n-button secondary round @click="mode = 'menu'">Back</n-button>
           <n-button class="red-test-button" round @click="openSessionWizard()">
             <template #icon><n-icon><ShieldCheckmarkOutline /></n-icon></template>
             Add Red Team Test
+          </n-button>
+          <n-button secondary round @click="openCustomEndpointCreate">
+            <template #icon><n-icon><AddOutline /></n-icon></template>
+            Create App Endpoint
           </n-button>
           <n-button type="primary" round @click="openCreate">
             <template #icon><n-icon><AddOutline /></n-icon></template>
@@ -611,7 +676,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import {
   AddOutline,
@@ -625,7 +690,7 @@ import {
 } from '@vicons/ionicons5'
 import GlassPanel from '../components/GlassPanel.vue'
 import { moonshotApi } from '../api/moonshot'
-import { connectorService } from '../services/connectorService'
+import { CONFIGURABLE_CONNECTOR, connectorService } from '../services/connectorService'
 import { useMoonshotStore } from '../stores/moonshot'
 import type { EndpointCreatePayload, EndpointRecord } from '../types/moonshot'
 
@@ -680,7 +745,9 @@ const PROMPT_TOKEN = '{{ prompt }}'
 
 const store = useMoonshotStore()
 const message = useMessage()
-const mode = ref<EndpointMode>('menu')
+const route = useRoute()
+const router = useRouter()
+const mode = ref<EndpointMode>(route.query.view === 'endpoints' ? 'list' : 'menu')
 const selectedEndpointId = ref('')
 const editingId = ref('')
 const submitting = ref(false)
@@ -830,7 +897,15 @@ function openCreate() {
   mode.value = 'form-basic'
 }
 
+function openCustomEndpointCreate() {
+  void router.push(`/agents/connectors/new?connector_type=${encodeURIComponent(CONFIGURABLE_CONNECTOR)}`)
+}
+
 function openEdit(endpoint: EndpointRecord) {
+  if (endpoint.connector_type === CONFIGURABLE_CONNECTOR) {
+    void router.push(`/agents/connectors/${encodeURIComponent(CONFIGURABLE_CONNECTOR)}/edit?endpointId=${encodeURIComponent(endpointId(endpoint))}`)
+    return
+  }
   editingId.value = endpointId(endpoint)
   form.name = endpoint.name || endpoint.id || ''
   form.connector_type = endpoint.connector_type || store.connectorTypes[0] || ''

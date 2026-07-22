@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Azure OpenAI">
+  <defs><linearGradient id="a" x1="10" y1="40" x2="36" y2="7" gradientUnits="userSpaceOnUse"><stop stop-color="#0062AD"/><stop offset="1" stop-color="#2DB7F5"/></linearGradient></defs>
+  <path fill="url(#a)" d="M20.2 5h12.1L19.8 41H7.2L20.2 5Z"/>
+  <path fill="#0078D4" d="m34 29 7 12H21.5l4.3-12H34Z"/>
+  <path fill="#50E6FF" d="m32.3 5 8.5 24H25.8l6.5-24Z" opacity=".9"/>
+</svg>

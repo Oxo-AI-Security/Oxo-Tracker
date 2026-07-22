@@ -224,8 +224,59 @@ export interface BenchmarkReportSummary {
   errors: string[]
 }
 
+export interface AIProviderCatalogItem {
+  label: string
+  company: string
+  description: string
+  apiKeyLabel: string
+  logo: string
+  defaultModel: string
+  defaultBaseUrl: string
+  catalogUrl: string
+  catalogCheckedAt: string
+  latestModels: string[]
+  models: string[]
+}
+
+export interface AIProviderSettings {
+  model: string
+  baseUrl: string
+  apiKeyConfigured: boolean
+  apiKeyMasked: string
+}
+
+export interface AISettings {
+  activeProvider: string
+  providers: Record<string, AIProviderSettings>
+  catalog: Record<string, AIProviderCatalogItem>
+}
+
+export interface AIConnectionTestResult {
+  ok: boolean
+  provider: string
+  model: string
+  statusCode: number
+  latencyMs: number
+  modelAvailable: boolean
+  message: string
+}
+
 export interface AppSettings {
   theme: 'light' | 'dark'
+  ai: AISettings
+}
+
+export interface AppSettingsUpdate {
+  theme?: AppSettings['theme']
+  ai?: {
+    activeProvider: string
+    provider?: string
+    config?: {
+      model: string
+      baseUrl: string
+      apiKey?: string
+    }
+  }
 }
 
 export interface EndpointCreatePayload {

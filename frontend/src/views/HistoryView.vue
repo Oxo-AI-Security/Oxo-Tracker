@@ -2,9 +2,15 @@
   <div class="history-shell">
     <GlassPanel class="history-panel">
       <div class="section-heading">
-        <div>
-          <p class="eyebrow">Testing history</p>
-          <h2>Benchmark runs</h2>
+        <div class="workspace-title-block">
+          <span class="workspace-title-icon workspace-title-icon--history">
+            <n-icon><TimeOutline /></n-icon>
+          </span>
+          <div class="workspace-title-content">
+            <p class="eyebrow">Testing history</p>
+            <h2>Benchmark runs</h2>
+            <span>Review run status, results, and saved evaluation evidence.</span>
+          </div>
         </div>
         <n-button type="primary" round @click="router.push('/benchmark')">
           <template #icon><n-icon><AddOutline /></n-icon></template>

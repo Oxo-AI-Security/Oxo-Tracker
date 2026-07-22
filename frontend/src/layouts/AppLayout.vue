@@ -45,7 +45,7 @@
           <RouterLink
             to="/settings"
             class="settings-entry"
-            :class="{ 'active-route': route.path === '/settings' }"
+            :class="{ 'active-route': route.path.startsWith('/settings') }"
           >
             <n-icon size="20"><SettingsOutline /></n-icon>
             <span v-if="!collapsed">Settings</span>
@@ -60,7 +60,7 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">Secure evaluation workspace</p>
-          <h1>{{ routeTitle }}</h1>
+          <AppBreadcrumbs />
         </div>
         <n-space>
           <n-button secondary round @click="store.loadOverview">
@@ -91,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   AnalyticsOutline,
@@ -107,6 +107,7 @@ import {
   TimeOutline,
 } from '@vicons/ionicons5'
 import { useMoonshotStore } from '../stores/moonshot'
+import AppBreadcrumbs from '../components/AppBreadcrumbs.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -120,17 +121,6 @@ const navItems = [
   { path: '/payload', label: 'Payload', icon: LibraryOutline },
   { path: '/history', label: 'History', icon: TimeOutline },
 ]
-
-const routeTitle = computed(() => {
-  const current = navItems.find((item) => item.path === route.path || (item.path !== '/' && route.path.startsWith(item.path)))
-  if (route.path.startsWith('/jobs/')) return 'Run Details'
-  if (route.path === '/payload/cookbooks') return 'Cookbooks'
-  if (route.path === '/payload/recipes') return 'Recipes'
-  if (route.path === '/payload/prompt-templates') return 'Prompt Templates'
-  if (route.path === '/payload/datasets') return 'Datasets'
-  if (route.path === '/settings') return 'Settings'
-  return current?.label ?? 'Dashboard'
-})
 
 function isActiveNav(path: string) {
   if (path === '/') return route.path === '/'
