@@ -100,6 +100,8 @@ export interface TaskAgentCommittedTurn {
   response: string
   raw_response?: unknown
   created_at: string
+  ai_watch_status?: 'pending' | 'analyzing' | 'complete' | 'error'
+  ai_watch_summary?: string
   origin_branch?: {
     task_id: string
     branch_id?: string | null
@@ -108,12 +110,24 @@ export interface TaskAgentCommittedTurn {
     label?: string | null
   }
   observation_records?: Array<{
-    type: 'sensitive_information' | 'goal_outcome'
+    type: 'sensitive_information' | 'goal_outcome' | 'ai_watch_review'
     label: string
     request: string
     response: string
     data: Record<string, unknown>
   }>
+}
+
+export interface TaskAiWatchReview {
+  round_key: string
+  round: number
+  status: 'pending' | 'analyzing' | 'complete' | 'error'
+  queued_at: string
+  started_at?: string | null
+  completed_at?: string | null
+  summary: string
+  output?: TaskAgentSnapshot['sensitive_output'] | null
+  error?: string | null
 }
 
 export interface TaskAgentSnapshot {
@@ -163,6 +177,7 @@ export interface TaskAgentSnapshot {
     severity: 'none' | 'P0' | 'P1' | 'P2' | 'P3'
   } | null
   ai_watch_result?: TaskAgentSnapshot['sensitive_output']
+  ai_watch_reviews?: Record<string, TaskAiWatchReview>
   evidence: TaskAgentEvidence[]
   gaps: string[]
   committed_turns: TaskAgentCommittedTurn[]

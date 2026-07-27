@@ -1918,12 +1918,6 @@ const TASK_AGENT_TERMINAL_BACKEND_STATUSES = new Set([
   'stopped_manual',
   'failed',
 ])
-const TASK_AGENT_REVIEW_NODES = new Set([
-  'analysis_parallel',
-  'sensitive_analyzer',
-  'evaluator',
-])
-
 const store = useMoonshotStore()
 const message = useMessage()
 const route = useRoute()
@@ -2245,10 +2239,7 @@ const aiWatchAnalyzing = computed(() => {
   return session.chats.some((chat) => {
     if (chat.sensitiveAnalysisStatus !== 'analyzing') return false
     const manualReviewActive = activeSensitiveReviewIds.has(`${session.id}:${chat.id}`)
-    const taskReviewActive =
-      chat.taskAgentStatus === 'evaluating' &&
-      TASK_AGENT_REVIEW_NODES.has(chat.taskAgentNode || '')
-    return manualReviewActive || taskReviewActive
+    return manualReviewActive || Boolean(chat.taskAgentTaskId)
   })
 })
 
@@ -2800,6 +2791,23 @@ function openChatThread(chatId: string) {
 }
 
 async function deleteSession(id: string) {
+  const doomed = redTeamSessions.value.find((session) => session.id === id)
+  if (doomed) {
+    const parentChats = doomed.chats.filter((chat) => !chat.temporaryBranch)
+    await Promise.allSettled(
+      parentChats.map(async (chat) => {
+        if (
+          chat.taskAgentTaskId &&
+          TASK_AGENT_RUNNING_STATUSES.has(chat.taskAgentStatus || 'idle')
+        ) {
+          await taskAgentsApi
+            .stopTask(chat.taskAgentTaskId, 'Chat session was deleted.')
+            .catch(() => undefined)
+        }
+        await disposeAllTemporaryBranches(doomed, chat.id, true)
+      }),
+    )
+  }
   redTeamSessions.value = redTeamSessions.value.filter((session) => session.id !== id)
   if (activeSessionId.value === id) {
     const fallback = redTeamSessions.value[0]
@@ -2826,11 +2834,12 @@ async function deleteChatThread(chatId: string) {
   if (!session) return
   const chat = session.chats.find((item) => item.id === chatId)
   if (
-    chat?.taskGoal &&
+    chat?.taskAgentTaskId &&
     TASK_AGENT_RUNNING_STATUSES.has(chat.taskAgentStatus || 'idle')
   ) {
-    message.warning("Stop this chat's Attack Agent before deleting the chat session.")
-    return
+    await taskAgentsApi
+      .stopTask(chat.taskAgentTaskId, 'Chat session was deleted.')
+      .catch(() => undefined)
   }
   const relatedIds = new Set([
     chatId,
@@ -2844,9 +2853,12 @@ async function deleteChatThread(chatId: string) {
     0,
   )
   archiveSensitiveFindingsFromChats(session, related)
+  if (chat && !chat.temporaryBranch) {
+    await disposeAllTemporaryBranches(session, chat.id, true)
+  }
   await Promise.allSettled(
     related
-      .filter((item) => item.temporaryBranch)
+      .filter((item) => item.temporaryBranch && chat?.temporaryBranch)
       .map((item) => disposeTemporaryBranch(session, item, true)),
   )
   session.chats = session.chats.filter((item) => !relatedIds.has(item.id))
@@ -3458,6 +3470,13 @@ function syncTaskAgentSnapshot(
       Math.max(0, snapshotSyncedAt - Number(chat.taskAgentElapsedSyncedAt || snapshotSyncedAt)) /
         1000
     : 0
+  const reviews = Object.values(snapshot.ai_watch_reviews || {}).sort(
+    (left, right) => Number(left.round || 0) - Number(right.round || 0),
+  )
+  const latestReview = reviews.at(-1)
+  const taskReviewActive = reviews.some((review) =>
+    ['pending', 'analyzing'].includes(review.status),
+  )
   chat.taskAgentTaskId = snapshot.task_id
   chat.taskAgentRunId = snapshot.task_id
   chat.taskAgentStatus = backendStatusToUi(snapshot)
@@ -3498,14 +3517,17 @@ function syncTaskAgentSnapshot(
   chat.taskAgentElapsedSyncedAt = snapshotSyncedAt
   chat.taskAgentInputTokens = snapshot.input_tokens
   chat.taskAgentOutputTokens = snapshot.output_tokens
-  const taskReviewActive =
-    snapshot.status === 'running' &&
-    TASK_AGENT_REVIEW_NODES.has(snapshot.current_node)
   chat.sensitiveAnalysisStatus = taskReviewActive ? 'analyzing' : 'complete'
-  chat.sensitiveAnalysisSummary = snapshot.sensitive_output?.summary || ''
+  chat.sensitiveAnalysisSummary =
+    latestReview?.summary || snapshot.sensitive_output?.summary || ''
+  chat.sensitiveAnalysisError = latestReview?.error || ''
   chat.sensitiveAnalysisProvider = snapshot.provider || ''
   chat.sensitiveAnalysisModel = snapshot.model || ''
-  chat.sensitiveAnalysisUpdatedAt = snapshot.updated_at
+  chat.sensitiveAnalysisUpdatedAt =
+    latestReview?.completed_at ||
+    latestReview?.started_at ||
+    latestReview?.queued_at ||
+    snapshot.updated_at
   const animateNewTurns =
     taskAgentInitializedSnapshots.has(snapshot.task_id) &&
     activeChat.value?.id === chat.id
@@ -3536,7 +3558,7 @@ function syncTaskAgentSnapshot(
       }
     }
   }
-  if (snapshot.status === 'failed') {
+  if (snapshot.status === 'failed' && !taskReviewActive) {
     chat.taskAgentTaskId = ''
     if (!wasTerminal && activeChat.value?.id === chat.id) {
       chatPrompt.value = chat.taskGoal || snapshot.goal
@@ -3544,7 +3566,7 @@ function syncTaskAgentSnapshot(
       taskAgentDetailsExpanded.value = true
     }
   }
-  if (shouldReleaseGoalComposer(snapshot)) {
+  if (!taskReviewActive && shouldReleaseGoalComposer(snapshot)) {
     chat.taskGoal = ''
     chat.taskAgentTaskId = ''
     chat.taskAgentStatus = 'idle'
@@ -3711,7 +3733,13 @@ async function syncBackendManagedBranches(
   for (const snapshot of branches) {
     const branch = snapshot.branch_context
     if (!branch) continue
-    if (TASK_AGENT_TERMINAL_BACKEND_STATUSES.has(snapshot.status)) {
+    const pendingAiWatch = Object.values(snapshot.ai_watch_reviews || {}).some(
+      (review) => ['pending', 'analyzing'].includes(review.status),
+    )
+    if (
+      TASK_AGENT_TERMINAL_BACKEND_STATUSES.has(snapshot.status) &&
+      !pendingAiWatch
+    ) {
       const existingIndex = session.chats.findIndex(
         (item) => item.id === snapshot.chat_id,
       )
@@ -4005,6 +4033,13 @@ function startTaskAgentPolling(sessionId: string, chatId: string, taskId: string
   const poll = async () => {
     const target = findSessionAndChat(sessionId, chatId)
     if (!target) return
+    if (
+      target.chat.taskAgentTaskId &&
+      target.chat.taskAgentTaskId !== taskId
+    ) {
+      taskAgentPollTimers.delete(taskId)
+      return
+    }
     try {
       const snapshot = await taskAgentsApi.getTask(taskId)
       syncTaskAgentSnapshot(target.session, target.chat, snapshot)
@@ -4015,7 +4050,10 @@ function startTaskAgentPolling(sessionId: string, chatId: string, taskId: string
           snapshot,
         )
       }
-      if (TASK_AGENT_TERMINAL_BACKEND_STATUSES.has(snapshot.status)) {
+      const pendingAiWatch = Object.values(snapshot.ai_watch_reviews || {}).some(
+        (review) => ['pending', 'analyzing'].includes(review.status),
+      )
+      if (TASK_AGENT_TERMINAL_BACKEND_STATUSES.has(snapshot.status) && !pendingAiWatch) {
         taskAgentPollTimers.delete(taskId)
         if (target.chat.temporaryBranch) {
           await handleTerminalTemporaryBranch(
@@ -4102,6 +4140,9 @@ async function clearTaskAgentGoal() {
     const timer = taskAgentPollTimers.get(chat.taskAgentTaskId)
     if (timer) window.clearTimeout(timer)
     taskAgentPollTimers.delete(chat.taskAgentTaskId)
+  }
+  if (!chat.temporaryBranch) {
+    await disposeAllTemporaryBranches(session, chat.id, true)
   }
   releaseTaskAgentAiWatch(session, chat)
   chat.taskGoal = ''

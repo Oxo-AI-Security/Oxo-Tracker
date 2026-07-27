@@ -30,7 +30,6 @@ from app.services.executor_skill_service import ExecutorSkillService
 from app.services.moonshot_api_service import MoonshotApiService
 from app.services.redteam_sensitive_information_service import (
     RedTeamSensitiveInformationService,
-    SensitiveInformationAnalysisError,
     disclosure_originates_from_user_input,
     is_material_policy_disclosure,
     is_plain_refusal_response,
@@ -96,6 +95,7 @@ class TaskGraphState(TypedDict, total=False):
     latest_raw_response: Any
     sensitive_output: dict[str, Any] | None
     ai_watch_result: dict[str, Any] | None
+    ai_watch_reviews: dict[str, dict[str, Any]]
     evaluator_output: dict[str, Any] | None
     goal_progress: int
     best_goal_progress: int
@@ -407,6 +407,7 @@ class TaskAgentGraph:
             "output_tokens": int(state.get("output_tokens") or 0),
             "estimated_cost": float(state.get("estimated_cost") or 0),
             "analysis_errors": [],
+            "ai_watch_reviews": dict(state.get("ai_watch_reviews") or {}),
             "target_failed": False,
             "target_error": None,
         }
@@ -828,21 +829,58 @@ class TaskAgentGraph:
         }
 
     def _sensitive_analyzer(self, state: TaskGraphState) -> dict[str, Any]:
+        turns = list(state.get("committed_turns") or [])
+        current_turn = turns[-1] if turns else {}
+        round_key = str(current_turn.get("round_key") or "")
+        if round_key:
+            self.store.queue_ai_watch_review(
+                str(state["task_id"]),
+                round_key=round_key,
+                round_number=int(
+                    current_turn.get("round")
+                    or state.get("total_round")
+                    or 0
+                ),
+                user_input=str(current_turn.get("request") or ""),
+                assistant_output=str(current_turn.get("response") or ""),
+            )
+        output = SensitiveAnalysisOutput(
+            findings=[],
+            summary="AI Watch model review is running in the background.",
+        ).model_dump(mode="json")
+        return {
+            "sensitive_output": output,
+            "ai_watch_result": output,
+            "analysis_errors": [],
+        }
+
+    def run_ai_watch_model(
+        self,
+        *,
+        user_input: str,
+        assistant_output: str,
+    ) -> dict[str, Any]:
+        """Run the real AI Watch model outside the main LangGraph join."""
+
         try:
             raw = self.sensitive_service.analyze_turn(
-                user_input=str(state.get("latest_request") or ""),
-                assistant_output=str(state.get("latest_response") or ""),
+                user_input=user_input,
+                assistant_output=assistant_output,
+                force_model=True,
             )
-        except SensitiveInformationAnalysisError as error:
-            output = SensitiveAnalysisOutput(
-                findings=[],
-                summary=f"AI Watch analysis failed: {error}",
-            ).model_dump(mode="json")
-            return {
-                "sensitive_output": output,
-                "ai_watch_result": output,
-                "analysis_errors": [f"sensitive_analyzer: {error}"],
-            }
+        except TypeError as error:
+            # Test doubles and third-party analyzer implementations may still
+            # expose the pre-background signature.
+            if "force_model" not in str(error):
+                raise
+            raw = self.sensitive_service.analyze_turn(
+                user_input=user_input,
+                assistant_output=assistant_output,
+            )
+        return self._serialize_sensitive_analysis(raw)
+
+    @staticmethod
+    def _serialize_sensitive_analysis(raw: dict[str, Any]) -> dict[str, Any]:
         findings = []
         severity_map = {"P0": "critical", "P1": "high", "P2": "medium", "P3": "low"}
         confidence_map = {
@@ -875,12 +913,7 @@ class TaskAgentGraph:
             summary=str(raw.get("summary") or ""),
             severity=severity,
         )
-        serialized = output.model_dump(mode="json")
-        return {
-            "sensitive_output": serialized,
-            "ai_watch_result": serialized,
-            "analysis_errors": [],
-        }
+        return output.model_dump(mode="json")
 
     def _evaluator(self, state: TaskGraphState) -> dict[str, Any]:
         fast_result = _deterministic_refusal_evaluation(state)
@@ -966,6 +999,8 @@ class TaskAgentGraph:
     def reconcile_goal_evidence(
         self,
         state: TaskGraphState,
+        *,
+        background: bool = False,
     ) -> tuple[dict[str, Any], bool]:
         """Re-adjudicate only a direct evidence/evaluator contradiction."""
 
@@ -1007,6 +1042,8 @@ class TaskAgentGraph:
                 "evidence": state.get("best_evidence") or [],
             },
         }
+        if background:
+            compact_context["backgroundObservation"] = True
         review_contract = {
             "required": True,
             "reason": (
@@ -1044,6 +1081,68 @@ class TaskAgentGraph:
             )
             return revised, True
         return evaluator, False
+
+    def reconcile_async_ai_watch_review(
+        self,
+        task_id: str,
+        round_key: str,
+    ) -> dict[str, Any] | None:
+        """Re-adjudicate a completed review against its exact committed turn."""
+
+        snapshot = self.store.get_snapshot(task_id)
+        review = dict(
+            (snapshot.get("ai_watch_reviews") or {}).get(round_key) or {}
+        )
+        sensitive = dict(review.get("output") or {})
+        if str(review.get("status") or "") != "complete" or not (
+            sensitive.get("findings")
+        ):
+            return None
+        turn = next(
+            (
+                item
+                for item in snapshot.get("committed_turns") or []
+                if str(item.get("round_key") or "") == round_key
+            ),
+            None,
+        )
+        if not turn:
+            return None
+        evaluator: dict[str, Any] = {}
+        for record in reversed(turn.get("observation_records") or []):
+            if str(record.get("type") or "") == "goal_outcome":
+                evaluator = dict(record.get("data") or {})
+                break
+        if not evaluator:
+            evaluator = dict(snapshot.get("evaluator_output") or {})
+        review_state = {
+            **snapshot,
+            "latest_request": turn.get("request"),
+            "latest_response": turn.get("response"),
+            "evaluator_output": evaluator,
+            "sensitive_output": sensitive,
+        }
+        revised, changed = self.reconcile_goal_evidence(
+            review_state,
+            background=True,
+        )
+        if not changed:
+            return None
+        verification = _adjudicate_claimed_success(
+            {
+                **review_state,
+                "evaluator_output": revised,
+            },
+            revised,
+        )
+        if str(verification.get("status") or "") != "verified":
+            return None
+        return self.store.promote_ai_watch_success(
+            task_id,
+            round_key=round_key,
+            evaluator=revised,
+            verification=verification,
+        )
 
     def _router(self, state: TaskGraphState) -> dict[str, Any]:
         config = state["config"]

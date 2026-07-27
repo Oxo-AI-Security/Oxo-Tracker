@@ -77,10 +77,19 @@ def analyze_redteam_sensitive_information(data: dict[str, Any] = Body(...)) -> d
     assistant_output = str(data.get("assistant_output") or "")
     try:
         ai_service = RedTeamSensitiveInformationService()
-        result = ai_service.analyze_turn(
-            user_input=user_input,
-            assistant_output=assistant_output,
-        )
+        try:
+            result = ai_service.analyze_turn(
+                user_input=user_input,
+                assistant_output=assistant_output,
+                force_model=True,
+            )
+        except TypeError as error:
+            if "force_model" not in str(error):
+                raise
+            result = ai_service.analyze_turn(
+                user_input=user_input,
+                assistant_output=assistant_output,
+            )
         return {
             **result,
             "provider": ai_service.provider,

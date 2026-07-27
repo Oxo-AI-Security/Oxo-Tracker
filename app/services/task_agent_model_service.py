@@ -285,6 +285,9 @@ class TaskAgentModelService:
         is_parallel_branch = bool(
             isinstance(context, dict) and context.get("parallelBranch")
         )
+        is_background_observation = bool(
+            isinstance(context, dict) and context.get("backgroundObservation")
+        )
         if isinstance(self.ai_client, ConnectorAIService):
             return self.ai_client._chat_json(
                 system_prompt,
@@ -292,7 +295,11 @@ class TaskAgentModelService:
                 # The primary research loop owns the goal and must not sit
                 # behind queued speculative branches. Existing calls are not
                 # preempted, but the next free slot goes to the primary.
-                scheduler_priority=20 if is_parallel_branch else 0,
+                scheduler_priority=(
+                    30
+                    if is_background_observation
+                    else 20 if is_parallel_branch else 0
+                ),
             )
         return self.ai_client._chat_json(system_prompt, user_prompt)
 
@@ -393,6 +400,7 @@ def _compact_state_context(
             "methodRound",
             "maxActiveSkills",
             "parallelBranch",
+            "backgroundObservation",
             "currentMethod",
             "selectedSkills",
             "composedSkillPlan",

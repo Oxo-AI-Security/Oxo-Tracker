@@ -176,7 +176,7 @@ class RedTeamSensitiveInformationService:
             scheduler_group="ai-watch",
             scheduler_concurrency=max(
                 1,
-                min(2, int(os.getenv("AI_WATCH_MODEL_CONCURRENCY", "1"))),
+                min(4, int(os.getenv("AI_WATCH_MODEL_CONCURRENCY", "2"))),
             ),
             scheduler_priority=20,
             queue_timeout_seconds=30,
@@ -190,7 +190,13 @@ class RedTeamSensitiveInformationService:
     def model(self) -> str:
         return self.ai_client.model
 
-    def analyze_turn(self, *, user_input: str, assistant_output: str) -> dict[str, Any]:
+    def analyze_turn(
+        self,
+        *,
+        user_input: str,
+        assistant_output: str,
+        force_model: bool = False,
+    ) -> dict[str, Any]:
         input_text = user_input.strip()
         output_text = assistant_output.strip()
         if not input_text or not output_text:
@@ -201,7 +207,7 @@ class RedTeamSensitiveInformationService:
             raise SensitiveInformationAnalysisError(
                 "This turn is too large to analyze safely. Keep each side under 60,000 characters."
             )
-        if is_plain_refusal_response(output_text):
+        if not force_model and is_plain_refusal_response(output_text):
             return {
                 "summary": (
                     "The target refused the request without disclosing "

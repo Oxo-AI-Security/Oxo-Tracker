@@ -52,6 +52,16 @@ class TaskAgentRuntime:
             max_workers=self.max_workers,
             thread_name_prefix="task-agent",
         )
+        self.ai_watch_max_workers = max(
+            1,
+            min(8, int(os.getenv("AI_WATCH_BACKGROUND_WORKERS", "2"))),
+        )
+        self._ai_watch_executor = ThreadPoolExecutor(
+            max_workers=self.ai_watch_max_workers,
+            thread_name_prefix="ai-watch",
+        )
+        self._ai_watch_futures: set[Future[Any]] = set()
+        self._ai_watch_lock = threading.RLock()
         self._threads: dict[str, Future[Any]] = {}
         self._threads_lock = threading.RLock()
         self._closed = False
@@ -148,6 +158,7 @@ class TaskAgentRuntime:
             "active_techniques": [],
             "technique_history": [],
             "ai_watch_result": None,
+            "ai_watch_reviews": {},
             "success_memories": success_memories,
             "research_state": {
                 "immutable_goal": request.goal,
@@ -418,6 +429,8 @@ class TaskAgentRuntime:
         snapshot = self.store.get_snapshot(task_id)
         if snapshot.get("status") in TERMINAL_STATUSES:
             return public_task_snapshot(snapshot, self.graph_service)
+        if not snapshot.get("branch_context"):
+            self._stop_running_children(snapshot)
         self.store.request_stop(task_id, reason or "Stopped by user")
         if snapshot.get("status") == TaskStatus.PAUSED.value or not self._is_running(task_id):
             final = {
@@ -454,6 +467,7 @@ class TaskAgentRuntime:
         with self._threads_lock:
             live = list(self._threads.values())
         self._executor.shutdown(wait=False, cancel_futures=True)
+        self._ai_watch_executor.shutdown(wait=False, cancel_futures=True)
         if not any(future.running() for future in live) and self._checkpoint_connection:
             self._checkpoint_connection.close()
             self._checkpoint_connection = None
@@ -585,6 +599,7 @@ class TaskAgentRuntime:
                 if (
                     terminal.get("branch_context")
                     and str(terminal.get("status") or "") in TERMINAL_STATUSES
+                    and not _has_pending_ai_watch_reviews(terminal)
                 ):
                     self._finalize_branch_task(terminal)
             except Exception:
@@ -599,9 +614,111 @@ class TaskAgentRuntime:
         while not self._maintenance_stop.wait(1.5):
             try:
                 self._renew_live_leases()
+                self._dispatch_ai_watch_reviews()
                 self._supervise_branches()
             except Exception:
                 logger.exception("Task Agent supervisor iteration failed")
+
+    def _dispatch_ai_watch_reviews(self) -> None:
+        with self._ai_watch_lock:
+            self._ai_watch_futures = {
+                future
+                for future in self._ai_watch_futures
+                if not future.done()
+            }
+            available = self.ai_watch_max_workers - len(
+                self._ai_watch_futures
+            )
+        if available <= 0:
+            return
+        for review in self.store.claim_pending_ai_watch_reviews(
+            limit=available,
+        ):
+            future = self._ai_watch_executor.submit(
+                self._run_ai_watch_review,
+                review,
+            )
+            with self._ai_watch_lock:
+                self._ai_watch_futures.add(future)
+
+    def _run_ai_watch_review(self, review: dict[str, Any]) -> None:
+        task_id = str(review.get("task_id") or "")
+        round_key = str(review.get("round_key") or "")
+        if not task_id or not round_key:
+            return
+        try:
+            output = self.graph_service.run_ai_watch_model(
+                user_input=str(review.get("user_input") or ""),
+                assistant_output=str(review.get("assistant_output") or ""),
+            )
+            self.store.complete_ai_watch_review(
+                task_id,
+                round_key=round_key,
+                output=output,
+            )
+        except Exception as error:
+            logger.exception(
+                "AI Watch background review failed for %s:%s",
+                task_id,
+                round_key,
+            )
+            try:
+                self.store.complete_ai_watch_review(
+                    task_id,
+                    round_key=round_key,
+                    output=None,
+                    error=str(error)[:2_000],
+                )
+            except Exception:
+                logger.exception(
+                    "Unable to persist AI Watch failure for %s:%s",
+                    task_id,
+                    round_key,
+                )
+            return
+        try:
+            promoted = self.graph_service.reconcile_async_ai_watch_review(
+                task_id,
+                round_key,
+            )
+            if promoted:
+                try:
+                    self.store.record_success_memory(promoted)
+                except Exception:
+                    logger.exception(
+                        "Unable to record AI Watch promoted success for %s",
+                        task_id,
+                    )
+        except Exception as error:
+            logger.exception(
+                "AI Watch goal reconciliation failed for %s:%s",
+                task_id,
+                round_key,
+            )
+            self.store.append_event(
+                task_id,
+                "ai_watch.reconciliation_error",
+                {
+                    "round_key": round_key,
+                    "error": str(error)[:2_000],
+                },
+            )
+        finally:
+            try:
+                terminal = self.store.get_snapshot(task_id)
+                if (
+                    str(terminal.get("status") or "") in TERMINAL_STATUSES
+                    and not _has_pending_ai_watch_reviews(terminal)
+                ):
+                    if terminal.get("branch_context"):
+                        self._finalize_branch_task(terminal)
+                    else:
+                        self._stop_running_children(terminal)
+            except Exception:
+                logger.exception(
+                    "Unable to finalize post-review task %s",
+                    task_id,
+                )
 
     def _renew_live_leases(self) -> None:
         with self._threads_lock:
@@ -623,6 +740,8 @@ class TaskAgentRuntime:
                 continue
             status = str(parent.get("status") or "")
             if status in TERMINAL_STATUSES:
+                if _has_pending_ai_watch_reviews(parent):
+                    continue
                 self._stop_running_children(parent)
                 continue
             if status not in {
@@ -917,6 +1036,7 @@ def public_task_snapshot(
         "evaluator_output": state.get("evaluator_output"),
         "sensitive_output": state.get("sensitive_output"),
         "ai_watch_result": state.get("ai_watch_result") or state.get("sensitive_output"),
+        "ai_watch_reviews": state.get("ai_watch_reviews") or {},
         "evidence": state.get("evidence") or [],
         "gaps": state.get("gaps") or [],
         "committed_turns": state.get("committed_turns") or [],
@@ -954,6 +1074,13 @@ def _parse_datetime(value: str) -> datetime:
     except ValueError:
         return datetime.now(timezone.utc)
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _has_pending_ai_watch_reviews(state: dict[str, Any]) -> bool:
+    return any(
+        str((review or {}).get("status") or "") in {"pending", "analyzing"}
+        for review in (state.get("ai_watch_reviews") or {}).values()
+    )
 
 
 def _merge_snapshot_evidence(

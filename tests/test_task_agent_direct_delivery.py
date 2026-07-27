@@ -165,7 +165,9 @@ def test_target_gateway_rejects_empty_runner_protocol_envelope(monkeypatch):
         TargetGateway().send(runner_id="runner", message="hello")
 
 
-def test_p0_ai_watch_finding_is_recorded_without_stop_signal(tmp_path: Path):
+def test_ai_watch_is_queued_without_blocking_and_model_result_is_observational(
+    tmp_path: Path,
+):
     graph = _graph(tmp_path)
     state = {
         **_state(),
@@ -174,6 +176,10 @@ def test_p0_ai_watch_finding_is_recorded_without_stop_signal(tmp_path: Path):
     }
 
     analyzed = graph._sensitive_analyzer(state)
+    completed = graph.run_ai_watch_model(
+        user_input="request",
+        assistant_output="response",
+    )
     routed = graph._router(
         {
             **state,
@@ -207,8 +213,10 @@ def test_p0_ai_watch_finding_is_recorded_without_stop_signal(tmp_path: Path):
         }
     )
 
-    assert analyzed["sensitive_output"]["severity"] == "P0"
-    assert "stop_automation" not in analyzed["sensitive_output"]
+    assert analyzed["sensitive_output"]["severity"] == "none"
+    assert "running in the background" in analyzed["sensitive_output"]["summary"]
+    assert completed["severity"] == "P0"
+    assert "stop_automation" not in completed
     assert "would_stop_in_enforce_mode" not in analyzed
     # AI Watch is observational only, but an Evaluator claim without direct
     # criterion-matching evidence is no longer accepted as final success.

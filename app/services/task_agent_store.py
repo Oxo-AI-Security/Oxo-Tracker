@@ -87,7 +87,7 @@ class TaskAgentStore:
         resolved_node = current_node or str(snapshot.get("current_node") or "")
         with self._write_lock, self._connect() as connection:
             current = connection.execute(
-                "SELECT status FROM tasks WHERE task_id = ?",
+                "SELECT status, snapshot_json FROM tasks WHERE task_id = ?",
                 (task_id,),
             ).fetchone()
             if current is None:
@@ -102,6 +102,16 @@ class TaskAgentStore:
                 and not allow_revocation
             ):
                 return
+            try:
+                persisted_snapshot = json.loads(
+                    str(current["snapshot_json"])
+                )
+            except (json.JSONDecodeError, TypeError):
+                persisted_snapshot = {}
+            snapshot = _merge_async_ai_watch_state(
+                persisted_snapshot,
+                snapshot,
+            )
             cursor = connection.execute(
                 """
                 UPDATE tasks
@@ -302,6 +312,349 @@ class TaskAgentStore:
             "payload": payload,
             "created_at": now,
         }
+
+    def queue_ai_watch_review(
+        self,
+        task_id: str,
+        *,
+        round_key: str,
+        round_number: int,
+        user_input: str,
+        assistant_output: str,
+    ) -> bool:
+        now = _utc_now()
+        with self._write_lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT snapshot_json FROM tasks WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            snapshot = json.loads(str(row["snapshot_json"]))
+            reviews = dict(snapshot.get("ai_watch_reviews") or {})
+            existing = reviews.get(round_key) or {}
+            if str(existing.get("status") or "") in {
+                "pending",
+                "analyzing",
+                "complete",
+            }:
+                return False
+            reviews[round_key] = {
+                "round_key": round_key,
+                "round": int(round_number),
+                "status": "pending",
+                "user_input": user_input,
+                "assistant_output": assistant_output,
+                "queued_at": now,
+                "started_at": None,
+                "completed_at": None,
+                "summary": "AI Watch model review is queued.",
+                "output": None,
+                "error": None,
+            }
+            snapshot["ai_watch_reviews"] = reviews
+            snapshot["committed_turns"] = _set_turn_ai_watch_status(
+                snapshot.get("committed_turns") or [],
+                round_key=round_key,
+                status="pending",
+            )
+            connection.execute(
+                """
+                UPDATE tasks SET snapshot_json = ?, updated_at = ?,
+                                 version = version + 1
+                 WHERE task_id = ?
+                """,
+                (_dumps(snapshot), now, task_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO task_events (task_id, event_type, payload_json, created_at)
+                VALUES (?, 'ai_watch.queued', ?, ?)
+                """,
+                (
+                    task_id,
+                    _dumps(
+                        {
+                            "round_key": round_key,
+                            "round": int(round_number),
+                        }
+                    ),
+                    now,
+                ),
+            )
+        return True
+
+    def claim_pending_ai_watch_reviews(
+        self,
+        *,
+        limit: int = 2,
+    ) -> list[dict[str, Any]]:
+        now = _utc_now()
+        claimed: list[dict[str, Any]] = []
+        maximum = max(1, min(int(limit), 16))
+        with self._write_lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT task_id, snapshot_json FROM tasks
+                 ORDER BY updated_at ASC
+                """
+            ).fetchall()
+            for row in rows:
+                if len(claimed) >= maximum:
+                    break
+                task_id = str(row["task_id"])
+                snapshot = json.loads(str(row["snapshot_json"]))
+                reviews = dict(snapshot.get("ai_watch_reviews") or {})
+                changed = False
+                for round_key, source in sorted(
+                    reviews.items(),
+                    key=lambda item: int(
+                        (item[1] or {}).get("round") or 0
+                    ),
+                ):
+                    if len(claimed) >= maximum:
+                        break
+                    review = dict(source or {})
+                    if not _ai_watch_review_is_claimable(review):
+                        continue
+                    review.update(
+                        {
+                            "status": "analyzing",
+                            "started_at": now,
+                            "summary": "AI Watch model is reviewing this turn.",
+                            "error": None,
+                        }
+                    )
+                    reviews[round_key] = review
+                    claimed.append(
+                        {
+                            "task_id": task_id,
+                            **review,
+                        }
+                    )
+                    changed = True
+                if not changed:
+                    continue
+                snapshot["ai_watch_reviews"] = reviews
+                for review in claimed:
+                    if review.get("task_id") != task_id:
+                        continue
+                    snapshot["committed_turns"] = _set_turn_ai_watch_status(
+                        snapshot.get("committed_turns") or [],
+                        round_key=str(review["round_key"]),
+                        status="analyzing",
+                    )
+                connection.execute(
+                    """
+                    UPDATE tasks SET snapshot_json = ?, updated_at = ?,
+                                     version = version + 1
+                     WHERE task_id = ?
+                    """,
+                    (_dumps(snapshot), now, task_id),
+                )
+        return claimed
+
+    def complete_ai_watch_review(
+        self,
+        task_id: str,
+        *,
+        round_key: str,
+        output: dict[str, Any] | None,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        status = "error" if error else "complete"
+        with self._write_lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT snapshot_json FROM tasks WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            snapshot = json.loads(str(row["snapshot_json"]))
+            reviews = dict(snapshot.get("ai_watch_reviews") or {})
+            review = dict(reviews.get(round_key) or {})
+            if not review:
+                raise KeyError(f"{task_id}:{round_key}")
+            review.update(
+                {
+                    "status": status,
+                    "completed_at": now,
+                    "summary": (
+                        str((output or {}).get("summary") or "")
+                        if output
+                        else f"AI Watch model review failed: {error}"
+                    ),
+                    "output": output,
+                    "error": error,
+                }
+            )
+            reviews[round_key] = review
+            snapshot["ai_watch_reviews"] = reviews
+            snapshot["committed_turns"] = _complete_turn_ai_watch_review(
+                snapshot.get("committed_turns") or [],
+                round_key=round_key,
+                status=status,
+                output=output,
+                error=error,
+            )
+            if output is not None:
+                snapshot["sensitive_output"] = output
+                snapshot["ai_watch_result"] = output
+            if error:
+                snapshot["analysis_errors"] = [
+                    *list(snapshot.get("analysis_errors") or []),
+                    f"ai_watch[{round_key}]: {error}",
+                ][-100:]
+            connection.execute(
+                """
+                UPDATE tasks SET snapshot_json = ?, updated_at = ?,
+                                 version = version + 1
+                 WHERE task_id = ?
+                """,
+                (_dumps(snapshot), now, task_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO task_events (task_id, event_type, payload_json, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    task_id,
+                    f"ai_watch.{status}",
+                    _dumps(
+                        {
+                            "round_key": round_key,
+                            "round": int(review.get("round") or 0),
+                            "summary": review["summary"],
+                            "finding_count": len(
+                                (output or {}).get("findings") or []
+                            ),
+                            "error": error,
+                        }
+                    ),
+                    now,
+                ),
+            )
+        return self.get_snapshot(task_id)
+
+    def promote_ai_watch_success(
+        self,
+        task_id: str,
+        *,
+        round_key: str,
+        evaluator: dict[str, Any],
+        verification: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Atomically promote a model-reviewed turn without sending again."""
+
+        now = _utc_now()
+        with self._write_lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT status, snapshot_json FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            snapshot = json.loads(str(row["snapshot_json"]))
+            if str(row["status"]) == "succeeded":
+                return snapshot
+            reviews = dict(snapshot.get("ai_watch_reviews") or {})
+            review = dict(reviews.get(round_key) or {})
+            if str(review.get("status") or "") != "complete":
+                raise ValueError("AI Watch review is not complete.")
+            turn = next(
+                (
+                    item
+                    for item in snapshot.get("committed_turns") or []
+                    if str(item.get("round_key") or "") == round_key
+                ),
+                None,
+            )
+            if not turn:
+                raise ValueError("The reviewed turn is no longer available.")
+            turns = _replace_turn_goal_outcome(
+                snapshot.get("committed_turns") or [],
+                round_key=round_key,
+                evaluator=evaluator,
+            )
+            evidence = list(evaluator.get("evidence") or [])
+            snapshot.update(
+                {
+                    "status": "succeeded",
+                    "current_node": "router",
+                    "route": "STOP_SUCCESS",
+                    "stop_reason": (
+                        "AI Watch completed its background model review and "
+                        "verified target-origin evidence for the current goal."
+                    ),
+                    "goal_progress": 100,
+                    "best_goal_progress": 100,
+                    "latest_request": turn.get("request"),
+                    "latest_response": turn.get("response"),
+                    "evaluator_output": evaluator,
+                    "sensitive_output": review.get("output"),
+                    "ai_watch_result": review.get("output"),
+                    "success_verification": verification,
+                    "committed_turns": turns,
+                    "best_evidence": _merge_evidence_records(
+                        snapshot.get("best_evidence") or [],
+                        evidence,
+                    ),
+                    "evidence": _merge_evidence_records(
+                        snapshot.get("evidence") or [],
+                        evidence,
+                    ),
+                    "best_turn": {
+                        "round": int(turn.get("round") or 0),
+                        "method": turn.get("method"),
+                        "skillId": turn.get("skill_id"),
+                        "activeTechniques": turn.get("active_techniques") or [],
+                        "request": turn.get("request"),
+                        "response": turn.get("response"),
+                        "progress": 100,
+                        "summary": evaluator.get("summary"),
+                    },
+                    "updated_at": now,
+                }
+            )
+            connection.execute(
+                """
+                UPDATE tasks
+                   SET snapshot_json = ?, status = 'succeeded',
+                       current_node = 'router', stop_requested = 1,
+                       stop_reason = ?, updated_at = ?, version = version + 1
+                 WHERE task_id = ?
+                """,
+                (
+                    _dumps(snapshot),
+                    snapshot["stop_reason"],
+                    now,
+                    task_id,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO task_events (task_id, event_type, payload_json, created_at)
+                VALUES (?, 'ai_watch.goal_reconciled', ?, ?)
+                """,
+                (
+                    task_id,
+                    _dumps(
+                        {
+                            "round_key": round_key,
+                            "round": int(turn.get("round") or 0),
+                            "verification": verification,
+                        }
+                    ),
+                    now,
+                ),
+            )
+        return self.get_snapshot(task_id)
 
     def list_events(
         self,
@@ -1029,6 +1382,240 @@ def _json_default(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
     raise TypeError(f"Cannot serialize {type(value).__name__}")
+
+
+def _set_turn_ai_watch_status(
+    turns: list[dict[str, Any]],
+    *,
+    round_key: str,
+    status: str,
+) -> list[dict[str, Any]]:
+    updated: list[dict[str, Any]] = []
+    for source in turns:
+        turn = dict(source)
+        if str(turn.get("round_key") or "") == round_key:
+            turn["ai_watch_status"] = status
+        updated.append(turn)
+    return updated
+
+
+def _ai_watch_review_is_claimable(review: dict[str, Any]) -> bool:
+    status = str(review.get("status") or "")
+    if status == "pending":
+        return True
+    if status != "analyzing":
+        return False
+    try:
+        started = datetime.fromisoformat(str(review.get("started_at") or ""))
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True
+    return (datetime.now(timezone.utc) - started).total_seconds() >= 180
+
+
+def _complete_turn_ai_watch_review(
+    turns: list[dict[str, Any]],
+    *,
+    round_key: str,
+    status: str,
+    output: dict[str, Any] | None,
+    error: str | None,
+) -> list[dict[str, Any]]:
+    updated: list[dict[str, Any]] = []
+    for source in turns:
+        turn = dict(source)
+        if str(turn.get("round_key") or "") != round_key:
+            updated.append(turn)
+            continue
+        turn["ai_watch_status"] = status
+        turn["ai_watch_summary"] = (
+            str((output or {}).get("summary") or "")
+            if output
+            else f"AI Watch model review failed: {error}"
+        )
+        records = [
+            dict(item)
+            for item in turn.get("observation_records") or []
+            if not (
+                str(item.get("type") or "") in {
+                    "sensitive_information",
+                    "ai_watch_review",
+                }
+                and str((item.get("data") or {}).get("_ai_watch_round_key") or "")
+                == round_key
+            )
+        ]
+        if output:
+            for finding in output.get("findings") or []:
+                if not isinstance(finding, dict):
+                    continue
+                records.append(
+                    {
+                        "type": "sensitive_information",
+                        "label": str(
+                            finding.get("category")
+                            or finding.get("title")
+                            or "Sensitive information"
+                        ),
+                        "request": turn.get("request"),
+                        "response": turn.get("response"),
+                        "data": {
+                            **finding,
+                            "_ai_watch_round_key": round_key,
+                        },
+                    }
+                )
+        records.append(
+            {
+                "type": "ai_watch_review",
+                "label": "AI Watch model review",
+                "request": turn.get("request"),
+                "response": turn.get("response"),
+                "data": {
+                    "_ai_watch_round_key": round_key,
+                    "status": status,
+                    "summary": turn["ai_watch_summary"],
+                    "error": error,
+                },
+            }
+        )
+        turn["observation_records"] = records
+        updated.append(turn)
+    return updated
+
+
+def _merge_async_ai_watch_state(
+    persisted: dict[str, Any],
+    incoming: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep background review writes when a stale Graph snapshot is saved."""
+
+    merged = dict(incoming)
+    persisted_reviews = dict(persisted.get("ai_watch_reviews") or {})
+    incoming_reviews = dict(incoming.get("ai_watch_reviews") or {})
+    review_rank = {
+        "": 0,
+        "pending": 1,
+        "analyzing": 2,
+        "error": 3,
+        "complete": 4,
+    }
+    for round_key, source in persisted_reviews.items():
+        persisted_review = dict(source or {})
+        current = dict(incoming_reviews.get(round_key) or {})
+        if review_rank.get(str(persisted_review.get("status") or ""), 0) >= (
+            review_rank.get(str(current.get("status") or ""), 0)
+        ):
+            incoming_reviews[round_key] = persisted_review
+    if incoming_reviews:
+        merged["ai_watch_reviews"] = incoming_reviews
+
+    persisted_turns = {
+        str(item.get("round_key") or ""): item
+        for item in persisted.get("committed_turns") or []
+        if item.get("round_key")
+    }
+    turns: list[dict[str, Any]] = []
+    for source in incoming.get("committed_turns") or []:
+        turn = dict(source)
+        old = persisted_turns.get(str(turn.get("round_key") or ""))
+        if old:
+            if old.get("ai_watch_status"):
+                turn["ai_watch_status"] = old["ai_watch_status"]
+            if old.get("ai_watch_summary"):
+                turn["ai_watch_summary"] = old["ai_watch_summary"]
+            async_records = [
+                dict(item)
+                for item in old.get("observation_records") or []
+                if str(item.get("type") or "") in {
+                    "sensitive_information",
+                    "ai_watch_review",
+                }
+                and (item.get("data") or {}).get("_ai_watch_round_key")
+            ]
+            turn["observation_records"] = _merge_observation_records(
+                turn.get("observation_records") or [],
+                async_records,
+            )
+        turns.append(turn)
+    if turns or "committed_turns" in incoming:
+        merged["committed_turns"] = turns
+    return merged
+
+
+def _merge_observation_records(
+    left: list[dict[str, Any]],
+    right: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in [*left, *right]:
+        if not isinstance(item, dict):
+            continue
+        key = _dumps(
+            {
+                "type": item.get("type"),
+                "label": item.get("label"),
+                "data": item.get("data"),
+            }
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(dict(item))
+    return merged
+
+
+def _replace_turn_goal_outcome(
+    turns: list[dict[str, Any]],
+    *,
+    round_key: str,
+    evaluator: dict[str, Any],
+) -> list[dict[str, Any]]:
+    updated: list[dict[str, Any]] = []
+    for source in turns:
+        turn = dict(source)
+        if str(turn.get("round_key") or "") != round_key:
+            updated.append(turn)
+            continue
+        records = [
+            dict(item)
+            for item in turn.get("observation_records") or []
+            if str(item.get("type") or "") != "goal_outcome"
+        ]
+        records.append(
+            {
+                "type": "goal_outcome",
+                "label": "Goal evaluator",
+                "request": turn.get("request"),
+                "response": turn.get("response"),
+                "data": {
+                    **evaluator,
+                    "route": "STOP_SUCCESS",
+                },
+            }
+        )
+        turn["observation_records"] = records
+        updated.append(turn)
+    return updated
+
+
+def _merge_evidence_records(
+    left: list[dict[str, Any]],
+    right: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in [*left, *right]:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("evidence_id") or _dumps(item))
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(dict(item))
+    return merged[:500]
 
 
 def normalize_target_key(value: str) -> str:
