@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import types
 from copy import deepcopy
@@ -81,7 +82,10 @@ class TaskAgentModelService:
             "SUCCESS_EXPERIENCE_POLICY": _success_experience_policy(
                 state_context
             ),
-            "LOADED_SKILLS": loaded_skills,
+            # Send only the common Skill guidance and the Techniques active in
+            # this turn. Unrelated Technique blocks add thousands of tokens and
+            # can cause the selected block to be truncated out of the prompt.
+            "LOADED_SKILLS": _project_loaded_skills(loaded_skills),
             "COMPOSED_SKILL_PLAN": composed_skill_plan,
             "PRE_SEND_REVIEW": {
                 "required": True,
@@ -127,7 +131,16 @@ class TaskAgentModelService:
         }
         if consistency_review:
             payload["CONSISTENCY_REVIEW"] = consistency_review
-        return self._call("evaluator", payload, EvaluatorOutput, retries)
+        return self._call(
+            "evaluator",
+            payload,
+            EvaluatorOutput,
+            retries,
+            raw_transform=lambda raw: _hydrate_evaluator_output(
+                raw,
+                state_context=state_context,
+            ),
+        )
 
     def prompt_versions(self) -> dict[str, dict[str, str]]:
         return self.prompts.versions()
@@ -523,6 +536,189 @@ def _success_experience_policy(
             else "Not applicable."
         ),
     }
+
+
+def _project_loaded_skills(
+    loaded_skills: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Project each loaded Skill to guidance relevant to the active turn."""
+
+    return [
+        _project_loaded_skill(item)
+        for item in loaded_skills
+        if isinstance(item, dict)
+    ]
+
+
+def _project_loaded_skill(skill: dict[str, Any]) -> dict[str, Any]:
+    selected = {
+        str(item)
+        for item in skill.get("selected_techniques") or []
+        if str(item).strip()
+    }
+    content = str(skill.get("content") or "")
+    techniques_heading = re.search(
+        r"(?mi)^##\s+(?:Techniques|Technique Catalog)\s*$",
+        content,
+    )
+    common = (
+        content[: techniques_heading.start()].strip()
+        if techniques_heading
+        else ""
+    )
+    blocks: list[str] = []
+    for technique_id in selected:
+        match = re.search(
+            rf"(?ms)^###\s+{re.escape(technique_id)}\s*$"
+            r"(?P<body>.*?)(?=^###\s+|^##\s+|\Z)",
+            content,
+        )
+        if match:
+            blocks.append(
+                f"### {technique_id}\n{match.group('body').strip()}"
+            )
+    projected_content = "\n\n".join(
+        item for item in (common, "## Active Techniques", *blocks) if item
+    )
+    if not blocks:
+        projected_content = _clip_text(content, 4_000)
+
+    metadata = dict(skill.get("metadata") or {})
+    metadata["techniques"] = [
+        item
+        for item in metadata.get("techniques") or []
+        if isinstance(item, dict)
+        and str(item.get("technique_id") or "") in selected
+    ]
+    return {
+        key: value
+        for key, value in {
+            **skill,
+            "content": projected_content,
+            "metadata": metadata,
+        }.items()
+        if key
+        in {
+            "skill_id",
+            "role",
+            "priority",
+            "reason",
+            "selected_techniques",
+            "content",
+            "content_hash",
+            "version",
+            "metadata",
+        }
+    }
+
+
+def _hydrate_evaluator_output(
+    raw: Any,
+    *,
+    state_context: dict[str, Any],
+) -> Any:
+    """Recover omitted evaluator control fields without another model call.
+
+    The narrative assessment remains model-authored. Missing routing fields are
+    completed conservatively: an omitted success flag never becomes success,
+    and an omitted progress value retains the last verified checkpoint.
+    """
+
+    if not isinstance(raw, dict):
+        return raw
+    for wrapper in ("evaluator_output", "evaluation", "output", "result"):
+        nested = raw.get(wrapper)
+        if isinstance(nested, dict):
+            raw = nested
+            break
+
+    aliases = {
+        "goalAchieved": "goal_achieved",
+        "counterEvidence": "counter_evidence",
+        "noveltyScore": "novelty_score",
+        "methodStatus": "method_status",
+        "skillAssessments": "skill_assessments",
+        "routeRecommendation": "route_recommendation",
+        "skillsToContinue": "skills_to_continue",
+        "skillsToDrop": "skills_to_drop",
+        "requiresNewSkillSelection": "requires_new_skill_selection",
+        "responsePattern": "response_pattern",
+        "nextStrategyObjective": "next_strategy_objective",
+        "strategyLessons": "strategy_lessons",
+    }
+    source = {
+        aliases.get(str(key), str(key)): value
+        for key, value in raw.items()
+    }
+    hydrated = {
+        key: value
+        for key, value in source.items()
+        if key in EvaluatorOutput.model_fields
+    }
+
+    evidence = hydrated.get("evidence")
+    has_evidence = isinstance(evidence, list) and bool(evidence)
+    route = str(hydrated.get("route_recommendation") or "")
+    achieved = hydrated.get("goal_achieved")
+    if not isinstance(achieved, bool):
+        achieved = route == "STOP_SUCCESS" and has_evidence
+        hydrated["goal_achieved"] = achieved
+
+    best_known = state_context.get("bestKnownState") or {}
+    try:
+        previous_progress = max(
+            0,
+            min(100, int(best_known.get("progress") or 0)),
+        )
+    except (TypeError, ValueError):
+        previous_progress = 0
+    progress = hydrated.get("progress")
+    if not isinstance(progress, int) or isinstance(progress, bool):
+        hydrated["progress"] = 100 if achieved else previous_progress
+
+    latest = state_context.get("latestTurn") or {}
+    latest_response = str(latest.get("response") or "").strip()
+    hydrated.setdefault(
+        "summary",
+        (
+            "The latest target response was evaluated conservatively; the "
+            "model omitted a summary."
+            if latest_response
+            else "No target response was available for evaluation."
+        ),
+    )
+    for field in (
+        "facts",
+        "inferences",
+        "unknowns",
+        "counter_evidence",
+        "evidence",
+        "skill_assessments",
+        "skills_to_continue",
+        "skills_to_drop",
+        "strategy_lessons",
+    ):
+        hydrated.setdefault(field, [])
+    hydrated.setdefault("novelty_score", 0)
+    hydrated.setdefault(
+        "method_status",
+        "SUSPECT_SUCCESS" if achieved else "CONTINUE",
+    )
+    hydrated.setdefault(
+        "route_recommendation",
+        "STOP_SUCCESS" if achieved else "REPLAN",
+    )
+    hydrated.setdefault("requires_new_skill_selection", False)
+    hydrated.setdefault(
+        "reason",
+        (
+            "The evaluator omitted one or more control fields; conservative "
+            "defaults preserve the verified checkpoint and continue planning."
+        ),
+    )
+    hydrated.setdefault("response_pattern", "ambiguous")
+    hydrated.setdefault("next_strategy_objective", "")
+    return hydrated
 
 
 def _hydrate_executor_decision(

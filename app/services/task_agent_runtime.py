@@ -805,20 +805,36 @@ class TaskAgentRuntime:
             return
         try:
             MoonshotApiService().delete_redteam_session(runner_id)
-            updated = {
-                **child,
-                "branch_runner_deleted": True,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-            self.store.save_snapshot(
-                str(child["task_id"]),
-                updated,
-                status=str(child.get("status") or TaskStatus.STOPPED_MANUAL.value),
-                current_node=str(child.get("current_node") or "stopped"),
-                stop_reason=child.get("stop_reason"),
+        except Exception as error:
+            detail = str(error).lower()
+            already_missing = any(
+                marker in detail
+                for marker in (
+                    "does not exist",
+                    "no runners found",
+                    "runner file does not exist",
+                    "unable to load runner because the runner file",
+                )
             )
-        except Exception:
-            logger.exception("Unable to delete branch runner %s", runner_id)
+            if not already_missing:
+                logger.exception("Unable to delete branch runner %s", runner_id)
+                return
+            logger.info(
+                "Branch runner %s was already absent; marking cleanup complete.",
+                runner_id,
+            )
+        updated = {
+            **child,
+            "branch_runner_deleted": True,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.store.save_snapshot(
+            str(child["task_id"]),
+            updated,
+            status=str(child.get("status") or TaskStatus.STOPPED_MANUAL.value),
+            current_node=str(child.get("current_node") or "stopped"),
+            stop_reason=child.get("stop_reason"),
+        )
 
     def _is_running(self, task_id: str) -> bool:
         with self._threads_lock:

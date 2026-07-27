@@ -431,10 +431,11 @@ class TaskAgentGraph:
             for item in self.skill_service.list_catalog()
             if item.enabled
         ]
+        model_catalog = _planner_catalog_for_goal(state, catalog)
         context = self._model_context(state)
         result = self.model_service.plan(
             state_context=context,
-            skill_catalog=catalog,
+            skill_catalog=model_catalog,
             goal_contract=_goal_contract(state),
             retries=int(state["config"].get("max_node_retries", 2)),
         )
@@ -831,9 +832,27 @@ class TaskAgentGraph:
     def _evaluator(self, state: TaskGraphState) -> dict[str, Any]:
         context = self._model_context(
             state,
-            include_plan=True,
             include_latest_turn=True,
         )
+        planner = state.get("planner_output") or {}
+        context["plannerOutput"] = {
+            key: planner.get(key)
+            for key in (
+                "plan_summary",
+                "method_id",
+                "method_name",
+                "rationale",
+                "single_changed_variable",
+                "success_criteria",
+                "disconfirming_evidence",
+                "expected_information_gain",
+                "method_status",
+            )
+            if key in planner
+        }
+        context["selectedSkills"] = state.get("selected_skills") or []
+        context["composedSkillPlan"] = state.get("composed_skill_plan") or {}
+        context["executorOutput"] = state.get("executor_output") or {}
         result = self.model_service.evaluate(
             state_context=context,
             goal_contract=_goal_contract(state),
@@ -2101,6 +2120,54 @@ def _strategy_tokens(value: str) -> set[str]:
         for token in re.findall(r"[\w-]{3,}", value.lower(), flags=re.UNICODE)
         if token
     }
+
+
+def _planner_catalog_for_goal(
+    state: TaskGraphState,
+    catalog: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep the Planner catalog goal-complete without sending every Skill."""
+
+    owner = str(
+        state.get("goal_primary_skill_id")
+        or _explicit_goal_primary_skill(str(state.get("goal") or ""), catalog)
+        or ""
+    )
+    if not owner:
+        return catalog
+    by_id = {str(item.get("name") or ""): item for item in catalog}
+    primary = by_id.get(owner)
+    if primary is None:
+        return catalog
+
+    ordered_ids = [owner]
+    ordered_ids.extend(
+        str(item)
+        for item in (primary.get("metadata") or {}).get("composable_with") or []
+    )
+    ordered_ids.extend(
+        str(item.get("skill_id") or "")
+        for item in state.get("selected_skills") or []
+    )
+    # These auxiliary Skills are broadly useful when the owner did not declare
+    # them explicitly. They preserve adaptive history/refusal analysis.
+    ordered_ids.extend(
+        (
+            "progressive-context-probing",
+            "prompt-variation-testing",
+            "refusal-differential-validation",
+        )
+    )
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for skill_id in ordered_ids:
+        if not skill_id or skill_id in seen or skill_id not in by_id:
+            continue
+        seen.add(skill_id)
+        result.append(by_id[skill_id])
+        if len(result) >= 6:
+            break
+    return result or catalog
 
 
 def _explicit_goal_primary_skill(
