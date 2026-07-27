@@ -1,7 +1,8 @@
 import base64
+import importlib.util
 import json
 from io import BytesIO
-
+from pathlib import Path
 import pytest
 
 from app.api.routes import moonshot_explicit
@@ -65,6 +66,22 @@ def test_sse_json_path_joins_streamed_answer_fragments() -> None:
     assert extracted == "Hello"
 
 
+def test_legacy_sse_event_data_with_path_decodes_answer_fragments() -> None:
+    raw = (
+        'data: {"content":"Hel"}\n\n'
+        'data: {"content":"lo"}\n\n'
+        "event: done\n"
+        "data: {}\n\n"
+    )
+
+    extracted = moonshot_explicit._extract_connector_response(
+        raw,
+        {"type": "event-data", "path": "$.content"},
+    )
+
+    assert extracted == "Hello"
+
+
 def test_basic_auth_uses_username_and_token_as_password() -> None:
     headers: dict[str, str] = {}
 
@@ -88,7 +105,7 @@ def test_http_fetch_sends_real_request_configuration(monkeypatch: pytest.MonkeyP
         captured["timeout"] = timeout
         return _Response(b'{"answer":"ok"}')
 
-    monkeypatch.setattr(moonshot_explicit.urllib_request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(moonshot_explicit, "open_with_current_network_settings", fake_urlopen)
 
     result = moonshot_explicit.test_connector(
         {
@@ -137,3 +154,32 @@ def test_http_fetch_sends_real_request_configuration(monkeypatch: pytest.MonkeyP
 def test_transport_rejects_incompatible_url_schemes(url: str, transport: str) -> None:
     with pytest.raises(ValueError):
         moonshot_explicit._validate_connector_url(url, transport)
+
+
+def test_loopback_connector_rejects_redirect_to_public_host() -> None:
+    asset = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "integrations"
+        / "moonshot"
+        / "assets"
+        / "configurable-app-connector.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "configurable_app_connector_asset",
+        asset,
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    handler = module._LoopbackOnlyRedirectHandler()
+    with pytest.raises(RuntimeError, match="left the approved loopback"):
+        handler.redirect_request(
+            None,
+            None,
+            302,
+            "Found",
+            {},
+            "https://example.com/redirected",
+        )

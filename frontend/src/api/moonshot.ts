@@ -112,6 +112,10 @@ export const moonshotApi = {
     const { data } = await http.post<string>('/api/v1/moonshot/prompt-templates', payload)
     return data
   },
+  async updatePromptTemplate(id: string, payload: { name: string; description: string; template: string }) {
+    const { data } = await http.patch<boolean>(`/api/v1/moonshot/prompt-templates/${encodeURIComponent(id)}`, payload)
+    return data
+  },
   async deletePromptTemplate(id: string) {
     const { data } = await http.delete<boolean>(`/api/v1/moonshot/prompt-templates/${encodeURIComponent(id)}`)
     return data
@@ -172,6 +176,89 @@ export const moonshotApi = {
     const { data } = await http.post<unknown>(
       `/api/v1/moonshot/redteam/sessions/${encodeURIComponent(runnerId)}/prompt`,
       { user_prompt: userPrompt, prepared_prompt: preparedPrompt },
+    )
+    return data
+  },
+  async deleteRedTeamSession(runnerId: string) {
+    const { data } = await http.delete<{
+      session_deleted: boolean
+      runner_deleted: boolean
+    }>(
+      `/api/v1/moonshot/redteam/sessions/${encodeURIComponent(runnerId)}`,
+    )
+    return data
+  },
+  async analyzeSensitiveInformation(payload: {
+    user_input: string
+    assistant_output: string
+  }) {
+    const { data } = await http.post<{
+      summary: string
+      stopRecommended: boolean
+      provider: string
+      model: string
+      findings: Array<{
+        title: string
+        category:
+          | 'model-information'
+          | 'policy-information'
+          | 'architecture-information'
+          | 'document-information'
+          | 'infrastructure'
+          | 'identity-secret'
+          | 'user-data'
+          | 'tool-capability'
+        layer: 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6'
+        priority: 'P0' | 'P1' | 'P2' | 'P3'
+        confidence: 'confirmed' | 'high' | 'medium' | 'low' | 'unsupported'
+        conclusionType: 'observed-fact' | 'analytical-inference' | 'hypothesis'
+        leakedContent: string
+        evidenceExcerpt: string
+        reason: string
+        stopRecommended: boolean
+      }>
+    }>('/api/v1/moonshot/redteam/analyze-sensitive-information', payload)
+    return data
+  },
+  async planTaskAgentInteraction(payload: {
+    goal: string
+    history: Array<{ role: 'user' | 'assistant'; content: string }>
+    round: number
+    max_rounds: number | null
+    previous_evaluation?: Record<string, unknown> | null
+  }) {
+    const { data } = await http.post<Record<string, unknown>>(
+      '/api/v1/moonshot/redteam/task-agent/plan',
+      payload,
+      { timeout: 120_000 },
+    )
+    return data
+  },
+  async executeTaskAgentInteraction(payload: {
+    goal: string
+    history: Array<{ role: 'user' | 'assistant'; content: string }>
+    plan: Record<string, unknown>
+  }) {
+    const { data } = await http.post<Record<string, unknown>>(
+      '/api/v1/moonshot/redteam/task-agent/execute',
+      payload,
+      { timeout: 120_000 },
+    )
+    return data
+  },
+  async evaluateTaskAgentProgress(payload: {
+    goal: string
+    history: Array<{ role: 'user' | 'assistant'; content: string }>
+    latest_user_input: string
+    latest_assistant_output: string
+    success_criteria: string[]
+    round: number
+    max_rounds: number | null
+  }) {
+    const { data } = await http.post<Record<string, unknown>>(
+      '/api/v1/moonshot/redteam/task-agent/evaluate',
+      payload,
+      { timeout: 120_000 },
     )
     return data
   },

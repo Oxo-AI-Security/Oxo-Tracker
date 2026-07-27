@@ -2,22 +2,18 @@
   <div class="job-shell">
     <GlassPanel class="job-hero-panel">
       <div class="job-hero-copy">
-        <p class="eyebrow">Benchmark job</p>
+        <p class="eyebrow">{{ $t('auto.a1cc90458b81') }}</p>
         <h2>{{ heading }}</h2>
-        <p>{{ job?.description || 'No description' }}</p>
+        <p>{{ job?.description || $t('auto.f354c94fcf63') }}</p>
         <div v-if="canPreviewReport" class="job-hero-actions">
-          <n-button type="primary" round @click="reportOpen = true">
-            Preview report
-          </n-button>
+          <n-button type="primary" round @click="reportOpen = true"> {{ $t('auto.2632041f3c44') }} </n-button>
           <n-button tag="a" :href="reportDownloadUrl" secondary round>
-            <template #icon><n-icon><DownloadOutline /></n-icon></template>
-            Download
-          </n-button>
+            <template #icon><n-icon><DownloadOutline /></n-icon></template> {{ $t('auto.a479c9c34e87') }} </n-button>
         </div>
       </div>
       <div class="job-status-card">
         <div>
-          <span>Status</span>
+          <span>{{ $t('auto.bae7d5be7082') }}</span>
           <strong>{{ job?.status || 'loading' }}</strong>
         </div>
         <n-progress
@@ -29,7 +25,7 @@
         <b>{{ progress }}%</b>
         <div v-if="isJudgePhase" class="judge-progress">
           <div>
-            <span>AI judge</span>
+            <span>{{ $t('auto.46658a448ebf') }}</span>
             <strong>{{ judgeProgressLabel }}</strong>
           </div>
           <n-progress
@@ -47,81 +43,71 @@
       <GlassPanel class="job-side-panel">
         <div class="section-heading compact-heading">
           <div class="job-detail-title">
-            <p class="eyebrow">Run details</p>
+            <p class="eyebrow">{{ $t('auto.e6487ca72b41') }}</p>
             <n-ellipsis :tooltip="{ placement: 'top' }">
               <h2>{{ job.name }}</h2>
             </n-ellipsis>
           </div>
           <div class="job-action-row">
             <n-button secondary round @click="router.push('/history')">
-              <template #icon><n-icon><TimeOutline /></n-icon></template>
-              History
-            </n-button>
+              <template #icon><n-icon><TimeOutline /></n-icon></template> {{ $t('auto.90ccd6497400') }} </n-button>
             <n-button v-if="canPause" secondary round type="warning" :loading="pausing" @click="pauseJob">
-              <template #icon><n-icon><PauseCircleOutline /></n-icon></template>
-              Pause
-            </n-button>
+              <template #icon><n-icon><PauseCircleOutline /></n-icon></template> {{ $t('auto.781961bc81c2') }} </n-button>
             <n-button v-if="canResume" secondary round type="primary" :loading="resuming" @click="resumeJob">
-              <template #icon><n-icon><PlayCircleOutline /></n-icon></template>
-              Continue
-            </n-button>
+              <template #icon><n-icon><PlayCircleOutline /></n-icon></template> {{ $t('auto.2e02623966f9') }} </n-button>
             <n-popconfirm
               v-if="canDeleteFromDetails"
-              positive-text="Delete"
-              negative-text="Cancel"
+              :positive-text="$t('common.delete')"
+              :negative-text="$t('auto.77dfd2135f4d')"
               @positive-click="deleteJob"
             >
               <template #trigger>
                 <n-button secondary round type="error" :loading="deleting">
                   <template #icon><n-icon><TrashOutline /></n-icon></template>
-                  Delete
+                  {{ $t('common.delete') }}
                 </n-button>
-              </template>
-              Delete this paused report and its stored run files?
-            </n-popconfirm>
+              </template> {{ $t('auto.8f5403844420') }} </n-popconfirm>
           </div>
         </div>
 
         <div class="job-stat-grid">
           <div>
-            <span>Prompts</span>
+            <span>{{ $t('auto.eea5311d723f') }}</span>
             <strong>{{ job.summary.completed_prompts }} / {{ job.summary.estimated_prompts || '-' }}</strong>
           </div>
           <div>
-            <span>Errors</span>
+            <span>{{ $t('auto.805e86a8cbf6') }}</span>
             <strong>{{ job.summary.error_count }}</strong>
           </div>
           <div>
-            <span>Started</span>
+            <span>{{ $t('auto.faa9e7e7ef5a') }}</span>
             <strong>{{ formatDate(job.started_at || job.created_at) }}</strong>
           </div>
           <div>
-            <span>Updated</span>
+            <span>{{ $t('auto.f2f8570ddd7b') }}</span>
             <strong>{{ formatDate(job.updated_at) }}</strong>
           </div>
           <div>
-            <span>Threads</span>
+            <span>{{ $t('auto.bb12e8aaaecc') }}</span>
             <strong>{{ job.summary.thread_count || job.request.thread_count || 1 }}</strong>
           </div>
           <div>
-            <span>ETA</span>
+            <span>{{ $t('auto.3044d4f6c438') }}</span>
             <strong>{{ etaLabel }}</strong>
           </div>
         </div>
 
         <section v-if="canResume" class="job-thread-panel">
           <div>
-            <p class="eyebrow">Thread tuning</p>
-            <strong>{{ threadCount }} threads</strong>
+            <p class="eyebrow">{{ $t('auto.67d7ec2d39fd') }}</p>
+            <strong>{{ threadCount }} {{ $t('auto.c91e11a1f2a2') }}</strong>
           </div>
           <n-slider v-model:value="threadCount" :min="1" :max="20" :step="1" />
-          <n-button secondary round :loading="savingThreads" @click="saveThreadCount">
-            Save Threads
-          </n-button>
+          <n-button secondary round :loading="savingThreads" @click="saveThreadCount"> {{ $t('auto.3fc0f93671a2') }} </n-button>
         </section>
 
         <section class="job-chip-section">
-          <p class="eyebrow">Endpoints</p>
+          <p class="eyebrow">{{ $t('auto.b71c52711a24') }}</p>
           <div class="job-chip-cloud">
             <n-tag v-for="endpoint in job.summary.endpoints" :key="endpoint" round>
               {{ endpointLabel(endpoint) }}
@@ -130,17 +116,17 @@
         </section>
 
         <section class="job-chip-section">
-          <p class="eyebrow">Cookbooks</p>
+          <p class="eyebrow">{{ $t('auto.3a27713963ce') }}</p>
           <div class="job-chip-cloud">
             <n-tag v-for="cookbook in job.summary.cookbooks" :key="cookbook" round>
               {{ cookbookLabel(cookbook) }}
             </n-tag>
-            <span v-if="!job.summary.cookbooks.length">No cookbook metadata captured</span>
+            <span v-if="!job.summary.cookbooks.length">{{ $t('auto.e4621fc1547b') }}</span>
           </div>
         </section>
 
         <section v-if="job.errors.length" class="job-errors">
-          <p class="eyebrow">Errors</p>
+          <p class="eyebrow">{{ $t('auto.805e86a8cbf6') }}</p>
           <n-scrollbar class="job-error-scrollbar">
             <div v-for="(error, index) in job.errors.slice(0, 40)" :key="index" class="job-error-line">
               {{ error }}
@@ -152,8 +138,8 @@
       <GlassPanel class="job-main-panel">
         <div class="section-heading compact-heading prompt-trace-heading">
           <div class="prompt-trace-title">
-            <p class="eyebrow">Model interactions</p>
-            <h2>Prompt trace</h2>
+            <p class="eyebrow">{{ $t('auto.f5104fb7f327') }}</p>
+            <h2>{{ $t('auto.421b14c83c64') }}</h2>
             <span>{{ interactionRangeLabel }}</span>
           </div>
           <div class="prompt-trace-toolbar">
@@ -178,7 +164,7 @@
                 :options="interactionFilterOptions"
                 @update:value="changeTraceFilters"
               />
-              <n-button secondary circle aria-label="Refresh prompt trace" @click="loadJob">
+              <n-button secondary circle :aria-label="$t('auto.d8274c187f9f')" @click="loadJob">
                 <template #icon><n-icon><RefreshOutline /></n-icon></template>
               </n-button>
             </div>
@@ -190,39 +176,39 @@
             <header>
               <div class="interaction-title">
                 <strong>{{ item.endpoint || 'endpoint' }}</strong>
-                <n-tag v-if="item.trace_status === 'error'" size="small" round type="error">Error</n-tag>
+                <n-tag v-if="item.trace_status === 'error'" size="small" round type="error">{{ $t('auto.7f2f6a15cf8d') }}</n-tag>
               </div>
               <span>{{ item.recipe }} / {{ item.dataset }} #{{ item.prompt_index }}</span>
             </header>
             <div class="trace-block">
-              <b>Input</b>
+              <b>{{ $t('auto.b568d47f2e24') }}</b>
               <pre>{{ item.input }}</pre>
             </div>
             <div class="trace-grid">
               <div class="trace-block">
-                <b>Expected</b>
-                <pre>{{ item.expected || 'No expected value' }}</pre>
-                <small v-if="item.expected_raw && item.expected_raw !== item.expected">Raw label: {{ item.expected_raw }}</small>
+                <b>{{ $t('auto.6ac87f344682') }}</b>
+                <pre>{{ item.expected || $t('auto.eea4d26a1e58') }}</pre>
+                <small v-if="item.expected_raw && item.expected_raw !== item.expected">{{ $t('auto.fab2f9b4bf4c') }} {{ item.expected_raw }}</small>
               </div>
               <div class="trace-block">
-                <b>Response</b>
+                <b>{{ $t('auto.6e617e4fc9da') }}</b>
                 <pre>{{ formatResponse(item.response) }}</pre>
               </div>
             </div>
             <div v-if="item.evaluator" class="trace-evaluator">
               <div class="trace-evaluator-summary">
-                <b>AI judge</b>
+                <b>{{ $t('auto.46658a448ebf') }}</b>
                 <n-tag size="small" round :type="evaluatorTagType(item.evaluator.acceptable_status)">
                   {{ evaluatorStatusLabel(item.evaluator.acceptable_status) }}
                 </n-tag>
-                <span v-if="item.evaluator.refusal">Refusal: {{ item.evaluator.refusal }}</span>
+                <span v-if="item.evaluator.refusal">{{ $t('auto.01eab9a98fed') }} {{ item.evaluator.refusal }}</span>
                 <span v-if="item.evaluator.metric_id">{{ item.evaluator.metric_id }}</span>
               </div>
               <pre v-if="item.evaluator.judge_response">{{ item.evaluator.judge_response }}</pre>
             </div>
           </article>
         </n-scrollbar>
-        <n-empty v-else description="No prompt trace captured yet" />
+        <n-empty v-else :description="$t('auto.b12c76ace33c')" />
         <div v-if="interactionTotal > interactionPageSize" class="interaction-pagination">
           <n-pagination
             v-model:page="interactionPage"
@@ -242,76 +228,71 @@
       v-model:show="reportOpen"
       preset="card"
       class="report-modal"
-      title="Benchmark Report"
+      :title="$t('auto.fa5781733976')"
       :bordered="false"
     >
       <template #header-extra>
         <n-button v-if="job" tag="a" :href="reportDownloadUrl" type="primary" round>
-          <template #icon><n-icon><DownloadOutline /></n-icon></template>
-          Download
-        </n-button>
+          <template #icon><n-icon><DownloadOutline /></n-icon></template> {{ $t('auto.a479c9c34e87') }} </n-button>
       </template>
 
       <article v-if="job?.report_summary" class="report-document">
         <header class="report-document-header">
           <div class="report-watermark">OXO TRACKER</div>
-          <h1>Benchmark Report</h1>
+          <h1>{{ $t('auto.fa5781733976') }}</h1>
           <p>{{ job.report_summary.name }}</p>
         </header>
 
         <section class="report-summary-grid report-summary-grid-light">
           <div>
-            <span>Model Endpoint</span>
+            <span>{{ $t('auto.e61a7638ef1f') }}</span>
             <strong>{{ job.report_summary.endpoints.join(', ') || '-' }}</strong>
           </div>
           <div>
-            <span>Number of prompts ran</span>
+            <span>{{ $t('auto.7cd79ace2b8b') }}</span>
             <strong>{{ job.report_summary.total_prompts || job.summary.completed_prompts }}</strong>
           </div>
           <div>
-            <span>Started on</span>
+            <span>{{ $t('auto.9bbd73fee563') }}</span>
             <strong>{{ job.report_summary.start_time || formatDate(job.started_at) }}</strong>
           </div>
           <div>
-            <span>Completed on</span>
+            <span>{{ $t('auto.100dba762b33') }}</span>
             <strong>{{ job.report_summary.end_time || formatDate(job.ended_at) }}</strong>
           </div>
         </section>
 
         <section class="report-section">
-          <h2>Areas Tested</h2>
+          <h2>{{ $t('auto.3713e807935f') }}</h2>
           <div class="report-area-cards">
             <article v-for="cookbook in reportCookbooks" :key="cookbook.id" class="report-area-card">
-              <span>Cookbook</span>
+              <span>{{ $t('auto.ae28e153fd42') }}</span>
               <strong>{{ cookbook.label }}</strong>
-              <small>{{ cookbook.recipeCount }} recipes / {{ cookbook.datasetCount }} datasets</small>
+              <small>{{ cookbook.recipeCount }} {{ $t('auto.055f9add6221') }} {{ cookbook.datasetCount }} {{ $t('auto.061ac740047f') }}</small>
             </article>
             <div class="report-area-card legend-card">
-              <span>Evaluation dimensions</span>
+              <span>{{ $t('auto.f14ec1a8bc89') }}</span>
               <div class="legend-lines">
-                <p><b>Q</b> Quality and correctness</p>
-                <p><b>C</b> Capability and task fit</p>
-                <p><b>T</b> Trust, safety, and misuse risk</p>
+                <p><b>Q</b> {{ $t('auto.7af58fdf276c') }}</p>
+                <p><b>C</b> {{ $t('auto.181815c67a93') }}</p>
+                <p><b>T</b> {{ $t('auto.080deb21dd81') }}</p>
               </div>
             </div>
           </div>
         </section>
 
         <section class="report-section">
-          <h2>Full Results</h2>
+          <h2>{{ $t('auto.6b68e59f7cb9') }}</h2>
           <details class="report-rating-guide">
-            <summary>How to Interpret A-E Ratings?</summary>
+            <summary>{{ $t('auto.98219d0f51bb') }}</summary>
             <div class="rating-guide-body">
-              <p>
-                The interpretation of grades A-E should be read according to the category of the area tested.
-                Results represent the endpoint's performance for the specific scope defined in each test.
-              </p>
+              <p> {{ $t('auto.fe431736920e') }} </p>
               <div class="rating-guide-grid">
                 <div v-for="guide in ratingGuides" :key="guide.grade">
                   <strong>{{ guide.grade }}</strong>
-                  <p><b>Quality:</b> {{ guide.quality }}</p>
-                  <p><b>Capability:</b> {{ guide.capability }}</p>
-                  <p><b>Trust & Safety:</b> {{ guide.safety }}</p>
+                  <p><b>{{ $t('auto.455348d1c29e') }}</b> {{ guide.quality }}</p>
+                  <p><b>{{ $t('auto.e2d310aa1bd8') }}</b> {{ guide.capability }}</p>
+                  <p><b>{{ $t('auto.c25f6c205b8c') }}</b> {{ guide.safety }}</p>
                 </div>
               </div>
             </div>
@@ -321,9 +302,8 @@
               <div>
                 <h3>{{ recipe.id }}</h3>
                 <span>
-                  {{ recipe.prompt_count }} evaluated<span v-if="recipe.failed_count"> / {{ recipe.failed_count }} failed</span>
-                  / {{ recipe.datasets.length }} datasets
-                </span>
+                  {{ recipe.prompt_count }} {{ $t('auto.8f75a2be1401') }}<span v-if="recipe.failed_count"> / {{ recipe.failed_count }} {{ $t('auto.5f5f8758f5f2') }}</span>
+                  / {{ recipe.datasets.length }} {{ $t('auto.061ac740047f') }} </span>
               </div>
               <div class="report-grade-list">
                 <n-tag
@@ -343,11 +323,9 @@
             </div>
             <div v-if="recipe.metric_summaries?.length" class="report-judge-grid">
               <div v-for="metric in recipe.metric_summaries" :key="`${recipe.id}-${metric.metric_id}`">
-                <span>{{ metric.metric_id || 'AI judge' }}</span>
-                <strong>{{ formatPercent(metric.acceptable_rate) }} acceptable</strong>
-                <small>
-                  Safe {{ metric.safe ?? 0 }} / Unsafe {{ metric.unsafe ?? 0 }} /
-                  Refused {{ metric.refused ?? 0 }} / Unknown {{ metric.unknown ?? 0 }}
+                <span>{{ metric.metric_id || $t('auto.46658a448ebf') }}</span>
+                <strong>{{ formatPercent(metric.acceptable_rate) }} {{ $t('auto.cab5b6e0a675') }}</strong>
+                <small> {{ $t('auto.9525ae1781bb') }} {{ metric.safe ?? 0 }} {{ $t('auto.cac13757a19e') }} {{ metric.unsafe ?? 0 }} {{ $t('auto.2d72a3b7a732') }} {{ metric.refused ?? 0 }} {{ $t('auto.e7ee50d06df2') }} {{ metric.unknown ?? 0 }}
                 </small>
               </div>
             </div>
@@ -367,10 +345,9 @@
 
         <section class="report-section">
           <div class="report-section-title">
-            <h2>Unexpected Payloads</h2>
+            <h2>{{ $t('auto.cddd3a13ac50') }}</h2>
             <n-tag round :type="job.report_summary.unexpected_payload_count ? 'warning' : 'success'">
-              {{ job.report_summary.unexpected_payload_count }} found
-            </n-tag>
+              {{ job.report_summary.unexpected_payload_count }} {{ $t('auto.2739bb260ce4') }} </n-tag>
           </div>
           <div v-if="job.report_summary.unexpected_payloads.length" class="unexpected-list">
             <article
@@ -384,34 +361,34 @@
               </header>
               <div class="unexpected-grid">
                 <div>
-                  <b>Expected</b>
+                  <b>{{ $t('auto.6ac87f344682') }}</b>
                   <pre>{{ payload.expected || '-' }}</pre>
-                  <small v-if="payload.expected_raw && payload.expected_raw !== payload.expected">Raw label: {{ payload.expected_raw }}</small>
+                  <small v-if="payload.expected_raw && payload.expected_raw !== payload.expected">{{ $t('auto.fab2f9b4bf4c') }} {{ payload.expected_raw }}</small>
                 </div>
                 <div>
-                  <b>Response</b>
+                  <b>{{ $t('auto.6e617e4fc9da') }}</b>
                   <pre>{{ payload.response || '-' }}</pre>
                 </div>
               </div>
               <div v-if="payload.evaluator" class="trace-evaluator report-evaluator">
                 <div class="trace-evaluator-summary">
-                  <b>AI judge</b>
+                  <b>{{ $t('auto.46658a448ebf') }}</b>
                   <n-tag size="small" round :type="evaluatorTagType(payload.evaluator.acceptable_status)">
                     {{ evaluatorStatusLabel(payload.evaluator.acceptable_status) }}
                   </n-tag>
-                  <span v-if="payload.evaluator.refusal">Refusal: {{ payload.evaluator.refusal }}</span>
+                  <span v-if="payload.evaluator.refusal">{{ $t('auto.01eab9a98fed') }} {{ payload.evaluator.refusal }}</span>
                 </div>
                 <pre v-if="payload.evaluator.judge_response">{{ payload.evaluator.judge_response }}</pre>
               </div>
               <details v-if="payload.prompt">
-                <summary>Prompt</summary>
+                <summary>{{ $t('auto.a817d7eb8e0f') }}</summary>
                 <pre>{{ payload.prompt }}</pre>
               </details>
             </article>
           </div>
-          <n-empty v-else description="No unexpected payloads captured" />
+          <n-empty v-else :description="$t('auto.b8d68833be57')" />
           <div v-if="job.report_summary.errors.length" class="report-error-list">
-            <h3>Failed Payloads</h3>
+            <h3>{{ $t('auto.01d5561cbd6d') }}</h3>
             <p v-for="(error, index) in job.report_summary.errors.slice(0, 20)" :key="index">
               {{ error }}
             </p>
@@ -423,6 +400,8 @@
 </template>
 
 <script setup lang="ts">
+import { translateSource } from '../i18n'
+
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -458,8 +437,8 @@ const interactionPageSize = 100
 let timer: number | undefined
 
 const interactionFilterOptions = [
-  { label: 'All traces', value: 'all' },
-  { label: 'Unexpected only', value: 'unexpected' },
+  { label: translateSource('auto.b3bd4b4cc2ca'), value: 'all' },
+  { label: translateSource('auto.e42415449f47'), value: 'unexpected' },
 ]
 
 const ratingGuides = [
@@ -524,7 +503,7 @@ const interactionRangeLabel = computed(() => {
   return `Showing ${interactionRangeStart.value}-${interactionRangeEnd.value} of ${interactionTotal.value}`
 })
 const cookbookFilterOptions = computed(() => [
-  { label: 'All cookbooks', value: 'all' },
+  { label: translateSource('auto.705e82bad262'), value: 'all' },
   ...((job.value?.summary.cookbooks ?? []).map((id) => ({
     label: cookbookLabel(id),
     value: id,
@@ -620,13 +599,13 @@ function notifyJobSettled(status: string) {
   if (completionNotified.value) return
   completionNotified.value = true
   if (status === 'completed') {
-    notify('success', { title: 'Job completed', content: job.value?.name || 'Benchmark finished' })
+    notify('success', { title: translateSource('auto.bc6515a0c325'), content: job.value?.name || 'Benchmark finished' })
   } else if (status === 'completed_with_errors') {
-    notify('warning', { title: 'Job completed with errors', content: job.value?.name || 'Check run details' })
+    notify('warning', { title: translateSource('auto.857fb91210e1'), content: job.value?.name || 'Check run details' })
   } else if (status === 'paused') {
-    notify('warning', { title: 'Job paused', content: 'You can delete or continue the paused report from Run Details.' })
+    notify('warning', { title: translateSource('auto.5c9291486d21'), content: 'You can delete or continue the paused report from Run Details.' })
   } else if (status === 'failed') {
-    notify('error', { title: 'Job failed', content: job.value?.errors?.[0] || 'Check run details' })
+    notify('error', { title: translateSource('auto.6f0785e0bb71'), content: job.value?.errors?.[0] || 'Check run details' })
   }
 }
 
@@ -640,9 +619,9 @@ async function pauseJob() {
   try {
     job.value = await moonshotApi.pauseBenchmarkJob(job.value.id)
     completionNotified.value = true
-    notify('warning', { title: 'Job paused', content: job.value.name })
+    notify('warning', { title: translateSource('auto.5c9291486d21'), content: job.value.name })
   } catch (error) {
-    notify('error', { title: 'Pause failed', content: error instanceof Error ? error.message : 'Unable to pause job' })
+    notify('error', { title: translateSource('auto.134d477daf7c'), content: error instanceof Error ? error.message : 'Unable to pause job' })
   } finally {
     pausing.value = false
   }
@@ -657,10 +636,10 @@ async function resumeJob() {
     }
     job.value = await moonshotApi.resumeBenchmarkJob(job.value.id)
     completionNotified.value = false
-    notify('success', { title: 'Job resumed', content: job.value.name })
+    notify('success', { title: translateSource('auto.d8a2e21826ac'), content: job.value.name })
     startPolling()
   } catch (error) {
-    notify('error', { title: 'Resume failed', content: error instanceof Error ? error.message : 'Unable to continue job' })
+    notify('error', { title: translateSource('auto.52827882c461'), content: error instanceof Error ? error.message : 'Unable to continue job' })
   } finally {
     resuming.value = false
   }
@@ -671,9 +650,9 @@ async function saveThreadCount() {
   savingThreads.value = true
   try {
     job.value = await moonshotApi.updateBenchmarkJobThreadCount(job.value.id, threadCount.value)
-    notify('success', { title: 'Thread count saved', content: `${threadCount.value} concurrent requests` })
+    notify('success', { title: translateSource('auto.4f93d9897194'), content: `${threadCount.value} concurrent requests` })
   } catch (error) {
-    notify('error', { title: 'Save failed', content: error instanceof Error ? error.message : 'Unable to save thread count' })
+    notify('error', { title: translateSource('auto.0a4444676244'), content: error instanceof Error ? error.message : 'Unable to save thread count' })
   } finally {
     savingThreads.value = false
   }
@@ -685,14 +664,14 @@ async function deleteJob() {
   try {
     const result = await moonshotApi.deleteBenchmarkJob(job.value.id)
     if (result.deleted) {
-      notify('success', { title: 'Report deleted', content: job.value.name })
+      notify('success', { title: translateSource('auto.a7788f3b7f17'), content: job.value.name })
       router.push('/history')
     } else {
-      notify('warning', { title: 'Report partially deleted', content: 'Some files are still locked by a running process.' })
+      notify('warning', { title: translateSource('auto.f97ad0da34bf'), content: 'Some files are still locked by a running process.' })
       await loadJob()
     }
   } catch (error) {
-    notify('error', { title: 'Delete failed', content: error instanceof Error ? error.message : 'Unable to delete report' })
+    notify('error', { title: translateSource('auto.64513b47d460'), content: error instanceof Error ? error.message : 'Unable to delete report' })
   } finally {
     deleting.value = false
   }

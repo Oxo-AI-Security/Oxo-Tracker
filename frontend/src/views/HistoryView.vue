@@ -7,15 +7,13 @@
             <n-icon><TimeOutline /></n-icon>
           </span>
           <div class="workspace-title-content">
-            <p class="eyebrow">Testing history</p>
-            <h2>Benchmark runs</h2>
-            <span>Review run status, results, and saved evaluation evidence.</span>
+            <p class="eyebrow">{{ $t('auto.bf807ce36860') }}</p>
+            <h2>{{ $t('auto.356251b4e064') }}</h2>
+            <span>{{ $t('auto.55e71bbaecb2') }}</span>
           </div>
         </div>
         <n-button type="primary" round @click="router.push('/benchmark')">
-          <template #icon><n-icon><AddOutline /></n-icon></template>
-          Start New Run
-        </n-button>
+          <template #icon><n-icon><AddOutline /></n-icon></template> {{ $t('auto.0f84f5f5d160') }} </n-button>
       </div>
 
       <div v-if="jobs.length" class="history-grid">
@@ -31,7 +29,7 @@
             <n-icon size="22"><TimeOutline /></n-icon>
             <span>
               <strong>{{ item.name }}</strong>
-              <small>{{ item.description || 'No description' }}</small>
+              <small>{{ item.description || $t('auto.f354c94fcf63') }}</small>
             </span>
             <n-tag size="small" round :type="tagType(item.status)">{{ item.status }}</n-tag>
           </button>
@@ -45,64 +43,62 @@
             </h3>
             <n-space>
               <n-button secondary round @click="router.push(`/jobs/${selectedJob.id}`)">
-                <template #icon><n-icon><EyeOutline /></n-icon></template>
-                Details
-              </n-button>
+                <template #icon><n-icon><EyeOutline /></n-icon></template> {{ $t('auto.dc3decbb9384') }} </n-button>
               <n-popconfirm
-                positive-text="Delete"
-                negative-text="Cancel"
+                :positive-text="$t('common.delete')"
+                :negative-text="$t('auto.77dfd2135f4d')"
                 @positive-click="deleteSelectedJob"
               >
                 <template #trigger>
                   <n-button secondary round type="error" :loading="deleting">
                     <template #icon><n-icon><TrashOutline /></n-icon></template>
-                    Delete
+                    {{ $t('common.delete') }}
                   </n-button>
-                </template>
-                Delete this report and its stored run files?
-              </n-popconfirm>
+                </template> {{ $t('auto.1242c2439388') }} </n-popconfirm>
             </n-space>
           </div>
-          <p>{{ selectedJob.description || 'No description' }}</p>
+          <p>{{ selectedJob.description || $t('auto.f354c94fcf63') }}</p>
           <div class="job-stat-grid">
             <div>
-              <span>Status</span>
+              <span>{{ $t('auto.bae7d5be7082') }}</span>
               <strong>{{ selectedJob.status }}</strong>
             </div>
             <div>
-              <span>Progress</span>
+              <span>{{ $t('auto.1b90271d66cf') }}</span>
               <strong>{{ selectedJob.progress }}%</strong>
             </div>
             <div>
-              <span>Prompts</span>
+              <span>{{ $t('auto.eea5311d723f') }}</span>
               <strong>{{ selectedJob.summary.completed_prompts }} / {{ selectedJob.summary.estimated_prompts || '-' }}</strong>
             </div>
             <div>
-              <span>Errors</span>
+              <span>{{ $t('auto.805e86a8cbf6') }}</span>
               <strong>{{ selectedJob.summary.error_count }}</strong>
             </div>
           </div>
           <div class="detail-block">
-            <strong>Model Endpoints</strong>
+            <strong>{{ $t('auto.2c7a56bbe6df') }}</strong>
             <span>{{ selectedJob.summary.endpoints.join(', ') }}</span>
           </div>
           <div class="detail-block">
-            <strong>Cookbooks</strong>
-            <span>{{ selectedJob.summary.cookbooks.join(', ') || 'No cookbook metadata captured' }}</span>
+            <strong>{{ $t('auto.3a27713963ce') }}</strong>
+            <span>{{ selectedJob.summary.cookbooks.join(', ') || $t('auto.e4621fc1547b') }}</span>
           </div>
           <div class="detail-block">
-            <strong>Recipes</strong>
+            <strong>{{ $t('auto.9fb1092f32d4') }}</strong>
             <span>{{ selectedJob.summary.recipes.join(', ') }}</span>
           </div>
         </section>
       </div>
 
-      <n-empty v-else description="No benchmark runs yet" />
+      <n-empty v-else :description="$t('auto.0863ca796eb4')" />
     </GlassPanel>
   </div>
 </template>
 
 <script setup lang="ts">
+import { translateSource } from '../i18n'
+
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { AddOutline, EyeOutline, TimeOutline, TrashOutline } from '@vicons/ionicons5'
@@ -144,16 +140,16 @@ async function deleteSelectedJob() {
   try {
     const result = await moonshotApi.deleteBenchmarkJob(selectedJob.value.id)
     if (result.deleted) {
-      notify('success', { title: 'Report deleted', content: selectedJob.value.name })
-      message.success('Report deleted')
+      notify('success', { title: translateSource('auto.a7788f3b7f17'), content: selectedJob.value.name })
+      message.success(translateSource('auto.a7788f3b7f17'))
     } else {
-      notify('warning', { title: 'Report partially deleted', content: 'Some files are still locked by a running process.' })
-      message.warning('Report partially deleted. Some files are still locked by a running process.')
+      notify('warning', { title: translateSource('auto.f97ad0da34bf'), content: 'Some files are still locked by a running process.' })
+      message.warning(translateSource('auto.956a95e55cd5'))
     }
     selectedId.value = ''
     await loadJobs()
   } catch (error) {
-    notify('error', { title: 'Delete failed', content: error instanceof Error ? error.message : 'Delete failed' })
+    notify('error', { title: translateSource('auto.64513b47d460'), content: error instanceof Error ? error.message : 'Delete failed' })
     message.error(error instanceof Error ? error.message : 'Delete failed')
   } finally {
     deleting.value = false

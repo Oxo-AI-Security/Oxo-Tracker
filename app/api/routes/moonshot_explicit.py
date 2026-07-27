@@ -12,7 +12,16 @@ from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 from fastapi import APIRouter, Body, HTTPException
 
 from app.services.connector_ai_service import ConnectorAIError, ConnectorAIService
+from app.services.http_transport import open_with_current_network_settings
 from app.services.moonshot_api_service import MoonshotApiService
+from app.services.redteam_sensitive_information_service import (
+    RedTeamSensitiveInformationService,
+    SensitiveInformationAnalysisError,
+)
+from app.services.redteam_task_agent_service import (
+    RedTeamTaskAgentService,
+    TaskAgentServiceError,
+)
 
 router = APIRouter(prefix="/moonshot", tags=["Moonshot Explicit API"])
 REDTEAM_DATA_DIR = Path("data/redteam_sessions")
@@ -57,6 +66,95 @@ def delete_local_redteam_session(session_id: str):
     if path.parent.exists():
         shutil.rmtree(path.parent)
     return {"deleted": True, "session_id": session_id}
+
+
+@router.post(
+    "/redteam/analyze-sensitive-information",
+    summary="Analyze one completed red-team turn with the active Settings AI model",
+)
+def analyze_redteam_sensitive_information(data: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    user_input = str(data.get("user_input") or "")
+    assistant_output = str(data.get("assistant_output") or "")
+    try:
+        ai_service = RedTeamSensitiveInformationService()
+        result = ai_service.analyze_turn(
+            user_input=user_input,
+            assistant_output=assistant_output,
+        )
+        return {
+            **result,
+            "provider": ai_service.provider,
+            "model": ai_service.model,
+        }
+    except SensitiveInformationAnalysisError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+def _task_agent_response(service: RedTeamTaskAgentService, result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **result,
+        "provider": service.provider,
+        "model": service.model,
+    }
+
+
+@router.post(
+    "/redteam/task-agent/plan",
+    summary="Generate the next interaction plan with the active Settings AI model",
+)
+def plan_redteam_task_agent_interaction(data: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    try:
+        task_agent = RedTeamTaskAgentService()
+        max_rounds = data.get("max_rounds")
+        result = task_agent.plan(
+            goal=str(data.get("goal") or ""),
+            history=data.get("history"),
+            round_number=int(data.get("round") or 1),
+            max_rounds=int(max_rounds) if max_rounds is not None else None,
+            previous_evaluation=data.get("previous_evaluation"),
+        )
+        return _task_agent_response(task_agent, result)
+    except (TaskAgentServiceError, TypeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post(
+    "/redteam/task-agent/execute",
+    summary="Turn a planner plan into one target interaction message",
+)
+def execute_redteam_task_agent_interaction(data: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    try:
+        task_agent = RedTeamTaskAgentService()
+        result = task_agent.execute(
+            goal=str(data.get("goal") or ""),
+            history=data.get("history"),
+            plan=data.get("plan"),
+        )
+        return _task_agent_response(task_agent, result)
+    except TaskAgentServiceError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post(
+    "/redteam/task-agent/evaluate",
+    summary="Evaluate goal progress for one completed task-agent turn",
+)
+def evaluate_redteam_task_agent_progress(data: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    try:
+        task_agent = RedTeamTaskAgentService()
+        max_rounds = data.get("max_rounds")
+        result = task_agent.evaluate(
+            goal=str(data.get("goal") or ""),
+            history=data.get("history"),
+            latest_user_input=str(data.get("latest_user_input") or ""),
+            latest_assistant_output=str(data.get("latest_assistant_output") or ""),
+            success_criteria=data.get("success_criteria"),
+            round_number=int(data.get("round") or 1),
+            max_rounds=int(max_rounds) if max_rounds is not None else None,
+        )
+        return _task_agent_response(task_agent, result)
+    except (TaskAgentServiceError, TypeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 def handle_call(callable_result):
@@ -124,7 +222,7 @@ def test_connector(data: dict[str, Any] = Body(...)):
         else:
             method = request_config.get("method") or ("GET" if body is None else "POST")
             req = urllib_request.Request(url, data=body, headers=headers, method=method)
-            with urllib_request.urlopen(req, timeout=timeout) as response:
+            with open_with_current_network_settings(req, timeout) as response:
                 raw = _read_connector_response_body(response, transport)
                 status_code = response.status
         extracted = _extract_connector_response(raw, connector_config.get("response") or {})
@@ -290,7 +388,9 @@ def _extract_connector_response(raw: str, response_config: dict[str, Any]) -> st
     if response_config.get("type") == "text-fragment":
         extracted = _extract_text_fragment(raw, response_config)
         return extracted if extracted is not None else raw
-    if response_config.get("type") == "event-data":
+    # A saved JSON path is more specific than the legacy event-data type.
+    # Prefer it so each SSE payload is decoded before its answer is joined.
+    if response_config.get("type") == "event-data" and not response_config.get("path"):
         payloads = _event_payloads(raw)
         return "".join(payloads) if payloads else raw
     parsed = _parse_json_or_event_payload(raw)
@@ -675,6 +775,12 @@ def create_prompt_template(data: dict[str, Any] = Body(...)):
     return handle_call(lambda: service().create_prompt_template(data))
 
 
+@router.patch("/prompt-templates/{pt_id}", summary="Update Prompt Template")
+def update_prompt_template_record(pt_id: str, data: dict[str, Any] = Body(...)):
+    """Update an Oxo-owned prompt template without changing its ID."""
+    return handle_call(lambda: service().update_prompt_template_record(pt_id, data))
+
+
 @router.delete("/prompt-templates/{pt_id}", summary="删除 Prompt 模板")
 def delete_prompt_template(pt_id: str):
     """根据 Prompt 模板 ID 删除模板。"""
@@ -877,6 +983,14 @@ async def send_redteam_prompt(runner_id: str, data: dict[str, Any] = Body(...)):
 def delete_session(runner_id: str):
     """根据 runner ID 删除 red teaming session。"""
     return handle_call(lambda: service().delete_session(runner_id))
+
+
+@router.delete(
+    "/redteam/sessions/{runner_id}",
+    summary="Delete a temporary runner-backed Red Team Session",
+)
+def delete_redteam_session(runner_id: str):
+    return handle_call(lambda: service().delete_redteam_session(runner_id))
 
 
 @router.get("/sessions/{runner_id}/chats", summary="获取 Session 聊天记录")

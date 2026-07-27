@@ -5,7 +5,7 @@
         <p class="eyebrow">{{ eyebrow }}</p>
         <h2>{{ title }}</h2>
       </div>
-      <n-tag round :bordered="false" type="info">{{ rows.length }} records</n-tag>
+      <n-tag round :bordered="false" type="info">{{ rows.length }} {{ $t('auto.86761b63a7bd') }}</n-tag>
     </div>
 
     <n-data-table
@@ -16,7 +16,7 @@
       :bordered="false"
       size="small"
     />
-    <n-empty v-else description="No records returned from backend" />
+    <n-empty v-else :description="$t('auto.5c52a29e440a')" />
   </GlassPanel>
 </template>
 

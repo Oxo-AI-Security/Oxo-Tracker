@@ -3,39 +3,35 @@
     <GlassPanel class="connector-panel connector-endpoints-panel">
       <div class="section-heading connector-endpoints-heading">
         <div>
-          <p class="eyebrow">Agents / Connector Endpoints</p>
-          <h2>{{ connector?.name || 'Connector Endpoints' }}</h2>
-          <span>{{ connector?.description || 'Manage endpoint JSON records under this connector type.' }}</span>
+          <p class="eyebrow">{{ $t('auto.e0e697daa96d') }}</p>
+          <h2>{{ connector?.name || $t('auto.35ccab90aae1') }}</h2>
+          <span>{{ connector?.description || $t('auto.7ccfcd5c4b01') }}</span>
         </div>
         <div class="endpoint-heading-actions">
-          <n-button secondary round @click="$router.push('/agents/connectors')">Back</n-button>
+          <n-button secondary round @click="$router.push('/agents/connectors')">{{ $t('auto.b52b36b7269f') }}</n-button>
           <n-button type="primary" round :disabled="!connector" @click="addEndpoint">
-            <template #icon><n-icon><AddOutline /></n-icon></template>
-            New Endpoint
-          </n-button>
+            <template #icon><n-icon><AddOutline /></n-icon></template> {{ $t('auto.2358b858ec11') }} </n-button>
         </div>
       </div>
 
-      <n-alert v-if="loadError" type="error" title="Connector not found">
-        The connector type could not be loaded.
-      </n-alert>
+      <n-alert v-if="loadError" type="error" :title="$t('auto.64666508d39d')"> {{ $t('auto.153089d188c1') }} </n-alert>
 
       <template v-else-if="connector">
         <div class="connector-endpoints-summary">
           <article>
-            <dt>Connector Type</dt>
+            <dt>{{ $t('auto.adf5b7757178') }}</dt>
             <dd>{{ connector.id }}</dd>
           </article>
           <article>
-            <dt>Source</dt>
-            <dd>{{ connector.source === 'built-in' ? 'Default connector' : 'Configurable App' }}</dd>
+            <dt>{{ $t('auto.6da13addb000') }}</dt>
+            <dd>{{ connector.source === 'built-in' ? $t('auto.ccd61990d7d2') : $t('auto.ef6691805d41') }}</dd>
           </article>
           <article>
-            <dt>Endpoints</dt>
+            <dt>{{ $t('auto.b71c52711a24') }}</dt>
             <dd>{{ connector.endpointCount || 0 }}</dd>
           </article>
           <article>
-            <dt>Updated</dt>
+            <dt>{{ $t('auto.f2f8570ddd7b') }}</dt>
             <dd>{{ new Date(connector.updatedAt).toLocaleString() }}</dd>
           </article>
         </div>
@@ -43,10 +39,10 @@
         <section class="connector-endpoints-workspace">
           <div class="connector-endpoint-list-head">
             <div>
-              <p class="eyebrow">Endpoint Records</p>
-              <h3>{{ connector.endpointCount || 0 }} configured endpoints</h3>
+              <p class="eyebrow">{{ $t('auto.03849cb31586') }}</p>
+              <h3>{{ connector.endpointCount || 0 }} {{ $t('auto.d39d941ddf44') }}</h3>
             </div>
-            <n-button secondary round size="small" @click="addEndpoint">Add endpoint</n-button>
+            <n-button secondary round size="small" @click="addEndpoint">{{ $t('auto.bfc1935cdb4f') }}</n-button>
           </div>
 
           <div v-if="connector.endpoints?.length" class="connector-endpoint-table">
@@ -56,33 +52,31 @@
                 <span>{{ endpoint.id }}</span>
               </div>
               <div class="connector-endpoint-target">
-                <dt>Target URL</dt>
-                <dd>{{ endpoint.uri || 'No target URL' }}</dd>
+                <dt>{{ $t('auto.b7d8a4de2bb4') }}</dt>
+                <dd>{{ endpoint.uri || $t('auto.e92dbd43e4b4') }}</dd>
               </div>
               <div class="connector-endpoint-target">
-                <dt>Model</dt>
-                <dd>{{ endpoint.model || 'No model' }}</dd>
+                <dt>{{ $t('auto.68c2cc7f0cea') }}</dt>
+                <dd>{{ endpoint.model || $t('auto.8cae61b2d3c4') }}</dd>
               </div>
               <div class="connector-endpoint-meta">
-                <n-tag round :type="endpoint.token ? 'success' : 'default'">{{ endpoint.token ? 'token set' : 'no token' }}</n-tag>
-                <small>{{ endpoint.created_date ? new Date(endpoint.created_date).toLocaleString() : 'No date' }}</small>
+                <n-tag round :type="endpoint.token ? 'success' : 'default'">{{ endpoint.token ? $t('auto.a5f0b0653237') : $t('auto.a38dd7c75585') }}</n-tag>
+                <small>{{ endpoint.created_date ? new Date(endpoint.created_date).toLocaleString() : $t('auto.acb6273ecab9') }}</small>
               </div>
               <div class="connector-endpoint-actions">
-                <n-button secondary round size="small" @click="editEndpoint(endpoint.id)">Edit</n-button>
-                <n-button secondary round size="small" @click="duplicateEndpoint(endpoint.id)">Duplicate</n-button>
-                <n-popconfirm positive-text="Delete" negative-text="Cancel" @positive-click="deleteEndpoint(endpoint.id)">
+                <n-button secondary round size="small" @click="editEndpoint(endpoint.id)">{{ $t('auto.5301648dcf6b') }}</n-button>
+                <n-button secondary round size="small" @click="duplicateEndpoint(endpoint.id)">{{ $t('auto.972d57379db3') }}</n-button>
+                <n-popconfirm :positive-text="$t('common.delete')" :negative-text="$t('auto.77dfd2135f4d')" @positive-click="deleteEndpoint(endpoint.id)">
                   <template #trigger>
-                    <n-button secondary round size="small" type="error">Delete</n-button>
-                  </template>
-                  Delete this connector endpoint?
-                </n-popconfirm>
+                    <n-button secondary round size="small" type="error">{{ $t('common.delete') }}</n-button>
+                  </template> {{ $t('auto.b24cea37767b') }} </n-popconfirm>
               </div>
             </article>
           </div>
 
-          <n-empty v-else description="No endpoints yet. Add one to make this connector available to runs.">
+          <n-empty v-else :description="$t('auto.4a9a9d325f26')">
             <template #extra>
-              <n-button type="primary" round @click="addEndpoint">New Endpoint</n-button>
+              <n-button type="primary" round @click="addEndpoint">{{ $t('auto.2358b858ec11') }}</n-button>
             </template>
           </n-empty>
         </section>
@@ -92,12 +86,14 @@
 </template>
 
 <script setup lang="ts">
+import { translateSource } from '../../../i18n'
+
 import { onMounted, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { AddOutline } from '@vicons/ionicons5'
 import { useRoute, useRouter } from 'vue-router'
 import GlassPanel from '../../../components/GlassPanel.vue'
-import { connectorService, endpointToConfig } from '../../../services/connectorService'
+import { CONFIGURABLE_CONNECTOR, connectorService, endpointToConfig } from '../../../services/connectorService'
 import type { ConnectorListItem } from '../../../types/connector'
 
 const route = useRoute()
@@ -110,7 +106,12 @@ onMounted(loadConnector)
 
 async function loadConnector() {
   loadError.value = false
-  connector.value = await connectorService.getConnector(String(route.params.id || '')) || null
+  const connectorId = String(route.params.id || '')
+  if (connectorId === CONFIGURABLE_CONNECTOR) {
+    await router.replace('/agents/connectors')
+    return
+  }
+  connector.value = await connectorService.getConnector(connectorId) || null
   if (!connector.value) loadError.value = true
 }
 
@@ -136,7 +137,7 @@ function duplicateEndpoint(endpointId: string) {
 
 async function deleteEndpoint(endpointId: string) {
   await connectorService.deleteConnector(endpointId)
-  message.success('Connector endpoint deleted')
+  message.success(translateSource('auto.0eb45fe8d30e'))
   await loadConnector()
 }
 </script>

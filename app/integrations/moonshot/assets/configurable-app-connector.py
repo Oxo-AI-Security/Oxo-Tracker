@@ -1,11 +1,46 @@
 import base64
+import ipaddress
 import json
+import socket
 from urllib import request
 from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 
 from moonshot.src.connectors.connector import Connector, perform_retry
 from moonshot.src.connectors.connector_response import ConnectorResponse
 from moonshot.src.connectors_endpoints.connector_endpoint_arguments import ConnectorEndpointArguments
+
+
+APPROVED_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_declared_loopback_url(url: str) -> bool:
+    return (urlsplit(url).hostname or "").rstrip(".").lower() in APPROVED_LOOPBACK_HOSTS
+
+
+def _assert_verified_loopback_url(url: str) -> None:
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in {"http", "https", "ws", "wss"}:
+        raise RuntimeError("Local test target uses an unsupported URL scheme.")
+    if parts.username is not None or parts.password is not None:
+        raise RuntimeError("Local test target URL must not contain user information.")
+    host = (parts.hostname or "").rstrip(".").lower()
+    if host not in APPROVED_LOOPBACK_HOSTS:
+        raise RuntimeError("Local test target redirect left the approved loopback host set.")
+    addresses = {
+        item[4][0]
+        for item in socket.getaddrinfo(host, parts.port, type=socket.SOCK_STREAM)
+    }
+    if not addresses or any(
+        not ipaddress.ip_address(address.split("%", 1)[0]).is_loopback
+        for address in addresses
+    ):
+        raise RuntimeError("Local test target DNS resolution is not exclusively loopback.")
+
+
+class _LoopbackOnlyRedirectHandler(request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _assert_verified_loopback_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 class ConfigurableAppConnector(Connector):
@@ -40,7 +75,15 @@ class ConfigurableAppConnector(Connector):
             headers=headers,
             method=request_config.get("method") or ("GET" if body is None else "POST"),
         )
-        with request.urlopen(req, timeout=self.timeout) as response:
+        if _is_declared_loopback_url(url):
+            _assert_verified_loopback_url(url)
+            opener = request.build_opener(
+                request.ProxyHandler({}),
+                _LoopbackOnlyRedirectHandler(),
+            )
+        else:
+            opener = request.build_opener()
+        with opener.open(req, timeout=self.timeout) as response:
             return self._read_response_body(response)
 
     async def _send_websocket(self, prompt: str) -> str:
@@ -52,6 +95,8 @@ class ConfigurableAppConnector(Connector):
         path = request_config.get("path", "")
         url = f"{self.endpoint.rstrip('/')}/{path.lstrip('/')}" if path else self.endpoint
         url = self._apply_query_params(url, request_config.get("queryParams") or {}, prompt)
+        if _is_declared_loopback_url(url):
+            _assert_verified_loopback_url(url)
         message_template = request_config.get("messageTemplate") or '{"prompt":"{{ prompt }}"}'
         replacement = json.dumps(prompt, ensure_ascii=False)[1:-1]
         message = message_template.replace("{{ prompt }}", replacement).replace("{{prompt}}", replacement)
@@ -146,7 +191,10 @@ class ConfigurableAppConnector(Connector):
         if response_config.get("type") == "text-fragment":
             extracted = self._extract_text_fragment(raw, response_config)
             return extracted if extracted is not None else raw
-        if response_config.get("type") == "event-data":
+        # Older endpoint records may contain both ``type: event-data`` and a
+        # JSON path. A path is more specific and must win; otherwise streamed
+        # JSON objects are rendered verbatim instead of their answer fragments.
+        if response_config.get("type") == "event-data" and not response_config.get("path"):
             payloads = self._event_payloads(raw)
             return "".join(payloads) if payloads else raw
         data = self._parse_json_or_event_payload(raw)

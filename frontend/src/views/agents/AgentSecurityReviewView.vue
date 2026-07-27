@@ -3,27 +3,23 @@
     <GlassPanel class="agent-review-panel">
       <div class="section-heading agent-review-heading">
         <div>
-          <p class="eyebrow">Agent design audit</p>
-          <h2>Agent Security Review</h2>
-          <p class="agent-review-subtitle">
-            Review agent design materials, complete asset coverage, then generate interactive function and risk maps.
-          </p>
+          <p class="eyebrow">{{ $t('auto.43da21552eb6') }}</p>
+          <h2>{{ $t('auto.a70f44e843d1') }}</h2>
+          <p class="agent-review-subtitle"> {{ $t('auto.76aa86bcc8bc') }} </p>
         </div>
         <div class="endpoint-heading-actions">
-          <n-button v-if="project" secondary round @click="closeProject">Back to Projects</n-button>
-          <n-button secondary round @click="loadProjects">Refresh</n-button>
+          <n-button v-if="project" secondary round @click="closeProject">{{ $t('auto.59994914bf39') }}</n-button>
+          <n-button secondary round @click="loadProjects">{{ $t('auto.56e3badc4e6c') }}</n-button>
           <n-button v-if="!project" type="primary" round @click="openProjectSetup()">
-            <template #icon><n-icon><AddOutline /></n-icon></template>
-            Create Project
-          </n-button>
+            <template #icon><n-icon><AddOutline /></n-icon></template> {{ $t('auto.1cab4431f333') }} </n-button>
         </div>
       </div>
 
       <n-alert v-if="error" type="error" closable class="agent-review-alert" @close="error = ''">
         {{ error }}
         <template #action>
-          <n-button v-if="project && isErrorStatus(project.status)" size="small" secondary @click="startFunctionReview">Retry Asset Review</n-button>
-          <n-button v-else size="small" secondary @click="retryLastAction">Retry</n-button>
+          <n-button v-if="project && isErrorStatus(project.status)" size="small" secondary @click="startFunctionReview">{{ $t('auto.6b01ba0c680a') }}</n-button>
+          <n-button v-else size="small" secondary @click="retryLastAction">{{ $t('auto.9f5cd8a2e880') }}</n-button>
         </template>
       </n-alert>
 
@@ -31,9 +27,9 @@
         <div class="agent-review-project-library">
           <div class="agent-review-projects-title">
             <div>
-              <p class="eyebrow">Projects</p>
-              <h3>Review Projects</h3>
-              <span>{{ projects.length }} saved review projects</span>
+              <p class="eyebrow">{{ $t('auto.53e890d5f0ff') }}</p>
+              <h3>{{ $t('auto.92d1cd06ba73') }}</h3>
+              <span>{{ projects.length }} {{ $t('auto.cd690384be3b') }}</span>
             </div>
           </div>
           <div v-if="projects.length" class="agent-review-option-grid">
@@ -51,9 +47,9 @@
               <span class="agent-review-option-time">{{ formatTime(item.updatedAt || item.createdAt || '') }}</span>
             </button>
           </div>
-          <n-empty v-else description="No review projects yet">
+          <n-empty v-else :description="$t('auto.dc94303f94ff')">
             <template #extra>
-              <n-button type="primary" round @click="openProjectSetup()">Create First Project</n-button>
+              <n-button type="primary" round @click="openProjectSetup()">{{ $t('auto.52c4594c8d31') }}</n-button>
             </template>
           </n-empty>
         </div>
@@ -93,13 +89,11 @@
             </span>
           </div>
           <div class="agent-review-project-topbar-actions">
-            <n-button secondary round @click="openProjectSetup(project)">Project Setup</n-button>
-            <n-popconfirm positive-text="Delete" negative-text="Cancel" @positive-click="deleteCurrentProject">
+            <n-button secondary round @click="openProjectSetup(project)">{{ $t('auto.307abfd2ef51') }}</n-button>
+            <n-popconfirm :positive-text="$t('common.delete')" :negative-text="$t('auto.77dfd2135f4d')" @positive-click="deleteCurrentProject">
               <template #trigger>
-                <n-button secondary round type="error">Delete Project</n-button>
-              </template>
-              Delete this review project and all saved materials?
-            </n-popconfirm>
+                <n-button secondary round type="error">{{ $t('auto.420e6c854256') }}</n-button>
+              </template> {{ $t('auto.3757d1f41e50') }} </n-popconfirm>
           </div>
         </div>
 
@@ -108,12 +102,12 @@
           <section class="agent-review-card agent-review-upload-card">
             <div class="agent-review-card-head">
               <div>
-                <strong>Material Upload</strong>
-                <small>Documents, diagrams, prompts, tool specs, RAG notes, and screenshots.</small>
+                <strong>{{ $t('auto.efae01514a78') }}</strong>
+                <small>{{ $t('auto.c932db7edc4b') }}</small>
               </div>
               <div class="agent-review-upload-actions">
                 <n-select v-model:value="uploadTag" class="agent-review-tag-select" :options="tagOptions" />
-                <n-button v-if="project?.materials?.length" secondary round @click="openFilePicker">Upload Files</n-button>
+                <n-button v-if="project?.materials?.length" secondary round @click="openFilePicker">{{ $t('auto.4bf2cc96cb54') }}</n-button>
               </div>
             </div>
             <input
@@ -133,9 +127,9 @@
               @drop.prevent="handleDrop"
             >
               <n-icon size="30"><CloudUploadOutline /></n-icon>
-              <strong>Drop files here</strong>
+              <strong>{{ $t('auto.773489073e51') }}</strong>
               <span>.doc, .docx, .xls, .xlsx, .csv, .pdf, .txt, .md, .json, .yaml, .png, .jpg, .webp</span>
-              <n-button secondary round @click="openFilePicker">Choose Files</n-button>
+              <n-button secondary round @click="openFilePicker">{{ $t('auto.3d1a24d11db5') }}</n-button>
             </div>
 
             <div v-if="project?.materials?.length" class="agent-review-file-list">
@@ -146,24 +140,24 @@
                   </button>
                   <small>{{ file.extension || file.contentType || 'file' }} / {{ formatBytes(file.size) }} / {{ formatTime(file.uploadedAt) }}</small>
                   <em v-if="isImageMaterial(file)">{{ materialVisualNote }}</em>
-                  <em v-else-if="!file.extractionSupported">This file was uploaded successfully, but text extraction is not fully supported yet.</em>
+                  <em v-else-if="!file.extractionSupported">{{ $t('auto.01fc185710aa') }}</em>
                 </div>
                 <n-tag size="small">{{ file.tag }}</n-tag>
                 <n-button quaternary circle size="small" @click="deleteMaterial(file.fileId)">
                   <template #icon><n-icon><TrashOutline /></n-icon></template>
                 </n-button>
               </article>
-              <n-empty v-if="!filteredMaterials.length" description="No files under this material type" />
+              <n-empty v-if="!filteredMaterials.length" :description="$t('auto.20665f9ab376')" />
             </div>
           </section>
 
           <section class="agent-review-card agent-review-manual-card">
             <div class="agent-review-card-head">
               <div>
-                <strong>Manual Inputs</strong>
-                <small>Paste long prompts, tool specs, RAG sources and endpoint notes in focused editors.</small>
+                <strong>{{ $t('auto.4fa71d634f54') }}</strong>
+                <small>{{ $t('auto.e7467901bfe2') }}</small>
               </div>
-              <n-button secondary round :disabled="!project" @click="saveManualContext">Save Inputs</n-button>
+              <n-button secondary round :disabled="!project" @click="saveManualContext">{{ $t('auto.e1a5548b75f9') }}</n-button>
             </div>
             <div class="agent-review-manual-grid compact">
               <button
@@ -185,16 +179,14 @@
           <section v-if="missingQuestions.length" class="agent-review-card agent-review-missing-workflow" :class="{ collapsed: missingPanelCollapsed }">
             <div class="agent-review-card-head">
               <div>
-                <strong>Supplemental Information</strong>
-                <small>Round 1 identifies missing facts. Answer these questions, then run Update Asset Review to continue the inventory conversation.</small>
+                <strong>{{ $t('auto.1adee0b7d22b') }}</strong>
+                <small>{{ $t('auto.2ab2f70e3ef7') }}</small>
               </div>
               <div class="agent-review-missing-head-actions">
                 <n-button secondary round @click="missingPanelCollapsed = !missingPanelCollapsed">
                   {{ missingPanelCollapsed ? 'Expand' : 'Collapse' }}
                 </n-button>
-                <n-button type="primary" round :loading="reviewing" :disabled="hasUnansweredMissingQuestions" @click="generateAssetGraph">
-                  Generate Asset Graph
-                </n-button>
+                <n-button type="primary" round :loading="reviewing" :disabled="hasUnansweredMissingQuestions" @click="generateAssetGraph"> {{ $t('auto.a05336307c71') }} </n-button>
               </div>
             </div>
             <div v-show="!missingPanelCollapsed" class="agent-review-missing-list">
@@ -216,15 +208,13 @@
                     </div>
                     <div class="agent-review-missing-question-actions">
                       <n-popconfirm
-                        positive-text="Set None"
-                        negative-text="Cancel"
+                        :positive-text="$t('auto.e9a26df0fc43')"
+                        :negative-text="$t('auto.77dfd2135f4d')"
                         @positive-click="cancelMissingAnswer(item.id)"
                       >
                         <template #trigger>
-                          <n-button size="small" secondary round>None</n-button>
-                        </template>
-                        Mark this item as none / not applicable?
-                      </n-popconfirm>
+                          <n-button size="small" secondary round>{{ $t('auto.6eef6648406c') }}</n-button>
+                        </template> {{ $t('auto.04623bc7bb44') }} </n-popconfirm>
                       <n-button size="small" secondary round @click="toggleMissingAnswerLock(item.id)">
                         {{ missingAnswerLocks[item.id] ? 'Edit' : 'Save' }}
                       </n-button>
@@ -237,62 +227,50 @@
                     :autosize="{ minRows: 2, maxRows: 5 }"
                     :readonly="Boolean(missingAnswerLocks[item.id])"
                     :class="{ locked: missingAnswerLocks[item.id], answered: missingAnswers[item.id] }"
-                    placeholder="Answer"
+                    :placeholder="$t('auto.a16a4eda7cb2')"
                     @blur="lockMissingAnswer(item.id)"
                     @dblclick="unlockMissingAnswer(item.id)"
                   />
-                  <small v-if="missingAnswerLocks[item.id]" class="agent-review-lock-note">Saved and locked. Double-click the input or click Edit to update.</small>
+                  <small v-if="missingAnswerLocks[item.id]" class="agent-review-lock-note">{{ $t('auto.6092a6db9f8f') }}</small>
                 </div>
               </article>
             </div>
-            <n-alert v-if="hasUnansweredMissingQuestions" type="warning" class="agent-review-alert">
-              Answer every supplemental question before generating the architecture graph.
-            </n-alert>
+            <n-alert v-if="hasUnansweredMissingQuestions" type="warning" class="agent-review-alert"> {{ $t('auto.d85e2a02000a') }} </n-alert>
           </section>
 
           <section class="agent-review-card agent-review-workspace-card">
             <div class="agent-review-workspace-head unified">
               <div>
-                <p class="eyebrow">Asset review workflow</p>
-                <strong>{{ activeMap === 'risk' ? 'Risk Overlay Map' : 'Function Review Map' }}</strong>
-                <small>{{ project?.functionReview?.summary || 'Start with asset coverage. Risk analysis starts only after critical supplemental information is answered.' }}</small>
+                <p class="eyebrow">{{ $t('auto.1059f7afa952') }}</p>
+                <strong>{{ activeMap === 'risk' ? $t('auto.d4112a39abd2') : $t('auto.dddf9be36375') }}</strong>
+                <small>{{ project?.functionReview?.summary || $t('auto.66c588054ef2') }}</small>
                 <div v-if="activeMap !== 'risk' && assetCompleteness" class="agent-review-graph-metrics">
-                  <span>Completeness {{ Math.round(assetCompleteness.score) }}%</span>
+                  <span>{{ $t('auto.778184da86df') }} {{ Math.round(assetCompleteness.score) }}%</span>
                   <span>{{ assetCompleteness.status }}</span>
-                  <span>{{ assetMissingCount }} missing signals</span>
+                  <span>{{ assetMissingCount }} {{ $t('auto.39f9150ee1b0') }}</span>
                 </div>
               </div>
               <div class="agent-review-risk-toolbar">
                 <n-button secondary round :disabled="activeMap === 'function' && !project?.functionReview" @click="activeMap = activeMap === 'risk' ? 'function' : 'risk'">
-                  {{ activeMap === 'risk' ? 'Function Map' : 'Risk Map' }}
+                  {{ activeMap === 'risk' ? $t('auto.d03ad13e5d1d') : $t('auto.3e2ea36065a3') }}
                 </n-button>
-                <n-button secondary round :disabled="!hasRenderableGraph" @click="autoLayout">Auto Layout</n-button>
-                <n-button v-if="activeMap === 'function'" secondary round :disabled="!hasRenderableGraph" @click="saveFunctionMap">Save Layout</n-button>
+                <n-button secondary round :disabled="!hasRenderableGraph" @click="autoLayout">{{ $t('auto.80644f16c802') }}</n-button>
+                <n-button v-if="activeMap === 'function'" secondary round :disabled="!hasRenderableGraph" @click="saveFunctionMap">{{ $t('auto.3a51132d81b6') }}</n-button>
                 <n-select v-if="activeMap === 'risk'" v-model:value="riskFilter" class="agent-review-filter-select" :options="riskFilterOptions" />
-                <n-button v-if="activeMap === 'risk' && isCurrentRiskReviewing" secondary round type="warning" @click="cancelCurrentReview">
-                  Cancel
-                </n-button>
-                <n-button v-if="activeMap === 'risk'" class="red-test-button" round :loading="isCurrentRiskReviewing" :disabled="!canGenerateRiskMap || isCurrentRiskReviewing" @click="generateRiskMap">
-                  Generate Risk Map
-                </n-button>
-                <n-button v-else-if="isCurrentFunctionReviewing" secondary round type="warning" @click="cancelCurrentReview">
-                  Cancel
-                </n-button>
-                <n-button v-else-if="canGenerateAssetGraph" type="primary" round :loading="reviewing" @click="generateAssetGraph">
-                  Generate Asset Graph
-                </n-button>
-                <n-button v-else type="primary" round :loading="isCurrentFunctionReviewing" :disabled="!project || isCurrentFunctionReviewing" @click="startFunctionReview">
-                  Start Asset Review
-                </n-button>
+                <n-button v-if="activeMap === 'risk' && isCurrentRiskReviewing" secondary round type="warning" @click="cancelCurrentReview"> {{ $t('auto.77dfd2135f4d') }} </n-button>
+                <n-button v-if="activeMap === 'risk'" class="red-test-button" round :loading="isCurrentRiskReviewing" :disabled="!canGenerateRiskMap || isCurrentRiskReviewing" @click="generateRiskMap"> {{ $t('auto.986c0dc4e6ab') }} </n-button>
+                <n-button v-else-if="isCurrentFunctionReviewing" secondary round type="warning" @click="cancelCurrentReview"> {{ $t('auto.77dfd2135f4d') }} </n-button>
+                <n-button v-else-if="canGenerateAssetGraph" type="primary" round :loading="reviewing" @click="generateAssetGraph"> {{ $t('auto.a05336307c71') }} </n-button>
+                <n-button v-else type="primary" round :loading="isCurrentFunctionReviewing" :disabled="!project || isCurrentFunctionReviewing" @click="startFunctionReview"> {{ $t('auto.c8effd3e3c4b') }} </n-button>
               </div>
             </div>
 
             <section v-if="activeMap === 'risk'" class="agent-review-risk-overview">
               <div class="agent-review-feature-inventory-head">
                 <div>
-                  <strong>Risk & Details</strong>
+                  <strong>{{ $t('auto.60f729a271dc') }}</strong>
                 </div>
-                <span>{{ filteredRisks.length }} risks</span>
+                <span>{{ filteredRisks.length }} {{ $t('auto.ac723defad57') }}</span>
               </div>
               <div v-if="project?.riskReview?.risks?.length" class="agent-review-risk-grid">
                 <button
@@ -308,18 +286,18 @@
                 </button>
               </div>
               <div v-else class="agent-review-risk-prompt">
-                <strong>Risk map is not generated yet</strong>
-                <span>Add optional risk focus notes below, then generate the risk overlay.</span>
+                <strong>{{ $t('auto.926bbc6df40a') }}</strong>
+                <span>{{ $t('auto.928c68717ddf') }}</span>
               </div>
             </section>
 
             <section v-else-if="project?.functionReview && assetInventoryReady" class="agent-review-asset-matrix">
               <div class="agent-review-feature-inventory-head">
                 <div>
-                  <strong>AI Agent Asset Inventory</strong>
-                  <small>Round 2 inventory output. Fixed 12-dimension asset model before capability and risk mapping.</small>
+                  <strong>{{ $t('auto.a1025dd0cfae') }}</strong>
+                  <small>{{ $t('auto.4ae78d27bcce') }}</small>
                 </div>
-                <span>{{ coverageRows.filter(dimensionHasAssets).length }} / 12 present</span>
+                <span>{{ coverageRows.filter(dimensionHasAssets).length }} {{ $t('auto.dcfb6b78f55e') }}</span>
               </div>
               <div class="agent-review-asset-grid">
                 <button
@@ -341,15 +319,15 @@
                   <div v-if="dimensionHasAssets(dimension)" class="agent-review-asset-chip-list">
                     <span v-for="asset in dimensionAssetNames(dimension)" :key="asset">{{ asset }}</span>
                   </div>
-                  <p v-else>No confirmed asset in uploaded materials.</p>
+                  <p v-else>{{ $t('auto.272f6ee8378c') }}</p>
                 </button>
               </div>
             </section>
 
             <section v-else-if="project?.functionReview && !hasGeneratedAssetGraph" class="agent-review-asset-waiting">
-              <n-empty :description="hasUnansweredMissingQuestions ? 'Answer all supplemental questions before generating the architecture graph' : 'Questions are complete. Generate Asset Graph to build the layered component map.'">
+              <n-empty :description="hasUnansweredMissingQuestions ? $t('auto.27ea895b8fd5') : $t('auto.099995952fb1')">
                 <template #extra>
-                  <n-button v-if="canGenerateAssetGraph" type="primary" round @click="generateAssetGraph">Generate Asset Graph</n-button>
+                  <n-button v-if="canGenerateAssetGraph" type="primary" round @click="generateAssetGraph">{{ $t('auto.a05336307c71') }}</n-button>
                 </template>
               </n-empty>
             </section>
@@ -357,10 +335,10 @@
             <section v-if="activeMap !== 'risk' && hasGeneratedAssetGraph && featureRows.length" class="agent-review-feature-inventory">
               <div class="agent-review-feature-inventory-head">
                 <div>
-                  <strong>Capability Inventory</strong>
-                  <small>Click a capability to inspect trigger, inputs, outputs, dependencies, tools, RAG and next steps.</small>
+                  <strong>{{ $t('auto.6ae447eea545') }}</strong>
+                  <small>{{ $t('auto.d0a1f31a99d3') }}</small>
                 </div>
-                <span>{{ featureRows.length }} extracted features</span>
+                <span>{{ featureRows.length }} {{ $t('auto.e7a996473c81') }}</span>
               </div>
               <div class="agent-review-feature-grid">
                 <button v-for="feature in featureRows" :key="feature.id" type="button" class="agent-review-feature-card" @click="openFeatureDetail(feature)">
@@ -368,7 +346,7 @@
                   <strong>{{ feature.name }}</strong>
                   <p>{{ feature.description }}</p>
                   <small>{{ formatMappedDimensions(feature.mapped_dimensions) }}</small>
-                  <small>{{ feature.trigger || 'No trigger captured' }}</small>
+                  <small>{{ feature.trigger || $t('auto.8ce239f38cda') }}</small>
                 </button>
               </div>
             </section>
@@ -410,18 +388,18 @@
                 </VueFlow>
                 <div v-else-if="isGraphReviewing" class="agent-review-ai-loading">
                   <span />
-                  <strong>{{ activeMap === 'risk' ? 'Generating risk overlay' : assetReviewPhaseTitle }}</strong>
-                  <small>{{ activeMap === 'risk' ? 'Mapping signals, edges, and context into a structured graph...' : assetReviewPhaseDetail }}</small>
+                  <strong>{{ activeMap === 'risk' ? $t('auto.e27ddb227d89') : assetReviewPhaseTitle }}</strong>
+                  <small>{{ activeMap === 'risk' ? $t('auto.339275d307d4') : assetReviewPhaseDetail }}</small>
                 </div>
-                <n-empty v-else :description="activeMap === 'risk' ? 'Generate Risk Map to render the risk overlay' : 'Run Asset Review to generate the capability flow map'" />
+                <n-empty v-else :description="activeMap === 'risk' ? $t('auto.6835bf4f1a53') : $t('auto.1aac71aa99ad')" />
               </div>
 
               <aside class="agent-review-detail">
                 <div class="agent-review-card-head">
-                  <strong>{{ activeMap === 'risk' ? 'Selected Risk Context' : 'Details' }}</strong>
+                  <strong>{{ activeMap === 'risk' ? $t('auto.7172e7391b70') : 'Details' }}</strong>
                   <div v-if="activeMap !== 'risk'" class="agent-review-actions">
-                    <n-button size="small" secondary @click="openNodeEditor()">Add Node</n-button>
-                    <n-button size="small" secondary @click="openEdgeEditor()">Add Edge</n-button>
+                    <n-button size="small" secondary @click="openNodeEditor()">{{ $t('auto.1ade58681172') }}</n-button>
+                    <n-button size="small" secondary @click="openEdgeEditor()">{{ $t('auto.b91e73c73b7a') }}</n-button>
                   </div>
                 </div>
                 <template v-if="activeMap === 'risk'">
@@ -430,9 +408,9 @@
                     <h3>{{ selectedRisk.title }}</h3>
                     <small>{{ selectedRisk.category }}</small>
                     <dl>
-                      <div><dt>Description</dt><dd>{{ selectedRisk.description }}</dd></div>
-                      <div><dt>Impact</dt><dd>{{ selectedRisk.impact }}</dd></div>
-                      <div><dt>Recommendation</dt><dd>{{ selectedRisk.recommendation }}</dd></div>
+                      <div><dt>{{ $t('auto.55f8ebc805e6') }}</dt><dd>{{ selectedRisk.description }}</dd></div>
+                      <div><dt>{{ $t('auto.62036a7016ec') }}</dt><dd>{{ selectedRisk.impact }}</dd></div>
+                      <div><dt>{{ $t('auto.6422fcc967f4') }}</dt><dd>{{ selectedRisk.recommendation }}</dd></div>
                     </dl>
                   </div>
                   <div v-else-if="activeRisks.length" class="agent-review-risk-accordion">
@@ -449,7 +427,7 @@
                     </button>
                   </div>
                   <div v-else class="agent-review-detail-empty">
-                    <n-empty description="Select a risk or a node with risks" />
+                    <n-empty :description="$t('auto.e14867865a1a')" />
                   </div>
                 </template>
                 <template v-else-if="selectedElement">
@@ -458,14 +436,14 @@
                     <h3>{{ selectedAssetDetail.name }}</h3>
                     <small>{{ selectedAssetDetail.asset_type }} / {{ selectedAssetDetail.layer }}</small>
                     <dl>
-                      <div><dt>Description</dt><dd>{{ selectedAssetDetail.description || '-' }}</dd></div>
-                      <div><dt>Evidence</dt><dd>{{ formatList(selectedAssetDetail.source_evidence) }}</dd></div>
-                      <div><dt>Data</dt><dd>{{ formatList(selectedAssetDetail.data_handled) }}</dd></div>
-                      <div><dt>Permissions</dt><dd>{{ formatList(selectedAssetDetail.permissions) }}</dd></div>
-                      <div><dt>Access</dt><dd>{{ selectedAssetDetail.access_mode || '-' }}</dd></div>
-                      <div><dt>Approval</dt><dd>{{ selectedAssetDetail.requires_approval ? 'Required' : 'Not captured' }}</dd></div>
-                      <div><dt>Risk Hint</dt><dd>{{ selectedAssetDetail.risk_hint || '-' }}</dd></div>
-                      <div><dt>Metadata</dt><dd>{{ formatStructured(selectedAssetDetail.metadata) }}</dd></div>
+                      <div><dt>{{ $t('auto.55f8ebc805e6') }}</dt><dd>{{ selectedAssetDetail.description || '-' }}</dd></div>
+                      <div><dt>{{ $t('auto.7ea014de7bfb') }}</dt><dd>{{ formatList(selectedAssetDetail.source_evidence) }}</dd></div>
+                      <div><dt>{{ $t('auto.e5e429bcc9c2') }}</dt><dd>{{ formatList(selectedAssetDetail.data_handled) }}</dd></div>
+                      <div><dt>{{ $t('auto.d06d55570938') }}</dt><dd>{{ formatList(selectedAssetDetail.permissions) }}</dd></div>
+                      <div><dt>{{ $t('auto.2f81a22de0af') }}</dt><dd>{{ selectedAssetDetail.access_mode || '-' }}</dd></div>
+                      <div><dt>{{ $t('auto.8cc047ac17d3') }}</dt><dd>{{ selectedAssetDetail.requires_approval ? 'Required' : $t('auto.70f23bfd150f') }}</dd></div>
+                      <div><dt>{{ $t('auto.59a6a5524e83') }}</dt><dd>{{ selectedAssetDetail.risk_hint || '-' }}</dd></div>
+                      <div><dt>{{ $t('auto.251edc0eb5a8') }}</dt><dd>{{ formatStructured(selectedAssetDetail.metadata) }}</dd></div>
                     </dl>
                   </div>
                   <div v-else-if="selectedRelationshipDetail" class="agent-review-asset-inspector">
@@ -473,44 +451,42 @@
                     <h3>{{ selectedRelationshipDetail.label || selectedRelationshipDetail.id }}</h3>
                     <small>{{ selectedRelationshipDetail.source }} -> {{ selectedRelationshipDetail.target }}</small>
                     <dl>
-                      <div><dt>Description</dt><dd>{{ selectedRelationshipDetail.description || '-' }}</dd></div>
-                      <div><dt>Data Flow</dt><dd>{{ formatList(selectedRelationshipDetail.data_flow) }}</dd></div>
-                      <div><dt>Auth</dt><dd>{{ selectedRelationshipDetail.auth_context || '-' }}</dd></div>
-                      <div><dt>Status</dt><dd>{{ selectedRelationshipDetail.status || '-' }}</dd></div>
+                      <div><dt>{{ $t('auto.55f8ebc805e6') }}</dt><dd>{{ selectedRelationshipDetail.description || '-' }}</dd></div>
+                      <div><dt>{{ $t('auto.d3ef9a304a14') }}</dt><dd>{{ formatList(selectedRelationshipDetail.data_flow) }}</dd></div>
+                      <div><dt>{{ $t('auto.35d0f5fbca4b') }}</dt><dd>{{ selectedRelationshipDetail.auth_context || '-' }}</dd></div>
+                      <div><dt>{{ $t('auto.bae7d5be7082') }}</dt><dd>{{ selectedRelationshipDetail.status || '-' }}</dd></div>
                     </dl>
                   </div>
                   <n-form v-else label-placement="top">
-                    <n-form-item label="Name / Label">
+                    <n-form-item :label="$t('auto.767cfc2ad37a')">
                       <n-input v-model:value="detailDraft.label" />
                     </n-form-item>
-                    <n-form-item label="Type">
+                    <n-form-item :label="$t('auto.3deb74565196')">
                       <n-select v-if="selectedElement.kind === 'node'" v-model:value="detailDraft.nodeType" :options="nodeTypeOptions" />
                       <n-input v-else v-model:value="detailDraft.flowType" />
                     </n-form-item>
-                    <n-form-item label="Description">
+                    <n-form-item :label="$t('auto.55f8ebc805e6')">
                       <n-input v-model:value="detailDraft.description" type="textarea" :autosize="{ minRows: 4, maxRows: 8 }" />
                     </n-form-item>
                   </n-form>
                   <div class="agent-review-actions">
-                    <n-button secondary round @click="applyDetailEdit">Save</n-button>
-                    <n-button secondary round type="error" @click="deleteSelected">Delete</n-button>
+                    <n-button secondary round @click="applyDetailEdit">{{ $t('auto.efc007a393f6') }}</n-button>
+                    <n-button secondary round type="error" @click="deleteSelected">{{ $t('common.delete') }}</n-button>
                   </div>
                 </template>
                 <div v-else class="agent-review-detail-empty">
                   <div v-if="isGraphReviewing" class="agent-review-ai-loading compact">
                     <span />
-                    <strong>Preparing context</strong>
-                    <small>Details will appear after the review finishes.</small>
+                    <strong>{{ $t('auto.c8673838205c') }}</strong>
+                    <small>{{ $t('auto.95fbb8bfc497') }}</small>
                   </div>
-                  <n-empty v-else description="Select a node or edge to inspect" />
+                  <n-empty v-else :description="$t('auto.6c2a77324e31')" />
                 </div>
               </aside>
             </div>
           </section>
 
-          <n-alert v-if="activeMap === 'risk' && !canGenerateRiskMap" type="warning" class="agent-review-alert">
-            Risk Map is not ready. Please answer critical supplemental information first.
-            <div v-if="riskReadinessIssues.length" class="agent-review-readiness-list">
+          <n-alert v-if="activeMap === 'risk' && !canGenerateRiskMap" type="warning" class="agent-review-alert"> {{ $t('auto.92c4fbd75c46') }} <div v-if="riskReadinessIssues.length" class="agent-review-readiness-list">
               <span v-for="issue in riskReadinessIssues" :key="issue">{{ issue }}</span>
             </div>
           </n-alert>
@@ -518,18 +494,16 @@
           <section v-if="activeMap === 'risk'" class="agent-review-card">
             <div class="agent-review-card-head">
               <div>
-                <strong>Additional Risk Focus</strong>
-                <small>Add extra risk points or assumptions, then regenerate the risk overlay.</small>
+                <strong>{{ $t('auto.f3b3d9464fcc') }}</strong>
+                <small>{{ $t('auto.5840d5ac89c6') }}</small>
               </div>
-              <n-button type="primary" round :loading="isCurrentRiskReviewing" :disabled="!canGenerateRiskMap" @click="generateRiskMap">
-                Regenerate Risk Map
-              </n-button>
+              <n-button type="primary" round :loading="isCurrentRiskReviewing" :disabled="!canGenerateRiskMap" @click="generateRiskMap"> {{ $t('auto.cefc370dcec0') }} </n-button>
             </div>
             <n-input
               v-model:value="additionalRiskNotes"
               type="textarea"
               :autosize="{ minRows: 3, maxRows: 6 }"
-              placeholder="Example: focus on tenant isolation, data exfiltration paths, parser sandboxing, or approval controls."
+              :placeholder="$t('auto.ebae29f26c6e')"
             />
           </section>
 
@@ -537,35 +511,35 @@
       </div>
     </GlassPanel>
 
-    <n-modal v-model:show="projectSetupOpen" preset="card" title="Project Setup" class="agent-review-setup-modal">
+    <n-modal v-model:show="projectSetupOpen" preset="card" :title="$t('auto.307abfd2ef51')" class="agent-review-setup-modal">
       <n-form label-placement="top" class="agent-review-form">
-        <n-form-item label="Project Name">
-          <n-input v-model:value="setup.projectName" placeholder="Support Copilot" />
+        <n-form-item :label="$t('auto.5f950764df30')">
+          <n-input v-model:value="setup.projectName" :placeholder="$t('auto.d08e2bccb5c5')" />
         </n-form-item>
-        <n-form-item label="Description">
+        <n-form-item :label="$t('auto.55f8ebc805e6')">
           <n-input v-model:value="setup.description" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" />
         </n-form-item>
-        <n-form-item label="Agent Type">
+        <n-form-item :label="$t('auto.725bb5c80201')">
           <n-select v-model:value="setup.agentType" :options="agentTypeOptions" />
         </n-form-item>
-        <n-form-item label="AI Provider">
+        <n-form-item :label="$t('auto.188b430cdfa7')">
           <n-select v-model:value="setup.provider" :options="providerOptions" />
         </n-form-item>
-        <n-form-item label="Review Model">
+        <n-form-item :label="$t('auto.11bf07fd1459')">
           <n-select v-model:value="setup.modelName" :options="modelOptions" />
         </n-form-item>
         <n-alert type="info" class="agent-review-model-note">
-          {{ selectedProviderInfo?.supported || 'Select a provider to see supported material formats.' }}
+          {{ selectedProviderInfo?.supported || $t('auto.9c02fb9b0974') }}
         </n-alert>
-        <n-form-item :label="selectedProviderInfo?.apiKeyLabel || 'API Key'">
-          <n-input v-model:value="providerApiKey" type="password" show-password-on="click" placeholder="Only used by this module" />
+        <n-form-item :label="selectedProviderInfo?.apiKeyLabel || $t('auto.47acd2028cf8')">
+          <n-input v-model:value="providerApiKey" type="password" show-password-on="click" :placeholder="$t('auto.12dcbb5e8d2e')" />
         </n-form-item>
       </n-form>
       <template #footer>
         <div class="agent-review-actions">
-          <n-button secondary round @click="saveProviderKey">Save Key</n-button>
-          <n-button secondary round :loading="testingProvider" @click="testProviderConnection">Test Connection</n-button>
-          <n-button type="primary" round @click="saveProjectSetup">{{ project ? 'Save Setup' : 'Create Project' }}</n-button>
+          <n-button secondary round @click="saveProviderKey">{{ $t('auto.1aa1bb531d90') }}</n-button>
+          <n-button secondary round :loading="testingProvider" @click="testProviderConnection">{{ $t('auto.580f6ab716ab') }}</n-button>
+          <n-button type="primary" round @click="saveProjectSetup">{{ project ? $t('auto.74f2fa757381') : $t('auto.1cab4431f333') }}</n-button>
         </div>
       </template>
     </n-modal>
@@ -579,36 +553,36 @@
       />
       <template #footer>
         <div class="agent-review-actions">
-          <n-button secondary round @click="manualEditorOpen = false">Close</n-button>
-          <n-button type="primary" round @click="saveManualFromModal">Save Inputs</n-button>
+          <n-button secondary round @click="manualEditorOpen = false">{{ $t('auto.bbfa773e5a63') }}</n-button>
+          <n-button type="primary" round @click="saveManualFromModal">{{ $t('auto.e1a5548b75f9') }}</n-button>
         </div>
       </template>
     </n-modal>
 
-    <n-modal v-model:show="featureDetailOpen" preset="card" :title="selectedFeature?.name || 'Capability Detail'" class="agent-review-feature-modal">
+    <n-modal v-model:show="featureDetailOpen" preset="card" :title="selectedFeature?.name || $t('auto.3fb3057a734c')" class="agent-review-feature-modal">
       <div v-if="selectedFeature" class="agent-review-feature-detail">
         <span>{{ selectedFeature.id }}</span>
         <p>{{ selectedFeature.description }}</p>
         <dl>
-          <div><dt>Mapped Dimensions</dt><dd>{{ formatMappedDimensions(selectedFeature.mapped_dimensions) }}</dd></div>
-          <div><dt>Related Assets</dt><dd>{{ formatMappedDimensions(selectedFeature.related_asset_ids) }}</dd></div>
-          <div><dt>Status</dt><dd>{{ selectedFeature.status || '-' }}</dd></div>
-          <div><dt>Trigger</dt><dd>{{ selectedFeature.trigger || '-' }}</dd></div>
-          <div><dt>Inputs</dt><dd>{{ formatList(selectedFeature.inputs) }}</dd></div>
-          <div><dt>Outputs</dt><dd>{{ formatList(selectedFeature.outputs) }}</dd></div>
-          <div><dt>Components</dt><dd>{{ formatList(selectedFeature.components) }}</dd></div>
-          <div><dt>Tools</dt><dd>{{ formatList(selectedFeature.tools) }}</dd></div>
-          <div><dt>Data Assets</dt><dd>{{ formatList(selectedFeature.data_assets) }}</dd></div>
-          <div><dt>Permissions</dt><dd>{{ formatList(selectedFeature.permissions) }}</dd></div>
-          <div><dt>Dependencies</dt><dd>{{ formatList(selectedFeature.dependencies) }}</dd></div>
+          <div><dt>{{ $t('auto.deb8f5ab946f') }}</dt><dd>{{ formatMappedDimensions(selectedFeature.mapped_dimensions) }}</dd></div>
+          <div><dt>{{ $t('auto.ebd4fa37e80a') }}</dt><dd>{{ formatMappedDimensions(selectedFeature.related_asset_ids) }}</dd></div>
+          <div><dt>{{ $t('auto.bae7d5be7082') }}</dt><dd>{{ selectedFeature.status || '-' }}</dd></div>
+          <div><dt>{{ $t('auto.d3f06a581b2b') }}</dt><dd>{{ selectedFeature.trigger || '-' }}</dd></div>
+          <div><dt>{{ $t('auto.bbcf64a3a280') }}</dt><dd>{{ formatList(selectedFeature.inputs) }}</dd></div>
+          <div><dt>{{ $t('auto.7835db447bc7') }}</dt><dd>{{ formatList(selectedFeature.outputs) }}</dd></div>
+          <div><dt>{{ $t('auto.9289473eeeda') }}</dt><dd>{{ formatList(selectedFeature.components) }}</dd></div>
+          <div><dt>{{ $t('auto.4fa8cc860c52') }}</dt><dd>{{ formatList(selectedFeature.tools) }}</dd></div>
+          <div><dt>{{ $t('auto.01fb212ad76f') }}</dt><dd>{{ formatList(selectedFeature.data_assets) }}</dd></div>
+          <div><dt>{{ $t('auto.d06d55570938') }}</dt><dd>{{ formatList(selectedFeature.permissions) }}</dd></div>
+          <div><dt>{{ $t('auto.0562f32dc56f') }}</dt><dd>{{ formatList(selectedFeature.dependencies) }}</dd></div>
           <div><dt>RAG</dt><dd>{{ formatStructured(selectedFeature.rag) }}</dd></div>
-          <div><dt>File / Image</dt><dd>{{ formatStructured(selectedFeature.file_or_image_processing) }}</dd></div>
-          <div><dt>Next</dt><dd>{{ formatList(selectedFeature.flow_next) }}</dd></div>
+          <div><dt>{{ $t('auto.a8ce255496a0') }}</dt><dd>{{ formatStructured(selectedFeature.file_or_image_processing) }}</dd></div>
+          <div><dt>{{ $t('auto.bc981983e7f5') }}</dt><dd>{{ formatList(selectedFeature.flow_next) }}</dd></div>
         </dl>
       </div>
     </n-modal>
 
-    <n-modal v-model:show="dimensionDetailOpen" preset="card" :title="selectedDimension?.dimension_name || 'Asset Dimension Detail'" class="agent-review-dimension-modal">
+    <n-modal v-model:show="dimensionDetailOpen" preset="card" :title="selectedDimension?.dimension_name || $t('auto.eeef44416815')" class="agent-review-dimension-modal">
       <div v-if="selectedDimension" class="agent-review-asset-detail">
         <div class="agent-review-asset-detail-hero" :class="{ empty: !dimensionHasAssets(selectedDimension) }">
           <span>{{ selectedDimension.dimension_id }}</span>
@@ -622,40 +596,40 @@
         </div>
         <section v-if="selectedDimension.detected_assets.length" class="agent-review-asset-detail-section">
           <header>
-            <strong>Detected Assets</strong>
-            <small>{{ selectedDimension.detected_assets.length }} found</small>
+            <strong>{{ $t('auto.72dcfc83516a') }}</strong>
+            <small>{{ selectedDimension.detected_assets.length }} {{ $t('auto.2739bb260ce4') }}</small>
           </header>
           <div class="agent-review-asset-detail-list">
             <article v-for="asset in selectedDimension.detected_assets" :key="asset.asset_id" class="agent-review-asset-detail-item">
               <div class="agent-review-asset-detail-item-head">
                 <div>
                   <strong>{{ asset.name || asset.asset_id }}</strong>
-                  <small>{{ asset.description || 'No description captured.' }}</small>
+                  <small>{{ asset.description || $t('auto.af9a217789e2') }}</small>
                 </div>
                 <span>{{ asset.asset_type || 'asset' }}</span>
               </div>
               <dl>
-                <div><dt>Risk</dt><dd>{{ asset.risk_level || 'unknown' }}</dd></div>
-                <div><dt>Confidence</dt><dd>{{ formatConfidence(asset.confidence) }}</dd></div>
-                <div><dt>Source</dt><dd>{{ asset.source_dimension_id || selectedDimension.dimension_id }}</dd></div>
+                <div><dt>{{ $t('auto.5a8f23f567cd') }}</dt><dd>{{ asset.risk_level || 'unknown' }}</dd></div>
+                <div><dt>{{ $t('auto.82fa7d52c89d') }}</dt><dd>{{ formatConfidence(asset.confidence) }}</dd></div>
+                <div><dt>{{ $t('auto.6da13addb000') }}</dt><dd>{{ asset.source_dimension_id || selectedDimension.dimension_id }}</dd></div>
               </dl>
             </article>
           </div>
         </section>
         <section v-else class="agent-review-asset-detail-empty">
-          <strong>No asset found for this dimension</strong>
-          <p>The uploaded materials did not identify this asset area. It remains gray in the inventory.</p>
+          <strong>{{ $t('auto.2f282f00a4ed') }}</strong>
+          <p>{{ $t('auto.e866cb568150') }}</p>
         </section>
         <section class="agent-review-asset-detail-section">
           <header>
-            <strong>Evidence & Follow-up</strong>
-            <small>Source clues and open gaps</small>
+            <strong>{{ $t('auto.06b2b26fd1af') }}</strong>
+            <small>{{ $t('auto.d80701b216b2') }}</small>
           </header>
           <dl class="agent-review-asset-detail-meta">
-            <div><dt>Evidence</dt><dd>{{ formatEvidenceItems(selectedDimension.evidence) }}</dd></div>
-            <div><dt>Missing Fields</dt><dd>{{ formatList(selectedDimension.missing_fields) }}</dd></div>
-            <div><dt>Follow-up Questions</dt><dd>{{ relatedQuestions(selectedDimension.dimension_id).map((item) => item.question).join('\n') || '-' }}</dd></div>
-            <div><dt>Risk Hints</dt><dd>{{ formatList(selectedDimension.potential_risk_hints) }}</dd></div>
+            <div><dt>{{ $t('auto.7ea014de7bfb') }}</dt><dd>{{ formatEvidenceItems(selectedDimension.evidence) }}</dd></div>
+            <div><dt>{{ $t('auto.cc4edb2af604') }}</dt><dd>{{ formatList(selectedDimension.missing_fields) }}</dd></div>
+            <div><dt>{{ $t('auto.373cc2c615e3') }}</dt><dd>{{ relatedQuestions(selectedDimension.dimension_id).map((item) => item.question).join('\n') || '-' }}</dd></div>
+            <div><dt>{{ $t('auto.8ca36abbe70e') }}</dt><dd>{{ formatList(selectedDimension.potential_risk_hints) }}</dd></div>
           </dl>
         </section>
       </div>
@@ -666,9 +640,9 @@
         <div class="agent-review-preview-toolbar">
           <span>{{ materialPreviewMeta }}</span>
           <div v-if="materialPreviewMode === 'image'" class="agent-review-preview-actions">
-            <n-button secondary round size="small" @click="zoomPreview(-0.2)">Zoom Out</n-button>
-            <n-button secondary round size="small" @click="resetPreviewTransform">Reset</n-button>
-            <n-button secondary round size="small" @click="zoomPreview(0.2)">Zoom In</n-button>
+            <n-button secondary round size="small" @click="zoomPreview(-0.2)">{{ $t('auto.87af1da361b3') }}</n-button>
+            <n-button secondary round size="small" @click="resetPreviewTransform">{{ $t('auto.44c57abd888a') }}</n-button>
+            <n-button secondary round size="small" @click="zoomPreview(0.2)">{{ $t('auto.e59ac86a75de') }}</n-button>
           </div>
         </div>
         <div
@@ -691,38 +665,40 @@
         <iframe v-else-if="materialPreviewMode === 'frame'" class="agent-review-frame-preview" :src="materialPreviewUrl" />
         <pre v-else-if="materialPreviewMode === 'text'" class="agent-review-text-preview">{{ materialPreviewText }}</pre>
         <div v-else class="agent-review-preview-fallback">
-          <n-empty :description="materialPreviewText || 'Preview is not available for this file.'">
+          <n-empty :description="materialPreviewText || $t('auto.5281be24a65c')">
             <template #extra>
-              <n-button secondary round @click="openMaterialInNewTab">Open File</n-button>
+              <n-button secondary round @click="openMaterialInNewTab">{{ $t('auto.a1c25ea8f6af') }}</n-button>
             </template>
           </n-empty>
         </div>
       </div>
     </n-modal>
 
-    <n-modal v-model:show="nodeEditorOpen" preset="card" title="Node" class="agent-review-modal">
+    <n-modal v-model:show="nodeEditorOpen" preset="card" :title="$t('auto.260f7a8cd4f6')" class="agent-review-modal">
       <n-form label-placement="top">
-        <n-form-item label="Name"><n-input v-model:value="nodeDraft.label" /></n-form-item>
-        <n-form-item label="Type"><n-select v-model:value="nodeDraft.nodeType" :options="nodeTypeOptions" /></n-form-item>
-        <n-form-item label="Description"><n-input v-model:value="nodeDraft.description" type="textarea" /></n-form-item>
+        <n-form-item :label="$t('auto.709a23220f2c')"><n-input v-model:value="nodeDraft.label" /></n-form-item>
+        <n-form-item :label="$t('auto.3deb74565196')"><n-select v-model:value="nodeDraft.nodeType" :options="nodeTypeOptions" /></n-form-item>
+        <n-form-item :label="$t('auto.55f8ebc805e6')"><n-input v-model:value="nodeDraft.description" type="textarea" /></n-form-item>
       </n-form>
-      <template #footer><n-button type="primary" round @click="saveNodeDraft">Save</n-button></template>
+      <template #footer><n-button type="primary" round @click="saveNodeDraft">{{ $t('auto.efc007a393f6') }}</n-button></template>
     </n-modal>
 
-    <n-modal v-model:show="edgeEditorOpen" preset="card" title="Edge" class="agent-review-modal">
+    <n-modal v-model:show="edgeEditorOpen" preset="card" :title="$t('auto.8440b9eb7d03')" class="agent-review-modal">
       <n-form label-placement="top">
-        <n-form-item label="Source"><n-select v-model:value="edgeDraft.source" :options="nodeSelectOptions" /></n-form-item>
-        <n-form-item label="Target"><n-select v-model:value="edgeDraft.target" :options="nodeSelectOptions" /></n-form-item>
-        <n-form-item label="Label"><n-input v-model:value="edgeDraft.label" /></n-form-item>
-        <n-form-item label="Flow Type"><n-input v-model:value="edgeDraft.flowType" placeholder="Prompt, Tool Call, API Request" /></n-form-item>
-        <n-form-item label="Description"><n-input v-model:value="edgeDraft.description" type="textarea" /></n-form-item>
+        <n-form-item :label="$t('auto.6da13addb000')"><n-select v-model:value="edgeDraft.source" :options="nodeSelectOptions" /></n-form-item>
+        <n-form-item :label="$t('auto.61ad50a9b918')"><n-select v-model:value="edgeDraft.target" :options="nodeSelectOptions" /></n-form-item>
+        <n-form-item :label="$t('auto.74341e3c271d')"><n-input v-model:value="edgeDraft.label" /></n-form-item>
+        <n-form-item :label="$t('auto.d699cd523f0f')"><n-input v-model:value="edgeDraft.flowType" :placeholder="$t('auto.cdc88357b7a8')" /></n-form-item>
+        <n-form-item :label="$t('auto.55f8ebc805e6')"><n-input v-model:value="edgeDraft.description" type="textarea" /></n-form-item>
       </n-form>
-      <template #footer><n-button type="primary" round @click="saveEdgeDraft">Save</n-button></template>
+      <template #footer><n-button type="primary" round @click="saveEdgeDraft">{{ $t('auto.efc007a393f6') }}</n-button></template>
     </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
+import { translateSource } from '../../i18n'
+
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Handle, MarkerType, Position, VueFlow } from '@vue-flow/core'
@@ -803,11 +779,11 @@ const tagOptions = ['Architecture', 'API Spec', 'Prompt', 'Tool Spec', 'RAG Docu
 const nodeTypeOptions = ['User', 'Input', 'Feature', 'Output', 'Frontend', 'Backend', 'Agent Runtime', 'LLM', 'Prompt', 'Tool Router', 'Tool', 'RAG Retriever', 'Vector DB', 'Database', 'External API', 'File Storage', 'File Parser', 'Authentication', 'Audit Log', 'Human Review'].map((value) => ({ label: value, value }))
 const riskFilterOptions = ['all', 'critical', 'high', 'medium', 'low'].map((value) => ({ label: value === 'all' ? 'All Severities' : value[0].toUpperCase() + value.slice(1), value }))
 const manualInputCards: Array<{ key: keyof ManualInputs; label: string; placeholder: string }> = [
-  { key: 'systemPrompt', label: 'System Prompt', placeholder: 'Paste instruction hierarchy, role rules, constraints and policy text.' },
-  { key: 'toolList', label: 'Tool List', placeholder: 'List tools, arguments, permissions, read/write behavior and return values.' },
-  { key: 'ragSource', label: 'RAG Source', placeholder: 'Knowledge bases, indexes, retrievers, vector DBs and citation behavior.' },
-  { key: 'apiEndpointDescription', label: 'API / Endpoint Description', placeholder: 'External APIs, callbacks, webhooks, auth flows and data contracts.' },
-  { key: 'extraNotes', label: 'Extra Notes', placeholder: 'Any additional design detail that helps reconstruct capability flow.' },
+  { key: 'systemPrompt', label: translateSource('auto.7bb6c10d1ac2'), placeholder: translateSource('auto.793a149ab9a7') },
+  { key: 'toolList', label: translateSource('auto.75aea8d95e59'), placeholder: translateSource('auto.91162ddab3fe') },
+  { key: 'ragSource', label: translateSource('auto.65e0193633be'), placeholder: translateSource('auto.9b2068c21354') },
+  { key: 'apiEndpointDescription', label: translateSource('auto.b7247c4c1008'), placeholder: translateSource('auto.f3d261b502b6') },
+  { key: 'extraNotes', label: translateSource('auto.89bab1fa7bac'), placeholder: translateSource('auto.d838353311f3') },
 ]
 const assetDimensions: DimensionCoverage[] = [
   createDimension('D01', 'Agent Profile', 'Identity and ownership', 'Agent type, business goals, deployment environment, owner, business criticality, and lifecycle status.'),
@@ -824,7 +800,7 @@ const assetDimensions: DimensionCoverage[] = [
   createDimension('D12', 'Security Controls, Audit & Runtime Monitoring', 'Runtime controls', 'Input/output filtering, tool-call policy, permission validation, audit logs, runtime monitoring, anomaly alerts, red team, evals, and incident response.'),
 ]
 const fallbackProviders: Record<string, ModelProvider> = {
-  gemini: { label: 'Google Gemini', apiKeyLabel: 'Gemini API Key', models: [{ label: 'Gemini 3.5 Flash', value: 'gemini-3.5-flash' }], supported: 'Images and PDFs are native inputs; Office files are converted to text locally.' },
+  gemini: { label: translateSource('auto.2f9610fee8e3'), apiKeyLabel: 'Gemini API Key', models: [{ label: translateSource('auto.e7adfc5ad98e'), value: 'gemini-3.5-flash' }], supported: 'Images and PDFs are native inputs; Office files are converted to text locally.' },
 }
 
 const hasVisibleGraph = computed(() => visibleNodes.value.length > 0)
@@ -1035,7 +1011,7 @@ async function selectProject(projectId: string) {
 async function createProject() {
   lastAction.value = createProject
   if (!setup.projectName.trim()) {
-    message.warning('Project Name is required')
+    message.warning(translateSource('auto.d7792c0b2ea7'))
     return
   }
   try {
@@ -1047,7 +1023,7 @@ async function createProject() {
     projectSetupOpen.value = false
     await loadProjects()
     await selectProject(created.projectId)
-    message.success('Project created')
+    message.success(translateSource('auto.76556f09a383'))
   } catch (err) {
     setError(err)
   }
@@ -1059,7 +1035,7 @@ async function saveProjectSetup() {
     return
   }
   if (!setup.projectName.trim()) {
-    message.warning('Project Name is required')
+    message.warning(translateSource('auto.d7792c0b2ea7'))
     return
   }
   try {
@@ -1073,7 +1049,7 @@ async function saveProjectSetup() {
     })
     projectSetupOpen.value = false
     await loadProjects()
-    message.success('Project setup saved')
+    message.success(translateSource('auto.bcc9944ef40b'))
   } catch (err) {
     setError(err)
   }
@@ -1105,7 +1081,7 @@ async function deleteCurrentProject() {
   try {
     await agentSecurityReviewApi.deleteProject(projectId)
     closeProject()
-    message.success('Project deleted')
+    message.success(translateSource('auto.6b17c222a23a'))
   } catch (err) {
     setError(err)
   }
@@ -1117,7 +1093,7 @@ async function uploadFiles(files: File[]) {
   try {
     await agentSecurityReviewApi.uploadMaterials(project.value.projectId, files, uploadTag.value)
     await selectProject(project.value.projectId)
-    message.success('Materials uploaded')
+    message.success(translateSource('auto.6c93e6b392c4'))
   } catch (err) {
     setError(err)
   }
@@ -1250,7 +1226,7 @@ async function saveManualContext() {
   if (!project.value) return
   try {
     project.value = await agentSecurityReviewApi.saveProjectContext(project.value.projectId, { manualInputs, missingAnswers })
-    message.success('Inputs saved')
+    message.success(translateSource('auto.f73d861dbab6'))
   } catch (err) {
     setError(err)
   }
@@ -1298,7 +1274,7 @@ async function startFunctionReview() {
     activeMap.value = 'function'
     startPolling()
     await loadProjects()
-    message.success('Asset review started')
+    message.success(translateSource('auto.02feb78e7daf'))
   } catch (err) {
     setError(err)
   } finally {
@@ -1311,7 +1287,7 @@ async function saveFunctionMap() {
   try {
     await agentSecurityReviewApi.saveFunctionMap(project.value.projectId, currentGraph.value)
     project.value.functionMap = currentGraph.value
-    message.success('Function map saved')
+    message.success(translateSource('auto.9b1fe7a04ba5'))
   } catch (err) {
     setError(err)
   }
@@ -1342,7 +1318,7 @@ async function updateFunctionMap(mode: 'direct' | 'review_again' = 'review_again
 async function generateRiskMap() {
   if (!project.value) return
   if (isRiskBlocked.value) {
-    message.warning('Risk Map is not ready. Please answer critical supplemental information first.')
+    message.warning(translateSource('auto.92c4fbd75c46'))
     activeMap.value = 'function'
     return
   }
@@ -1356,7 +1332,7 @@ async function generateRiskMap() {
     activeMap.value = 'risk'
     startPolling()
     await loadProjects()
-    message.success('Risk review started')
+    message.success(translateSource('auto.b743eeee8479'))
   } catch (err) {
     setError(err)
   } finally {
@@ -1367,7 +1343,7 @@ async function generateRiskMap() {
 async function generateAssetGraph() {
   if (!project.value) return
   if (hasUnansweredMissingQuestions.value) {
-    message.warning('Please answer all supplemental questions first')
+    message.warning(translateSource('auto.6ade66c6e2a6'))
     return
   }
   lockMissingAnswers()
@@ -1382,7 +1358,7 @@ async function cancelCurrentReview() {
     riskReviewing.value = false
     stopPolling()
     await loadProjects(true)
-    message.info('AI review cancelled')
+    message.info(translateSource('auto.684a6d47f359'))
   } catch (err) {
     setError(err)
   }
@@ -1581,7 +1557,7 @@ function buildReviewFlowGraph() {
       id: 'user',
       type: 'custom',
       position: { x: 0, y: 0 },
-      data: { label: 'User Request', nodeType: 'User', description: 'User input or uploaded context entering the workflow.' },
+      data: { label: translateSource('auto.43a785e1424b'), nodeType: 'User', description: translateSource('auto.46a4b97bc536') },
     },
     ...features.map((feature) => ({
       id: feature.id,

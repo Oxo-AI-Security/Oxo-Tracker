@@ -200,6 +200,25 @@ class MoonshotApiService:
         data["template"] = template
         return self.adapter.create_prompt_template(data)
 
+    def update_prompt_template_record(self, pt_id: str, data: dict[str, Any]) -> bool:
+        """Update an Oxo-owned prompt template while preserving its ID."""
+        if not _is_oxo_id(pt_id):
+            raise ValueError("Only Oxo prompt templates can be edited.")
+        name = str(data.get("name", "")).strip()
+        template = str(data.get("template", "")).strip()
+        if not name:
+            raise ValueError("Prompt template name is required.")
+        if "{{ prompt }}" not in template and "{{prompt}}" not in template:
+            raise ValueError("Prompt template must include a {{ prompt }} block.")
+        return self.adapter.update_prompt_template_record(
+            pt_id,
+            {
+                "name": name,
+                "description": str(data.get("description", "")).strip(),
+                "template": template,
+            },
+        )
+
     def delete_prompt_template(self, pt_id: str) -> bool:
         """删除 Prompt 模板。"""
         if not _is_oxo_id(pt_id):
@@ -361,6 +380,19 @@ class MoonshotApiService:
     def delete_session(self, runner_id: str) -> bool:
         """删除 red teaming session。"""
         return self.adapter.delete_session(runner_id)
+
+    def delete_redteam_session(self, runner_id: str) -> dict[str, bool]:
+        """Delete a temporary runner-backed red-team session and its runner."""
+        session_deleted = False
+        runner_deleted = False
+        try:
+            session_deleted = bool(self.adapter.delete_session(runner_id))
+        finally:
+            runner_deleted = bool(self.adapter.delete_runner(runner_id))
+        return {
+            "session_deleted": session_deleted,
+            "runner_deleted": runner_deleted,
+        }
 
     def get_all_chats_from_session(self, runner_id: str) -> dict | None:
         """获取 session 聊天记录。"""

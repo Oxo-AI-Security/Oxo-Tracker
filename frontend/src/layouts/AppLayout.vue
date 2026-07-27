@@ -16,7 +16,7 @@
             </div>
             <div v-if="!collapsed" class="brand__copy">
               <strong>Oxo Tracker</strong>
-              <span>Evaluation Control</span>
+              <span>{{ t('app.tagline') }}</span>
             </div>
           </div>
 
@@ -48,7 +48,7 @@
             :class="{ 'active-route': route.path.startsWith('/settings') }"
           >
             <n-icon size="20"><SettingsOutline /></n-icon>
-            <span v-if="!collapsed">Settings</span>
+            <span v-if="!collapsed">{{ t('common.settings') }}</span>
           </RouterLink>
         </div>
       </n-scrollbar>
@@ -59,7 +59,7 @@
       <div class="ambient ambient-b" />
       <header class="topbar">
         <div>
-          <p class="eyebrow">Secure evaluation workspace</p>
+          <p class="eyebrow">{{ t('app.workspace') }}</p>
           <AppBreadcrumbs />
         </div>
         <n-space>
@@ -67,13 +67,13 @@
             <template #icon>
               <n-icon><RefreshOutline /></n-icon>
             </template>
-            Refresh
+            {{ t('common.refresh') }}
           </n-button>
           <n-button type="primary" round @click="router.push('/benchmark')">
             <template #icon>
               <n-icon><RocketOutline /></n-icon>
             </template>
-            Run Test
+            {{ t('common.runTest') }}
           </n-button>
         </n-space>
       </header>
@@ -83,7 +83,11 @@
           <n-alert v-if="store.error" type="warning" closable class="page-alert">
             {{ store.error }}
           </n-alert>
-          <router-view />
+          <router-view v-slot="{ Component, route: childRoute }">
+            <keep-alive include="EndpointsView">
+              <component :is="Component" :key="`${String(childRoute.name)}-${settings.locale}`" />
+            </keep-alive>
+          </router-view>
         </main>
       </n-scrollbar>
     </n-layout-content>
@@ -91,7 +95,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   AnalyticsOutline,
@@ -107,20 +112,23 @@ import {
   TimeOutline,
 } from '@vicons/ionicons5'
 import { useMoonshotStore } from '../stores/moonshot'
+import { useSettingsStore } from '../stores/settings'
 import AppBreadcrumbs from '../components/AppBreadcrumbs.vue'
 
 const route = useRoute()
 const router = useRouter()
 const store = useMoonshotStore()
+const settings = useSettingsStore()
+const { t } = useI18n()
 const collapsed = ref(false)
 
-const navItems = [
-  { path: '/', label: 'Dashboard', icon: AnalyticsOutline },
-  { path: '/benchmark', label: 'Benchmark', icon: FlashOutline },
-  { path: '/agents', label: 'Agents', icon: CubeOutline },
-  { path: '/payload', label: 'Payload', icon: LibraryOutline },
-  { path: '/history', label: 'History', icon: TimeOutline },
-]
+const navItems = computed(() => [
+  { path: '/', label: t('nav.dashboard'), icon: AnalyticsOutline },
+  { path: '/benchmark', label: t('nav.benchmark'), icon: FlashOutline },
+  { path: '/agents', label: t('nav.agents'), icon: CubeOutline },
+  { path: '/payload', label: t('nav.payload'), icon: LibraryOutline },
+  { path: '/history', label: t('nav.history'), icon: TimeOutline },
+])
 
 function isActiveNav(path: string) {
   if (path === '/') return route.path === '/'

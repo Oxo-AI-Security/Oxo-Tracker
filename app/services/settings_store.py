@@ -177,6 +177,7 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
 def _default_settings() -> dict[str, Any]:
     return {
         "theme": "light",
+        "locale": "en-US",
         "ai": {
             "activeProvider": "qwen",
             "providers": {
@@ -283,6 +284,8 @@ class SettingsStore:
         normalized = _default_settings()
         if settings.get("theme") in {"light", "dark"}:
             normalized["theme"] = settings["theme"]
+        if settings.get("locale") in {"en-US", "zh-CN"}:
+            normalized["locale"] = settings["locale"]
 
         source_ai = settings.get("ai") if isinstance(settings.get("ai"), dict) else {}
         active = source_ai.get("activeProvider")
@@ -358,6 +361,10 @@ class SettingsStore:
             if changes["theme"] not in {"light", "dark"}:
                 raise ValueError("Theme must be light or dark")
             current["theme"] = changes["theme"]
+        if "locale" in changes:
+            if changes["locale"] not in {"en-US", "zh-CN"}:
+                raise ValueError("Locale must be en-US or zh-CN")
+            current["locale"] = changes["locale"]
 
         ai_changes = changes.get("ai")
         if isinstance(ai_changes, dict):

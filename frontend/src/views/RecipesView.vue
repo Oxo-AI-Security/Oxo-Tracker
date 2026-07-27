@@ -3,19 +3,17 @@
     <GlassPanel v-if="mode === 'list'" class="recipe-admin-panel">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Benchmark payloads</p>
-          <h2>Recipes</h2>
+          <p class="eyebrow">{{ $t('auto.88dc644205a2') }}</p>
+          <h2>{{ $t('auto.9fb1092f32d4') }}</h2>
         </div>
         <n-button type="primary" round @click="openCreate">
-          <template #icon><n-icon><AddOutline /></n-icon></template>
-          Create Recipe
-        </n-button>
+          <template #icon><n-icon><AddOutline /></n-icon></template> {{ $t('auto.6f82911d7813') }} </n-button>
       </div>
 
       <div class="recipe-admin-grid">
         <section class="recipe-admin-list-column">
           <div class="recipe-list-toolbar">
-            <n-input v-model:value="search" clearable placeholder="Search recipes">
+            <n-input v-model:value="search" clearable :placeholder="$t('auto.93095b69ed70')">
               <template #prefix><n-icon><SearchOutline /></n-icon></template>
             </n-input>
             <n-select v-model:value="recipeScope" :options="recipeScopeOptions" />
@@ -33,15 +31,15 @@
                 <span class="row-icon"><n-icon size="22"><DocumentTextOutline /></n-icon></span>
                 <span class="row-copy">
                   <strong>{{ recipe.name || recipe.id }}</strong>
-                  <small>{{ recipe.description || 'No description' }}</small>
+                  <small>{{ recipe.description || $t('auto.f354c94fcf63') }}</small>
                 </span>
                 <n-tag :type="isOxoRecipe(recipe) ? 'success' : 'default'" round size="small">
-                  {{ isOxoRecipe(recipe) ? 'Editable' : 'Read only' }}
+                  {{ isOxoRecipe(recipe) ? 'Editable' : $t('auto.601dcc1c87c3') }}
                 </n-tag>
               </button>
             </div>
           </n-scrollbar>
-          <n-empty v-else description="No recipes found" />
+          <n-empty v-else :description="$t('auto.7d55957b5dda')" />
         </section>
 
         <section class="recipe-detail-card recipe-admin-detail">
@@ -52,26 +50,22 @@
                 {{ activeRecipe.name || activeRecipe.id }}
               </h3>
               <n-space>
-                <n-button secondary round size="small" :disabled="!isOxoRecipe(activeRecipe)" @click="openEdit(activeRecipe)">
-                  Edit
-                </n-button>
-                <n-popconfirm positive-text="Delete" negative-text="Cancel" @positive-click="deleteRecipe(activeRecipe)">
+                <n-button secondary round size="small" :disabled="!isOxoRecipe(activeRecipe)" @click="openEdit(activeRecipe)"> {{ $t('auto.5301648dcf6b') }} </n-button>
+                <n-popconfirm :positive-text="$t('common.delete')" :negative-text="$t('auto.77dfd2135f4d')" @positive-click="deleteRecipe(activeRecipe)">
                   <template #trigger>
                     <n-button secondary round size="small" type="error" :disabled="!isOxoRecipe(activeRecipe)">
-                      Delete
+                      {{ $t('common.delete') }}
                     </n-button>
-                  </template>
-                  Delete this Oxo recipe?
-                </n-popconfirm>
+                  </template> {{ $t('auto.d3273e3410a0') }} </n-popconfirm>
               </n-space>
             </div>
-            <p>{{ activeRecipe.description || 'No description' }}</p>
+            <p>{{ activeRecipe.description || $t('auto.f354c94fcf63') }}</p>
             <div class="detail-block">
-              <strong>Datasets</strong>
+              <strong>{{ $t('auto.93a7f22476e9') }}</strong>
               <span>{{ listText(activeRecipe.datasets) }}</span>
             </div>
             <div class="detail-block">
-              <strong>Metrics</strong>
+              <strong>{{ $t('auto.ddf6a1f0ce8c') }}</strong>
               <div class="mini-resource-list">
                 <article v-for="metric in selectedMetricRecords(activeRecipe.metrics)" :key="resourceId(metric)">
                   <b>{{ resourceName(metric) }}</b>
@@ -81,25 +75,25 @@
               </div>
             </div>
             <div class="detail-block">
-              <strong>Prompt Templates</strong>
+              <strong>{{ $t('auto.7c0b0f2ffbc4') }}</strong>
               <div class="mini-resource-list">
                 <article v-for="template in selectedPromptTemplateRecords(activeRecipe.prompt_templates)" :key="recordId(template)">
                   <b>{{ template.name || template.id }}</b>
-                  <span>{{ template.description || 'No description' }}</span>
-                  <pre>{{ template.template || 'No template body' }}</pre>
+                  <span>{{ template.description || $t('auto.f354c94fcf63') }}</span>
+                  <pre>{{ template.template || $t('auto.e5193414c910') }}</pre>
                 </article>
                 <span v-if="!hasMeaningfulIds(activeRecipe.prompt_templates)">-</span>
               </div>
             </div>
           </template>
-          <n-empty v-else description="Select a recipe to inspect" />
+          <n-empty v-else :description="$t('auto.9fd03241327c')" />
         </section>
       </div>
     </GlassPanel>
 
     <GlassPanel v-else class="recipe-form-panel">
       <div class="builder-header">
-        <h2>{{ editingId ? 'Edit Recipe' : 'Create Recipe' }}</h2>
+        <h2>{{ editingId ? $t('auto.838f93ac4be2') : $t('auto.6f82911d7813') }}</h2>
         <n-button circle quaternary @click="mode = 'list'">
           <template #icon><n-icon><CloseOutline /></n-icon></template>
         </n-button>
@@ -108,31 +102,31 @@
       <div class="recipe-form-layout">
         <n-form class="recipe-form-main" label-placement="top">
           <section class="recipe-form-section">
-            <p class="eyebrow">Recipe identity</p>
+            <p class="eyebrow">{{ $t('auto.a6da18c76164') }}</p>
             <n-form-item>
-              <template #label><span class="required-label">Name <b>*</b></span></template>
-              <n-input v-model:value="form.name" placeholder="Safety regression recipe" />
+              <template #label><span class="required-label">{{ $t('auto.709a23220f2c') }} <b>*</b></span></template>
+              <n-input v-model:value="form.name" :placeholder="$t('auto.2daa01146493')" />
             </n-form-item>
-            <n-form-item label="Description">
+            <n-form-item :label="$t('auto.55f8ebc805e6')">
               <n-input
                 v-model:value="form.description"
                 type="textarea"
                 :autosize="{ minRows: 4, maxRows: 6 }"
-                placeholder="Describe what this recipe evaluates"
+                :placeholder="$t('auto.3c24535c5649')"
               />
             </n-form-item>
           </section>
 
           <section class="recipe-form-section">
-            <p class="eyebrow">Required payload data</p>
+            <p class="eyebrow">{{ $t('auto.eccb48dcda56') }}</p>
             <n-form-item>
-              <template #label><span class="required-label">Datasets <b>*</b></span></template>
+              <template #label><span class="required-label">{{ $t('auto.93a7f22476e9') }} <b>*</b></span></template>
               <button class="resource-select-card" type="button" @click="openResourcePicker('datasets')">
                 <span>
-                  <strong>{{ selectedDatasetRecords.length ? `${selectedDatasetRecords.length} datasets selected` : 'Select datasets' }}</strong>
-                  <small>{{ selectedDatasetRecords.map(resourceName).join(', ') || 'Required. Multiple datasets can be selected.' }}</small>
+                  <strong>{{ selectedDatasetRecords.length ? `${selectedDatasetRecords.length} datasets selected` : $t('auto.3ad7265f12cc') }}</strong>
+                  <small>{{ selectedDatasetRecords.map(resourceName).join(', ') || $t('auto.ce3de94db8d4') }}</small>
                 </span>
-                <n-button secondary round size="small" @click.stop="openResourcePicker('datasets')">Browse</n-button>
+                <n-button secondary round size="small" @click.stop="openResourcePicker('datasets')">{{ $t('auto.2f3b5c55bc27') }}</n-button>
               </button>
             </n-form-item>
           </section>
@@ -140,45 +134,45 @@
 
         <aside class="recipe-form-side">
           <section class="recipe-form-section">
-            <p class="eyebrow">Evaluation method</p>
+            <p class="eyebrow">{{ $t('auto.d3d447cca64a') }}</p>
             <n-form-item>
-              <template #label><span class="required-label">Metrics <b>*</b></span></template>
+              <template #label><span class="required-label">{{ $t('auto.ddf6a1f0ce8c') }} <b>*</b></span></template>
               <button class="resource-select-card" type="button" @click="openResourcePicker('metrics')">
                 <span>
-                  <strong>{{ selectedMetricRecords(form.metric)[0] ? resourceName(selectedMetricRecords(form.metric)[0]) : 'No metric selected' }}</strong>
-                  <small>Required. Choose one metric.</small>
+                  <strong>{{ selectedMetricRecords(form.metric)[0] ? resourceName(selectedMetricRecords(form.metric)[0]) : $t('auto.87ad54544bd1') }}</strong>
+                  <small>{{ $t('auto.d8049e76e09e') }}</small>
                 </span>
-                <n-button secondary round size="small" @click.stop="openResourcePicker('metrics')">Browse</n-button>
+                <n-button secondary round size="small" @click.stop="openResourcePicker('metrics')">{{ $t('auto.2f3b5c55bc27') }}</n-button>
               </button>
             </n-form-item>
-            <n-form-item label="Prompt Templates">
+            <n-form-item :label="$t('auto.7c0b0f2ffbc4')">
               <button class="resource-select-card" type="button" @click="openResourcePicker('prompt_templates')">
                 <span>
-                  <strong>{{ selectedPromptTemplateRecords(form.prompt_template)[0]?.name || selectedPromptTemplateRecords(form.prompt_template)[0]?.id || 'No prompt template selected' }}</strong>
-                  <small>Optional. Choose at most one prompt template.</small>
+                  <strong>{{ selectedPromptTemplateRecords(form.prompt_template)[0]?.name || selectedPromptTemplateRecords(form.prompt_template)[0]?.id || $t('auto.9c15964cd63e') }}</strong>
+                  <small>{{ $t('auto.36658e3d8b4a') }}</small>
                 </span>
-                <n-button secondary round size="small" @click.stop="openResourcePicker('prompt_templates')">Browse</n-button>
+                <n-button secondary round size="small" @click.stop="openResourcePicker('prompt_templates')">{{ $t('auto.2f3b5c55bc27') }}</n-button>
               </button>
             </n-form-item>
           </section>
 
           <section class="recipe-form-section">
-            <p class="eyebrow">Labels</p>
-            <n-form-item label="Tags">
+            <p class="eyebrow">{{ $t('auto.2228985493d9') }}</p>
+            <n-form-item :label="$t('auto.848eed0fbd54')">
               <div class="tag-editor">
                 <div class="tag-input-row">
                   <n-input
                     v-model:value="tagDraft"
-                    placeholder="Add a searchable label"
+                    :placeholder="$t('auto.a5d789137792')"
                     @keyup.enter="addTag(tagDraft)"
                   />
-                  <n-button secondary round @click="addTag(tagDraft)">Add</n-button>
+                  <n-button secondary round @click="addTag(tagDraft)">{{ $t('auto.61cc55aa0453') }}</n-button>
                 </div>
                 <div class="tag-chip-row">
                   <n-tag v-for="tag in form.tags" :key="tag" closable round @close="removeTag(tag)">
                     {{ tag }}
                   </n-tag>
-                  <span v-if="!form.tags.length">No tags added</span>
+                  <span v-if="!form.tags.length">{{ $t('auto.5e58be75332f') }}</span>
                 </div>
                 <div v-if="commonTags.length" class="tag-suggestion-row">
                   <button v-for="tag in commonTags" :key="tag" type="button" @click="addTag(tag)">
@@ -187,7 +181,7 @@
                 </div>
               </div>
             </n-form-item>
-            <n-form-item label="Categories">
+            <n-form-item :label="$t('auto.6ccb60071be8')">
               <div class="category-choice-row">
                 <button
                   v-for="category in categoryOptions"
@@ -207,26 +201,26 @@
 
       <div class="recipe-helper-grid">
         <section class="recipe-preview-panel">
-          <p class="eyebrow">Metric guide</p>
+          <p class="eyebrow">{{ $t('auto.7cd37a4fc6be') }}</p>
           <article v-for="metric in selectedMetricRecords(form.metric)" :key="resourceId(metric)" class="helper-card">
             <strong>{{ resourceName(metric) }}</strong>
             <span>{{ resourceDescription(metric) }}</span>
           </article>
-          <n-empty v-if="!form.metric" description="No metric selected" />
+          <n-empty v-if="!form.metric" :description="$t('auto.87ad54544bd1')" />
         </section>
         <section class="recipe-preview-panel">
-          <p class="eyebrow">Template preview</p>
+          <p class="eyebrow">{{ $t('auto.ea0aa8b2837c') }}</p>
           <article v-for="template in selectedPromptTemplateRecords(form.prompt_template)" :key="recordId(template)" class="helper-card">
             <strong>{{ template.name || template.id }}</strong>
-            <span>{{ template.description || 'No description' }}</span>
-            <pre>{{ template.template || 'No template body' }}</pre>
+            <span>{{ template.description || $t('auto.f354c94fcf63') }}</span>
+            <pre>{{ template.template || $t('auto.e5193414c910') }}</pre>
           </article>
-          <n-empty v-if="!form.prompt_template" description="No prompt template selected" />
+          <n-empty v-if="!form.prompt_template" :description="$t('auto.9c15964cd63e')" />
         </section>
       </div>
 
       <div class="builder-actions">
-        <n-button round size="large" @click="mode = 'list'">Cancel</n-button>
+        <n-button round size="large" @click="mode = 'list'">{{ $t('auto.77dfd2135f4d') }}</n-button>
         <n-button
           type="primary"
           round
@@ -235,7 +229,7 @@
           :disabled="!canSubmit"
           @click="saveRecipe"
         >
-          {{ editingId ? 'Update Recipe' : 'Create Recipe' }}
+          {{ editingId ? $t('auto.48153eb81ba1') : $t('auto.6f82911d7813') }}
         </n-button>
       </div>
     </GlassPanel>
@@ -284,9 +278,7 @@
                   round
                   size="small"
                   @click="clearPickerSelection"
-                >
-                  Clear
-                </n-button>
+                > {{ $t('auto.719ea396ad92') }} </n-button>
                 <n-button
                   :type="isPickerItemSelected(item.id) ? 'primary' : 'default'"
                   round
@@ -297,13 +289,13 @@
                 </n-button>
               </div>
             </article>
-            <n-empty v-if="!filteredPickerItems.length" description="No matching resources" />
+            <n-empty v-if="!filteredPickerItems.length" :description="$t('auto.f33b195dddfc')" />
           </div>
         </n-scrollbar>
       </div>
       <template #footer>
         <n-space justify="end">
-          <n-button round @click="resourcePickerOpen = false">Done</n-button>
+          <n-button round @click="resourcePickerOpen = false">{{ $t('auto.e9b450d14bc2') }}</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -311,6 +303,8 @@
 </template>
 
 <script setup lang="ts">
+import { translateSource } from '../i18n'
+
 import { computed, reactive, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
@@ -350,8 +344,8 @@ const expandedResourceId = ref('')
 const tagDraft = ref('')
 
 const recipeScopeOptions = [
-  { label: 'All recipes', value: 'all' },
-  { label: 'My recipes', value: 'mine' },
+  { label: translateSource('auto.39e2ef7a56ee'), value: 'all' },
+  { label: translateSource('auto.092ea0b5ff34'), value: 'mine' },
 ]
 
 const categoryOptions = ['Trust & Safety', 'Capability', 'Others']
@@ -597,7 +591,7 @@ function openEdit(recipe: RecipeRecord) {
 
 async function saveRecipe() {
   if (!canSubmit.value) {
-    message.warning('Name, datasets, and metric are required')
+    message.warning(translateSource('auto.cac548403930'))
     return
   }
 
@@ -616,11 +610,11 @@ async function saveRecipe() {
     if (editingId.value) {
       await moonshotApi.updateRecipe(editingId.value, payload)
       selectedRecipeId.value = editingId.value
-      message.success('Recipe updated')
+      message.success(translateSource('auto.3094807841f0'))
     } else {
       const id = await moonshotApi.createRecipe(payload)
       selectedRecipeId.value = id
-      message.success('Recipe created')
+      message.success(translateSource('auto.c02f02f9913b'))
     }
     await store.loadOverview()
     mode.value = 'list'
@@ -638,7 +632,7 @@ async function deleteRecipe(recipe: RecipeRecord) {
   try {
     await moonshotApi.deleteRecipe(id)
     selectedRecipeId.value = ''
-    message.success('Recipe deleted')
+    message.success(translateSource('auto.68bed00856d9'))
     await store.loadOverview()
   } catch (err) {
     message.error(err instanceof Error ? err.message : 'Delete recipe failed')

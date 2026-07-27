@@ -1,5 +1,6 @@
 import json
 from io import BytesIO
+from urllib.error import URLError
 
 import pytest
 
@@ -113,6 +114,52 @@ def test_qwen_active_settings_are_used_for_connector_generation() -> None:
     }
 
 
+def test_ai_connection_refusal_is_retried_without_losing_request() -> None:
+    calls = []
+    model_payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "name": "Retry Chat",
+                            "transport": "http",
+                            "uri": "https://example.test/chat",
+                            "request": {
+                                "method": "POST",
+                                "bodyType": "json",
+                                "bodyTemplate": '{"message":"{{ prompt }}"}',
+                            },
+                            "missingInformation": [],
+                        }
+                    )
+                }
+            }
+        ]
+    }
+
+    def open_request(request, timeout):
+        calls.append((request.full_url, timeout))
+        if len(calls) < 3:
+            raise URLError(ConnectionRefusedError(10061, "actively refused"))
+        return _Response(model_payload)
+
+    service = ConnectorAIService(
+        settings={
+            "provider": "qwen",
+            "model": "qwen-max",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "api_key": "settings-secret",
+        },
+        request_open=open_request,
+    )
+
+    result = service.generate_draft("POST https://example.test/chat with a JSON message field")
+
+    assert result["config"]["name"] == "Retry Chat"
+    assert len(calls) == 3
+
+
 def test_normalizer_keeps_partial_fields_and_reports_missing_input_mapping() -> None:
     result = normalize_connector_draft(
         {
@@ -141,6 +188,30 @@ def test_normalizer_moves_embedded_query_parameters_out_of_request_url() -> None
     assert request["queryParams"] == {"input": "{{ prompt }}", "version": "v2"}
 
 
+def test_normalizer_removes_captured_messages_after_live_prompt() -> None:
+    result = normalize_connector_draft(
+        {
+            "name": "Captured SSE Chat",
+            "transport": "sse",
+            "uri": "https://example.test/chat/stream",
+            "request": {
+                "method": "POST",
+                "bodyType": "json",
+                "bodyTemplate": {
+                    "messages": [
+                        {"role": "user", "content": "{{ prompt }}"},
+                        {"role": "assistant", "content": "Hello"},
+                        {"role": "user", "content": "hi"},
+                    ]
+                },
+            },
+        }
+    )
+
+    template = result["config"]["params"]["connector_config"]["stream"]["bodyTemplate"]
+    assert json.loads(template) == {"messages": [{"role": "user", "content": "{{ prompt }}"}]}
+
+
 def test_response_mapping_promotes_selected_json_value_to_json_path() -> None:
     mapping = normalize_response_mapping(
         {"type": "text", "selectedText": "ok"},
@@ -149,6 +220,16 @@ def test_response_mapping_promotes_selected_json_value_to_json_path() -> None:
 
     assert mapping["type"] == "json-path"
     assert mapping["path"] == "$.status"
+
+
+def test_response_mapping_normalizes_sse_event_data_with_json_path() -> None:
+    mapping = normalize_response_mapping(
+        {"type": "event-data", "path": "$.content"},
+        'data: {"content":"Hello"}\n\n',
+    )
+
+    assert mapping["type"] == "json-path"
+    assert mapping["path"] == "$.content"
 
 
 def test_ai_configure_route_runs_request_and_maps_output(monkeypatch: pytest.MonkeyPatch) -> None:

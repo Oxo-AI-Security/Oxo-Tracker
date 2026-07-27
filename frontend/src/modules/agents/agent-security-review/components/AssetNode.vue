@@ -20,7 +20,7 @@
     <div v-else class="agent-review-asset-node-tags">
       <i v-if="data.portLabel">{{ data.portLabel }}</i>
       <i v-if="data.access_mode && data.access_mode !== 'unknown'">{{ data.access_mode }}</i>
-      <i v-if="data.requires_approval">approval</i>
+      <i v-if="data.requires_approval">{{ $t('auto.59494695a317') }}</i>
       <i v-if="data.risk_hint && data.risk_hint !== 'unknown'">{{ data.risk_hint }}</i>
     </div>
     <Handle v-if="data.workflowRole !== 'dependency'" id="left" type="target" :position="Position.Left" />

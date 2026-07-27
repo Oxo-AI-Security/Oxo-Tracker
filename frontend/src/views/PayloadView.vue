@@ -7,18 +7,18 @@
             <n-icon><BookOutline /></n-icon>
           </span>
           <div class="workspace-title-content">
-            <p class="eyebrow">Payload library</p>
-            <h2>Payload assembly map</h2>
-            <span>Understand how prompt assets become repeatable benchmark suites.</span>
+            <p class="eyebrow">{{ $t('auto.b5aa4e7dabf9') }}</p>
+            <h2>{{ $t('auto.c515a6c5e9b1') }}</h2>
+            <span>{{ $t('auto.0e1d4c4432ab') }}</span>
           </div>
         </div>
-        <div class="payload-page-summary" aria-label="Payload inventory summary">
+        <div class="payload-page-summary" :aria-label="$t('auto.09e7f8104e33')">
           <strong>{{ payloadSummary.total }}</strong>
-          <span>assets across {{ payloadFlowItems.length }} connected layers</span>
+          <span>{{ $t('auto.161aa8f365ec') }} {{ payloadFlowItems.length }} {{ $t('auto.1f7c8fe348bd') }}</span>
         </div>
       </div>
 
-      <section class="payload-pipeline" aria-label="Payload relationship">
+      <section class="payload-pipeline" :aria-label="$t('auto.19b7ae596a08')">
         <div v-for="item in payloadFlowItems" :key="item.key" class="payload-pipeline-step">
           <span class="payload-pipeline-node">{{ item.step }}</span>
           <span>
@@ -52,12 +52,12 @@
 
           <span class="payload-card-path">
             <span>
-              <b>Input</b>
+              <b>{{ $t('auto.b568d47f2e24') }}</b>
               {{ item.consumes }}
             </span>
             <n-icon size="18"><ArrowForwardOutline /></n-icon>
             <span>
-              <b>Output</b>
+              <b>{{ $t('auto.4bed336194a9') }}</b>
               {{ item.produces }}
             </span>
           </span>
@@ -68,28 +68,24 @@
     </GlassPanel>
 
     <div v-else class="stack">
-      <n-button class="payload-back-button" secondary round @click="$router.push('/payload')">
-        Back to Payload
-      </n-button>
+      <n-button class="payload-back-button" secondary round @click="$router.push('/payload')"> {{ $t('auto.39356ae14c43') }} </n-button>
       <GlassPanel v-if="section === 'prompt-templates'" class="prompt-template-panel">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Prompt wrappers</p>
-            <h2>Prompt Templates</h2>
+            <p class="eyebrow">{{ $t('auto.eb94962502e0') }}</p>
+            <h2>{{ $t('auto.7c0b0f2ffbc4') }}</h2>
           </div>
           <div class="endpoint-heading-actions">
-            <n-tag round type="info">{{ store.promptTemplates.length }} records</n-tag>
+            <n-tag round type="info">{{ store.promptTemplates.length }} {{ $t('auto.86761b63a7bd') }}</n-tag>
             <n-button type="primary" round @click="openTemplateModal">
-              <template #icon><n-icon><AddOutline /></n-icon></template>
-              New Template
-            </n-button>
+              <template #icon><n-icon><AddOutline /></n-icon></template> {{ $t('auto.dcfa46211223') }} </n-button>
           </div>
         </div>
 
         <div class="prompt-template-layout">
           <section class="prompt-template-list-column">
             <div class="recipe-list-toolbar">
-              <n-input v-model:value="templateSearch" clearable placeholder="Search prompt templates">
+              <n-input v-model:value="templateSearch" clearable :placeholder="$t('auto.51b47d1c9ad4')">
                 <template #prefix><n-icon><SearchOutline /></n-icon></template>
               </n-input>
               <n-select v-model:value="templateScope" :options="templateScopeOptions" />
@@ -106,14 +102,14 @@
                 <span class="row-icon"><n-icon size="22"><NewspaperOutline /></n-icon></span>
                 <span class="row-copy">
                   <strong>{{ template.name || template.id }}</strong>
-                  <small>{{ template.description || template.template || 'No description' }}</small>
+                  <small>{{ template.description || template.template || $t('auto.f354c94fcf63') }}</small>
                 </span>
                 <n-tag :type="isOxoTemplate(template) ? 'success' : 'default'" round size="small">
-                  {{ isOxoTemplate(template) ? 'Oxo' : 'Built in' }}
+                  {{ isOxoTemplate(template) ? 'Oxo' : $t('auto.6b0c36de2782') }}
                 </n-tag>
               </button>
             </n-scrollbar>
-            <n-empty v-else description="No prompt templates found" />
+            <n-empty v-else :description="$t('auto.ec1491b13bf9')" />
           </section>
 
           <section class="prompt-template-detail-card">
@@ -123,49 +119,56 @@
                   <n-icon><NewspaperOutline /></n-icon>
                   {{ activePromptTemplate.name || activePromptTemplate.id }}
                 </h3>
-                <n-popconfirm positive-text="Delete" negative-text="Cancel" @positive-click="deletePromptTemplate(activePromptTemplate)">
-                  <template #trigger>
-                    <n-button secondary round size="small" type="error" :disabled="!isOxoTemplate(activePromptTemplate)">
-                      Delete
-                    </n-button>
-                  </template>
-                  Delete this Oxo prompt template?
-                </n-popconfirm>
+                <div class="prompt-template-detail-actions">
+                  <n-button
+                    secondary
+                    round
+                    size="small"
+                    type="primary"
+                    :disabled="!isOxoTemplate(activePromptTemplate)"
+                    @click="openEditTemplateModal(activePromptTemplate)"
+                  >
+                    <template #icon><n-icon><CreateOutline /></n-icon></template> {{ $t('auto.5301648dcf6b') }} </n-button>
+                  <n-popconfirm :positive-text="$t('common.delete')" :negative-text="$t('auto.77dfd2135f4d')" @positive-click="deletePromptTemplate(activePromptTemplate)">
+                    <template #trigger>
+                      <n-button secondary round size="small" type="error" :disabled="!isOxoTemplate(activePromptTemplate)">
+                        {{ $t('common.delete') }}
+                      </n-button>
+                    </template> {{ $t('auto.87c972803b2a') }} </n-popconfirm>
+                </div>
               </div>
-              <p>{{ activePromptTemplate.description || 'No description' }}</p>
+              <p>{{ activePromptTemplate.description || $t('auto.f354c94fcf63') }}</p>
               <dl class="prompt-template-meta">
                 <div>
                   <dt>ID</dt>
                   <dd>{{ activePromptTemplate.id || '-' }}</dd>
                 </div>
                 <div>
-                  <dt>Scope</dt>
-                  <dd>{{ isOxoTemplate(activePromptTemplate) ? 'My template' : 'Built in' }}</dd>
+                  <dt>{{ $t('auto.4651a34e4df9') }}</dt>
+                  <dd>{{ isOxoTemplate(activePromptTemplate) ? $t('auto.feab81149b3c') : $t('auto.6b0c36de2782') }}</dd>
                 </div>
               </dl>
               <div class="detail-block template-preview-block">
                 <div class="template-preview-heading">
-                  <strong>Template</strong>
-                  <n-button secondary round size="small" @click="openFullTemplate(activePromptTemplate)">
-                    Expand
-                  </n-button>
+                  <strong>{{ $t('auto.3ec1ae061c27') }}</strong>
+                  <n-button secondary round size="small" @click="openFullTemplate(activePromptTemplate)"> {{ $t('auto.9869e506c38f') }} </n-button>
                 </div>
                 <div class="template-render-card template-render-card-compact">
                   <template v-for="(part, index) in renderTemplateParts(activePromptTemplate.template || '')" :key="index">
                     <span v-if="part.type === 'text'">{{ part.value }}</span>
-                    <b v-else class="prompt-token-block" v-text="PROMPT_TOKEN"></b>
+                    <b v-else class="prompt-token-block" v-text="PROMPT_LABEL"></b>
                   </template>
                 </div>
               </div>
             </template>
-            <n-empty v-else description="Select a prompt template" />
+            <n-empty v-else :description="$t('auto.bf024765572e')" />
           </section>
         </div>
       </GlassPanel>
       <ResourceTable
         v-else
         eyebrow="Prompt corpus"
-        title="datasets"
+        :title="$t('auto.061ac740047f')"
         :rows="store.datasets"
         :preferred-keys="['id', 'name', 'description', 'num_of_dataset_prompts']"
       />
@@ -174,24 +177,28 @@
     <n-modal v-model:show="templateModalOpen" preset="card" class="prompt-template-modal" :bordered="false">
       <template #header>
         <div class="prompt-template-modal-title">
-          <span>Create Prompt Template</span>
-          <small>Compose a reusable wrapper around the prompt block.</small>
+          <span>{{ isEditingTemplate ? $t('auto.14c7104fd282') : $t('auto.4ca8eee042d4') }}</span>
+          <small>
+            {{ isEditingTemplate
+              ? $t('auto.a4de0115b1ca')
+              : $t('auto.ae145af668b3') }}
+          </small>
         </div>
       </template>
       <div class="prompt-template-modal-body">
         <section class="prompt-template-form">
           <section class="prompt-template-form-card">
-            <p class="eyebrow">Identity</p>
+            <p class="eyebrow">{{ $t('auto.7e5a975b6add') }}</p>
             <n-form label-placement="top">
-              <n-form-item label="Name">
-                <n-input v-model:value="templateForm.name" placeholder="Safety answer wrapper" />
+              <n-form-item :label="$t('auto.709a23220f2c')">
+                <n-input v-model:value="templateForm.name" :placeholder="$t('auto.53b34a42a23e')" />
               </n-form-item>
-              <n-form-item label="Description">
+              <n-form-item :label="$t('auto.55f8ebc805e6')">
                 <n-input
                   v-model:value="templateForm.description"
                   type="textarea"
                   :autosize="{ minRows: 3, maxRows: 5 }"
-                  placeholder="Describe when this wrapper should be used"
+                  :placeholder="$t('auto.a269ffcb2d04')"
                 />
               </n-form-item>
             </n-form>
@@ -199,12 +206,16 @@
           <div class="template-block-editor">
             <div class="template-editor-head">
               <div>
-                <strong>Template body</strong>
-                <small>Use text blocks before or after the prompt block.</small>
+                <strong>{{ $t('auto.d929b9f3646a') }}</strong>
+                <small>{{ $t('auto.e965c4b128af') }}</small>
               </div>
-              <n-button secondary round size="small" @click="insertPromptBlock">
-                Insert prompt block
-              </n-button>
+              <n-button
+                secondary
+                round
+                size="small"
+                :disabled="templateBlocks.some((block) => block.type === 'prompt')"
+                @click="insertPromptBlock"
+              > {{ $t('auto.8a11547d1295') }} </n-button>
             </div>
             <div class="template-block-list">
               <template v-for="(block, index) in templateBlocks" :key="block.id">
@@ -213,10 +224,10 @@
                   v-model:value="block.value"
                   type="textarea"
                   :autosize="{ minRows: 2, maxRows: 8 }"
-                  placeholder="Write template text here"
+                  :placeholder="$t('auto.13f2e8c438b7')"
                 />
                 <div v-else class="template-editor-token">
-                  <span v-text="PROMPT_TOKEN"></span>
+                  <span v-text="PROMPT_LABEL"></span>
                   <n-button quaternary circle size="tiny" @click="removeTemplateBlock(index)">
                     <template #icon><n-icon><CloseOutline /></n-icon></template>
                   </n-button>
@@ -226,21 +237,25 @@
           </div>
         </section>
         <aside class="prompt-template-live-preview">
-          <p class="eyebrow">Preview</p>
+          <p class="eyebrow">{{ $t('auto.f1fbb2b43dca') }}</p>
           <div class="template-render-card">
             <template v-for="(part, index) in renderTemplateParts(templateBody)" :key="index">
               <span v-if="part.type === 'text'">{{ part.value }}</span>
-              <b v-else class="prompt-token-block" v-text="PROMPT_TOKEN"></b>
+              <b v-else class="prompt-token-block" v-text="PROMPT_LABEL"></b>
             </template>
           </div>
-          <small>Saved ID will start with Oxo- and can be deleted later.</small>
+          <small>
+            {{ isEditingTemplate
+              ? $t('auto.d94dabc1c4d0')
+              : $t('auto.8c5b4acb3a00') }}
+          </small>
         </aside>
       </div>
       <template #footer>
         <div class="modal-footer-actions">
-          <n-button round @click="templateModalOpen = false">Cancel</n-button>
-          <n-button type="primary" round :loading="templateSubmitting" :disabled="!canCreateTemplate" @click="createPromptTemplate">
-            Create Template
+          <n-button round @click="templateModalOpen = false">{{ $t('auto.77dfd2135f4d') }}</n-button>
+          <n-button type="primary" round :loading="templateSubmitting" :disabled="!canSubmitTemplate" @click="submitPromptTemplate">
+            {{ isEditingTemplate ? $t('auto.fa2984b367b8') : $t('auto.e48e66854662') }}
           </n-button>
         </div>
       </template>
@@ -251,7 +266,7 @@
       <div class="template-render-card template-render-card-full">
         <template v-for="(part, index) in renderTemplateParts(templatePreviewBody)" :key="index">
           <span v-if="part.type === 'text'">{{ part.value }}</span>
-          <b v-else class="prompt-token-block" v-text="PROMPT_TOKEN"></b>
+          <b v-else class="prompt-token-block" v-text="PROMPT_LABEL"></b>
         </template>
       </div>
     </n-modal>
@@ -259,6 +274,8 @@
 </template>
 
 <script setup lang="ts">
+import { translateSource } from '../i18n'
+
 import { computed, reactive, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useMessage } from 'naive-ui'
@@ -267,6 +284,7 @@ import {
   ArrowForwardOutline,
   BookOutline,
   CloseOutline,
+  CreateOutline,
   DocumentTextOutline,
   FileTrayStackedOutline,
   NewspaperOutline,
@@ -282,6 +300,7 @@ const store = useMoonshotStore()
 const route = useRoute()
 const message = useMessage()
 const PROMPT_TOKEN = '{{ prompt }}'
+const PROMPT_LABEL = 'Prompt'
 const selectedTemplateId = ref('')
 const templateSearch = ref('')
 const templateScope = ref<'all' | 'oxo'>('all')
@@ -290,12 +309,13 @@ const templatePreviewModalOpen = ref(false)
 const templatePreviewTitle = ref('')
 const templatePreviewBody = ref('')
 const templateSubmitting = ref(false)
+const editingTemplateId = ref('')
 const templateForm = reactive({ name: '', description: '' })
 const templateBlocks = ref<Array<{ id: string; type: 'text' | 'prompt'; value: string }>>([])
 
 const templateScopeOptions = [
-  { label: 'All templates', value: 'all' },
-  { label: 'My templates', value: 'oxo' },
+  { label: translateSource('auto.0bba114cc6d7'), value: 'all' },
+  { label: translateSource('auto.84ed8f3d1c5a'), value: 'oxo' },
 ]
 
 const section = computed(() => {
@@ -308,14 +328,14 @@ const payloadFlowItems = computed(() => [
   {
     key: 'datasets',
     step: '01',
-    stage: 'Input data',
-    role: 'Prompt corpus',
-    name: 'Datasets',
-    description: 'Store prompt inputs, expected answers, and policy labels used by tests.',
-    analysis: 'Datasets are the raw evaluation material. They answer: what prompts should be sent, and what target or policy label should the model be judged against?',
-    relationship: 'Feeds prompt rows into Recipes',
-    consumes: 'Prompt examples',
-    produces: 'Test rows',
+    stage: translateSource('payloadFlow.datasets.stage'),
+    role: translateSource('payloadFlow.datasets.role'),
+    name: translateSource('payloadFlow.datasets.name'),
+    description: translateSource('auto.c86a81e0b006'),
+    analysis: translateSource('payloadFlow.datasets.analysis'),
+    relationship: translateSource('payloadFlow.datasets.relationship'),
+    consumes: translateSource('payloadFlow.datasets.consumes'),
+    produces: translateSource('payloadFlow.datasets.produces'),
     icon: FileTrayStackedOutline,
     path: '/payload/datasets',
     count: store.datasets.length,
@@ -323,14 +343,14 @@ const payloadFlowItems = computed(() => [
   {
     key: 'prompt-templates',
     step: '02',
-    stage: 'Prompt format',
-    role: 'Prompt wrapper',
-    name: 'Prompt Templates',
-    description: 'Wrap dataset prompts into the exact model-facing instruction format.',
-    analysis: 'Prompt Templates are reusable wrappers around the {{ prompt }} block. They shape how dataset rows are presented before the model responds.',
-    relationship: 'Optionally applied inside Recipes',
-    consumes: '{{ prompt }} token',
-    produces: 'Model-ready prompt',
+    stage: translateSource('payloadFlow.templates.stage'),
+    role: translateSource('payloadFlow.templates.role'),
+    name: translateSource('payloadFlow.templates.name'),
+    description: translateSource('auto.be7aecdb05f8'),
+    analysis: translateSource('payloadFlow.templates.analysis'),
+    relationship: translateSource('payloadFlow.templates.relationship'),
+    consumes: `{{ prompt }} ${translateSource('payloadFlow.templates.token')}`,
+    produces: translateSource('payloadFlow.templates.produces'),
     icon: NewspaperOutline,
     path: '/payload/prompt-templates',
     count: store.promptTemplates.length,
@@ -338,14 +358,14 @@ const payloadFlowItems = computed(() => [
   {
     key: 'recipes',
     step: '03',
-    stage: 'Test logic',
-    role: 'Evaluation flow',
-    name: 'Recipes',
-    description: 'Combine datasets, optional prompt templates, metrics, labels, and grading rules.',
-    analysis: 'Recipes are the actual test definition. They connect what to ask, how to ask it, and how the response should be evaluated.',
-    relationship: 'Grouped into Cookbooks',
-    consumes: 'Datasets + templates + metrics',
-    produces: 'Reusable test flow',
+    stage: translateSource('payloadFlow.recipes.stage'),
+    role: translateSource('payloadFlow.recipes.role'),
+    name: translateSource('payloadFlow.recipes.name'),
+    description: translateSource('auto.1e0591fd8d99'),
+    analysis: translateSource('payloadFlow.recipes.analysis'),
+    relationship: translateSource('payloadFlow.recipes.relationship'),
+    consumes: translateSource('payloadFlow.recipes.consumes'),
+    produces: translateSource('payloadFlow.recipes.produces'),
     icon: DocumentTextOutline,
     path: '/payload/recipes',
     count: store.recipes.length,
@@ -353,14 +373,14 @@ const payloadFlowItems = computed(() => [
   {
     key: 'cookbooks',
     step: '04',
-    stage: 'Run suites',
-    role: 'Benchmark suite',
-    name: 'Cookbooks',
-    description: 'Bundle related recipes into repeatable suites for benchmark runs.',
-    analysis: 'Cookbooks are the run-ready package. They decide which recipes travel together when a benchmark or regression suite is launched.',
-    relationship: 'Launched by Benchmark',
-    consumes: 'One or more recipes',
-    produces: 'Runnable suite',
+    stage: translateSource('payloadFlow.cookbooks.stage'),
+    role: translateSource('payloadFlow.cookbooks.role'),
+    name: translateSource('payloadFlow.cookbooks.name'),
+    description: translateSource('auto.87c0fef2b7e4'),
+    analysis: translateSource('payloadFlow.cookbooks.analysis'),
+    relationship: translateSource('payloadFlow.cookbooks.relationship'),
+    consumes: translateSource('payloadFlow.cookbooks.consumes'),
+    produces: translateSource('payloadFlow.cookbooks.produces'),
     icon: BookOutline,
     path: '/payload/cookbooks',
     count: store.cookbooks.length,
@@ -392,7 +412,8 @@ const templateBody = computed(() =>
     .join(''),
 )
 
-const canCreateTemplate = computed(() => templateForm.name.trim() && templateBody.value.includes('{{ prompt }}'))
+const isEditingTemplate = computed(() => Boolean(editingTemplateId.value))
+const canSubmitTemplate = computed(() => Boolean(templateForm.name.trim()) && templateBody.value.includes(PROMPT_TOKEN))
 
 function templateId(template?: PromptTemplateRecord) {
   return String(template?.id || template?.name || '')
@@ -403,15 +424,35 @@ function isOxoTemplate(template?: PromptTemplateRecord) {
 }
 
 function openTemplateModal() {
+  editingTemplateId.value = ''
   templateForm.name = ''
   templateForm.description = ''
   templateBlocks.value = [{ id: `block-${Date.now()}`, type: 'text', value: '' }]
   templateModalOpen.value = true
 }
 
+function openEditTemplateModal(template: PromptTemplateRecord) {
+  const id = templateId(template)
+  if (!id || !isOxoTemplate(template)) return
+  editingTemplateId.value = id
+  templateForm.name = String(template.name || '')
+  templateForm.description = String(template.description || '')
+  templateBlocks.value = createTemplateBlocks(String(template.template || PROMPT_TOKEN))
+  templateModalOpen.value = true
+}
+
 function insertPromptBlock() {
+  if (templateBlocks.value.some((block) => block.type === 'prompt')) return
+  const promptBlock = { id: `block-${Date.now()}-prompt`, type: 'prompt' as const, value: PROMPT_TOKEN }
+  if (!templateBlocks.value.length || templateBlocks.value.every((block) => block.type === 'text' && !block.value.trim())) {
+    templateBlocks.value = [
+      promptBlock,
+      { id: `block-${Date.now()}-text`, type: 'text', value: '' },
+    ]
+    return
+  }
   templateBlocks.value.push(
-    { id: `block-${Date.now()}-prompt`, type: 'prompt', value: '{{ prompt }}' },
+    promptBlock,
     { id: `block-${Date.now()}-text`, type: 'text', value: '' },
   )
 }
@@ -425,6 +466,9 @@ function removeTemplateBlock(index: number) {
     return
   }
   templateBlocks.value.splice(index, 1)
+  if (!templateBlocks.value.length) {
+    templateBlocks.value = [{ id: `block-${Date.now()}-text`, type: 'text', value: '' }]
+  }
 }
 
 function openFullTemplate(template: PromptTemplateRecord) {
@@ -439,21 +483,38 @@ function renderTemplateParts(value: string) {
     .map((part) => (/\{\{\s*prompt\s*\}\}/.test(part) ? { type: 'prompt', value: part } : { type: 'text', value: part }))
 }
 
-async function createPromptTemplate() {
-  if (!canCreateTemplate.value) return
+function createTemplateBlocks(value: string) {
+  const now = Date.now()
+  const parts = renderTemplateParts(value)
+  if (!parts.length) return [{ id: `block-${now}-text`, type: 'text' as const, value: '' }]
+  return parts.map((part, index) => ({
+    id: `block-${now}-${index}`,
+    type: part.type as 'text' | 'prompt',
+    value: part.type === 'prompt' ? PROMPT_TOKEN : part.value,
+  }))
+}
+
+async function submitPromptTemplate() {
+  if (!canSubmitTemplate.value) return
   templateSubmitting.value = true
+  const wasEditing = isEditingTemplate.value
   try {
-    const id = await moonshotApi.createPromptTemplate({
+    const payload = {
       name: templateForm.name.trim(),
       description: templateForm.description.trim(),
       template: templateBody.value,
-    })
+    }
+    const id = wasEditing
+      ? editingTemplateId.value
+      : await moonshotApi.createPromptTemplate(payload)
+    if (wasEditing) await moonshotApi.updatePromptTemplate(id, payload)
     await store.loadOverview()
     selectedTemplateId.value = id
     templateModalOpen.value = false
-    message.success('Prompt template created')
+    editingTemplateId.value = ''
+    message.success(wasEditing ? 'Prompt template updated' : 'Prompt template created')
   } catch (error) {
-    message.error(error instanceof Error ? error.message : 'Create prompt template failed')
+    message.error(error instanceof Error ? error.message : 'Save prompt template failed')
   } finally {
     templateSubmitting.value = false
   }
@@ -466,7 +527,7 @@ async function deletePromptTemplate(template: PromptTemplateRecord) {
     await moonshotApi.deletePromptTemplate(id)
     await store.loadOverview()
     selectedTemplateId.value = ''
-    message.success('Prompt template deleted')
+    message.success(translateSource('auto.289363f25c67'))
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'Delete prompt template failed')
   }

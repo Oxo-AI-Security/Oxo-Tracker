@@ -325,6 +325,21 @@ class MoonshotApiAdapter:
         )
         return pt_id
 
+    def update_prompt_template_record(self, pt_id: str, data: dict[str, Any]) -> bool:
+        if not Storage.is_object_exists(EnvVariables.PROMPT_TEMPLATES.name, pt_id, "json"):
+            raise RuntimeError(f"Prompt template with ID '{pt_id}' does not exist.")
+        Storage.create_object(
+            EnvVariables.PROMPT_TEMPLATES.name,
+            pt_id,
+            {
+                "name": data.get("name", pt_id),
+                "description": data.get("description", ""),
+                "template": data.get("template", "{{ prompt }}"),
+            },
+            "json",
+        )
+        return True
+
     def delete_prompt_template(self, pt_id: str) -> bool:
         """删除 Prompt 模板。"""
         return moonshot_api.api_delete_prompt_template(pt_id)

@@ -263,11 +263,13 @@ export interface AIConnectionTestResult {
 
 export interface AppSettings {
   theme: 'light' | 'dark'
+  locale: 'en-US' | 'zh-CN'
   ai: AISettings
 }
 
 export interface AppSettingsUpdate {
   theme?: AppSettings['theme']
+  locale?: AppSettings['locale']
   ai?: {
     activeProvider: string
     provider?: string

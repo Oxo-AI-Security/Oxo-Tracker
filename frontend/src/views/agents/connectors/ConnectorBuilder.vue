@@ -3,75 +3,71 @@
     <GlassPanel class="connector-builder-panel">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Agents / Endpoints / App Endpoint</p>
-          <h2>{{ editingId ? 'Edit Connector Endpoint' : 'New Connector Endpoint' }}</h2>
-          <span>Configure one endpoint under a Moonshot connector type.</span>
+          <p class="eyebrow">{{ $t('auto.e9215b5d7bc9') }}</p>
+          <h2>{{ editingId ? $t('auto.5b2d286ab27f') : $t('auto.3a50517fa1b3') }}</h2>
+          <span>{{ $t('auto.5786331714fa') }}</span>
         </div>
         <div class="endpoint-heading-actions">
           <n-button v-if="isConfigurableApp" class="connector-ai-button" type="primary" secondary round :loading="aiGenerating" :disabled="permissionDenied" @click="openAIAssistant">
-            <template #icon><n-icon><SparklesOutline /></n-icon></template>
-            AI Configure
-          </n-button>
-          <n-button secondary round :disabled="aiGenerating" @click="goBack">Back</n-button>
-          <n-button type="primary" round :disabled="!canSave || aiGenerating" @click="saveConnector">Save Endpoint</n-button>
+            <template #icon><n-icon><SparklesOutline /></n-icon></template> {{ $t('auto.153f90c699c4') }} </n-button>
+          <n-button secondary round :disabled="aiGenerating" @click="goBack">{{ $t('auto.b52b36b7269f') }}</n-button>
+          <n-button type="primary" round :disabled="!canSave || aiGenerating" @click="saveConnector">{{ $t('auto.924a634371f5') }}</n-button>
         </div>
       </div>
 
-      <n-alert v-if="permissionDenied" type="error" title="Permission denied">
-        This connector endpoint could not be loaded.
-      </n-alert>
+      <n-alert v-if="permissionDenied" type="error" :title="$t('auto.d016004473e0')"> {{ $t('auto.3733a93841a4') }} </n-alert>
 
       <div v-else class="connector-builder-grid" :class="{ 'connector-builder-grid--locked': aiGenerating }" :inert="aiGenerating" :aria-busy="aiGenerating">
         <section class="connector-builder-main">
           <div class="connector-builder-hero">
             <div>
-              <p class="eyebrow">Connector type</p>
+              <p class="eyebrow">{{ $t('auto.cbf56f96dd38') }}</p>
               <strong>{{ form.connector_type }}</strong>
-              <span>Endpoint settings are saved into Moonshot connector-endpoints.</span>
+              <span>{{ $t('auto.239da6e2821f') }}</span>
             </div>
             <div v-if="isConfigurableApp" class="connector-template-actions">
-              <n-button :type="activeProtocol === 'http' ? 'primary' : 'default'" secondary round @click="loadTemplate('http')">HTTP Template</n-button>
-              <n-button :type="activeProtocol === 'sse' ? 'primary' : 'default'" secondary round @click="loadTemplate('sse')">SSE Template</n-button>
-              <n-button :type="activeProtocol === 'websocket' ? 'primary' : 'default'" secondary round @click="loadTemplate('websocket')">WebSocket Template</n-button>
+              <n-button :type="activeProtocol === 'http' ? 'primary' : 'default'" secondary round @click="loadTemplate('http')">{{ $t('auto.f63532ff1093') }}</n-button>
+              <n-button :type="activeProtocol === 'sse' ? 'primary' : 'default'" secondary round @click="loadTemplate('sse')">{{ $t('auto.0852774752dd') }}</n-button>
+              <n-button :type="activeProtocol === 'websocket' ? 'primary' : 'default'" secondary round @click="loadTemplate('websocket')">{{ $t('auto.4642e8d5fd02') }}</n-button>
             </div>
           </div>
 
           <section v-if="isConfigurableApp" class="connector-guide-collapse">
             <button type="button" class="connector-guide-toggle" @click="guideOpen = !guideOpen">
               <div class="connector-guide-header">
-                <span>Configuration Guide</span>
-                <strong>Map a custom AI app into a Connector Endpoint</strong>
+                <span>{{ $t('auto.b36efa76cb30') }}</span>
+                <strong>{{ $t('auto.9b94bcfe8e39') }}</strong>
               </div>
               <span class="connector-guide-state">{{ guideOpen ? 'Collapse' : 'Expand' }}</span>
             </button>
             <div v-if="guideOpen" class="connector-guide-body">
               <div class="connector-guide-intro">
-                <strong>Put the user input into the request, then extract the AI answer from the response.</strong>
-                <span>This guide explains the setup flow only. Complete the real configuration in Basic, Auth, Request, Response, and Test.</span>
+                <strong>{{ $t('auto.8a8909c294be') }}</strong>
+                <span>{{ $t('auto.ed4c0b0dbc8a') }}</span>
               </div>
               <div class="connector-example-card connector-guide-steps">
                 <div>
                   <b>1</b>
                   <strong>URL</strong>
-                  <span>Use a complete endpoint URL, or put the base URL in Request URL and the route in Path.</span>
+                  <span>{{ $t('auto.d42c1e886657') }}</span>
                   <code>http://10.255.25.153:5000/chat</code>
                 </div>
                 <div>
                   <b>2</b>
-                  <strong>Auth header</strong>
-                  <span>Choose Bearer, API Key, Cookie, or add your own static request headers.</span>
+                  <strong>{{ $t('auto.ab3a4f269e31') }}</strong>
+                  <span>{{ $t('auto.d935c22a9606') }}</span>
                   <code>Authorization: Bearer &lt;token&gt;</code>
                 </div>
                 <div>
                   <b>3</b>
-                  <strong>Request input field</strong>
-                  <span>Replace the JSON, form, or query value that receives user input with the prompt token.</span>
+                  <strong>{{ $t('auto.a83199228b48') }}</strong>
+                  <span>{{ $t('auto.e7e18d0b326c') }}</span>
                   <pre>{ "message": "{{ promptToken }}", "level": 1, "history": [] }</pre>
                 </div>
                 <div>
                   <b>4</b>
-                  <strong>Response output field</strong>
-                  <span>Paste a response sample, select the AI answer value, and generate the output path.</span>
+                  <strong>{{ $t('auto.6ac61baf5f41') }}</strong>
+                  <span>{{ $t('auto.b9237ff04796') }}</span>
                   <pre>{ "blocked": false, "response": "Hi! How can I assist you today?" }</pre>
                 </div>
               </div>
@@ -81,23 +77,23 @@
           <div v-if="!isConfigurableApp" class="connector-form-card connector-default-endpoint-card">
             <div class="connector-default-head">
               <div>
-                <p class="eyebrow">Default Connector Endpoint</p>
-                <strong>Use Moonshot endpoint fields for this connector type.</strong>
+                <p class="eyebrow">{{ $t('auto.991f1723e4b2') }}</p>
+                <strong>{{ $t('auto.ec630dbf7d41') }}</strong>
               </div>
-              <n-tag round type="info">built-in connector</n-tag>
+              <n-tag round type="info">{{ $t('auto.e1c80d499dd8') }}</n-tag>
             </div>
             <n-form label-placement="top">
-              <n-form-item label="Name"><n-input v-model:value="form.name" /></n-form-item>
+              <n-form-item :label="$t('auto.709a23220f2c')"><n-input v-model:value="form.name" /></n-form-item>
               <div class="connector-inline-fields">
-                <n-form-item label="Request URL"><n-input v-model:value="form.uri" placeholder="Leave empty when the connector uses environment defaults" /></n-form-item>
-                <n-form-item label="Model"><n-input v-model:value="form.model" placeholder="gpt-4o, qwen-plus, claude..." /></n-form-item>
+                <n-form-item :label="$t('auto.befd91c237b2')"><n-input v-model:value="form.uri" :placeholder="$t('auto.0f3999f2e7ed')" /></n-form-item>
+                <n-form-item :label="$t('auto.68c2cc7f0cea')"><n-input v-model:value="form.model" :placeholder="$t('auto.dfc36c695564')" /></n-form-item>
               </div>
-              <n-form-item label="Token / API Key"><n-input v-model:value="form.token" type="password" show-password-on="click" placeholder="Leave empty when using environment variables" /></n-form-item>
+              <n-form-item :label="$t('auto.c648d52cb89e')"><n-input v-model:value="form.token" type="password" show-password-on="click" :placeholder="$t('auto.b3b9750ceb01')" /></n-form-item>
               <div class="connector-inline-fields">
-                <n-form-item label="Max Calls Per Second"><n-input-number v-model:value="form.max_calls_per_second" :min="1" /></n-form-item>
-                <n-form-item label="Max Concurrency"><n-input-number v-model:value="form.max_concurrency" :min="1" /></n-form-item>
+                <n-form-item :label="$t('auto.79a345713380')"><n-input-number v-model:value="form.max_calls_per_second" :min="1" /></n-form-item>
+                <n-form-item :label="$t('auto.2749013e6731')"><n-input-number v-model:value="form.max_concurrency" :min="1" /></n-form-item>
               </div>
-              <n-form-item label="Params JSON">
+              <n-form-item :label="$t('auto.f24f76edb117')">
                 <textarea v-model="defaultParamsText" class="connector-code-textarea" spellcheck="false" @blur="syncDefaultParams" />
               </n-form-item>
             </n-form>
@@ -107,16 +103,16 @@
             <n-tab-pane name="basic" tab="Basic">
               <div class="connector-form-card">
                 <n-form label-placement="top">
-                  <n-form-item label="Name"><n-input v-model:value="form.name" /></n-form-item>
-                  <n-form-item label="Description"><n-input v-model:value="form.description" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" /></n-form-item>
-                  <n-form-item label="Request URL"><n-input v-model:value="form.uri" placeholder="http://10.255.25.153:5000/chat" /></n-form-item>
+                  <n-form-item :label="$t('auto.709a23220f2c')"><n-input v-model:value="form.name" /></n-form-item>
+                  <n-form-item :label="$t('auto.55f8ebc805e6')"><n-input v-model:value="form.description" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" /></n-form-item>
+                  <n-form-item :label="$t('auto.befd91c237b2')"><n-input v-model:value="form.uri" placeholder="http://10.255.25.153:5000/chat" /></n-form-item>
                   <div class="connector-inline-fields">
-                    <n-form-item label="Model / Deployment (optional)"><n-input v-model:value="form.model" placeholder="custom-model" /></n-form-item>
-                    <n-form-item label="Timeout (seconds)"><n-input-number v-model:value="form.params.timeout" :min="1" :max="120" /></n-form-item>
+                    <n-form-item :label="$t('auto.f47d901be446')"><n-input v-model:value="form.model" :placeholder="$t('auto.293f623bf8a4')" /></n-form-item>
+                    <n-form-item :label="$t('auto.e4ea98243df8')"><n-input-number v-model:value="form.params.timeout" :min="1" :max="120" /></n-form-item>
                   </div>
                   <div class="connector-inline-fields">
-                    <n-form-item label="Max Calls Per Second"><n-input-number v-model:value="form.max_calls_per_second" :min="1" /></n-form-item>
-                    <n-form-item label="Max Concurrency"><n-input-number v-model:value="form.max_concurrency" :min="1" /></n-form-item>
+                    <n-form-item :label="$t('auto.79a345713380')"><n-input-number v-model:value="form.max_calls_per_second" :min="1" /></n-form-item>
+                    <n-form-item :label="$t('auto.2749013e6731')"><n-input-number v-model:value="form.max_concurrency" :min="1" /></n-form-item>
                   </div>
                 </n-form>
               </div>
@@ -126,40 +122,40 @@
               <div class="connector-form-card connector-headers-card">
                 <div class="connector-default-head">
                   <div>
-                    <p class="eyebrow">Request Headers</p>
-                    <strong>Configure authentication and any additional headers sent with every request.</strong>
+                    <p class="eyebrow">{{ $t('auto.8a9b75d51b30') }}</p>
+                    <strong>{{ $t('auto.dc75625b3a60') }}</strong>
                   </div>
-                  <n-tag round type="info">{{ headerEntries.length }} custom</n-tag>
+                  <n-tag round type="info">{{ headerEntries.length }} {{ $t('auto.f9ac14b63a75') }}</n-tag>
                 </div>
                 <section class="connector-auth-panel">
                   <div class="connector-section-heading">
                     <div>
-                      <strong>Authentication</strong>
-                      <span>Choose one authentication method. Credentials are stored separately from custom headers.</span>
+                      <strong>{{ $t('auto.ee1acfa55eb1') }}</strong>
+                      <span>{{ $t('auto.9a3a67dc21e4') }}</span>
                     </div>
                   </div>
-                  <div class="connector-header-presets" aria-label="Authentication presets">
-                    <button type="button" :class="{ active: form.params.connector_config.auth.type === 'bearer' }" @click="applyHeaderPreset('bearer')"><strong>Bearer Token</strong><span>Authorization header</span></button>
-                    <button type="button" :class="{ active: form.params.connector_config.auth.type === 'api-key' }" @click="applyHeaderPreset('x-api-key')"><strong>API Key</strong><span>x-api-key header</span></button>
-                    <button type="button" :class="{ active: form.params.connector_config.auth.type === 'cookie' }" @click="applyHeaderPreset('cookie')"><strong>Cookie</strong><span>Session cookie</span></button>
+                  <div class="connector-header-presets" :aria-label="$t('auto.41390aa9057f')">
+                    <button type="button" :class="{ active: form.params.connector_config.auth.type === 'bearer' }" @click="applyHeaderPreset('bearer')"><strong>{{ $t('auto.398e3e4864a3') }}</strong><span>{{ $t('auto.b4e71c87b167') }}</span></button>
+                    <button type="button" :class="{ active: form.params.connector_config.auth.type === 'api-key' }" @click="applyHeaderPreset('x-api-key')"><strong>{{ $t('auto.47acd2028cf8') }}</strong><span>{{ $t('auto.5a6a2fd701b8') }}</span></button>
+                    <button type="button" :class="{ active: form.params.connector_config.auth.type === 'cookie' }" @click="applyHeaderPreset('cookie')"><strong>{{ $t('auto.e4f81994fed0') }}</strong><span>{{ $t('auto.8fa2a80f7a4a') }}</span></button>
                   </div>
                   <n-form class="connector-auth-form" label-placement="top">
                     <div class="connector-auth-fields">
-                      <n-form-item label="Authentication Type">
+                      <n-form-item :label="$t('auto.121193db7a5f')">
                         <n-select
                           :value="form.params.connector_config.auth.type"
                           :options="authOptions"
                           @update:value="setAuthType(String($event))"
                         />
                       </n-form-item>
-                      <n-form-item v-if="usesAuthHeader" label="Header Name">
+                      <n-form-item v-if="usesAuthHeader" :label="$t('auto.37d8ce784d80')">
                         <n-input v-model:value="form.params.connector_config.auth.headerName" :placeholder="defaultAuthHeader" />
                       </n-form-item>
-                      <n-form-item v-if="form.params.connector_config.auth.type === 'basic'" label="Username">
+                      <n-form-item v-if="form.params.connector_config.auth.type === 'basic'" :label="$t('auto.84c29015de33')">
                         <n-input v-model:value="form.params.connector_config.auth.username" autocomplete="username" />
                       </n-form-item>
                       <n-form-item v-if="form.params.connector_config.auth.type !== 'none'" :label="authSecretLabel">
-                        <n-input v-model:value="form.token" type="password" show-password-on="click" autocomplete="new-password" placeholder="Enter credential" />
+                        <n-input v-model:value="form.token" type="password" show-password-on="click" autocomplete="new-password" :placeholder="$t('auto.77983c64e365')" />
                       </n-form-item>
                     </div>
                   </n-form>
@@ -168,20 +164,20 @@
                 <section class="connector-custom-headers-panel">
                   <div class="connector-section-heading connector-section-heading-with-count">
                     <div>
-                      <strong>Custom Headers</strong>
-                      <span>Add fixed metadata such as tenant, version, or tracing headers.</span>
+                      <strong>{{ $t('auto.081e8f274703') }}</strong>
+                      <span>{{ $t('auto.1b13817dce1b') }}</span>
                     </div>
-                    <span>{{ headerEntries.length }} configured</span>
+                    <span>{{ headerEntries.length }} {{ $t('auto.3be9f957f29f') }}</span>
                   </div>
                   <n-form class="connector-custom-header-form" label-placement="top">
-                    <n-form-item label="Header Name"><n-input v-model:value="customHeaderName" placeholder="x-tenant-id" /></n-form-item>
-                    <n-form-item label="Header Value"><n-input v-model:value="customHeaderValue" placeholder="tenant-demo" /></n-form-item>
-                    <n-button type="primary" secondary round :disabled="!customHeaderName.trim()" @click="addCustomHeader">Add Header</n-button>
+                    <n-form-item :label="$t('auto.37d8ce784d80')"><n-input v-model:value="customHeaderName" placeholder="x-tenant-id" /></n-form-item>
+                    <n-form-item :label="$t('auto.f6169e2ce081')"><n-input v-model:value="customHeaderValue" :placeholder="$t('auto.88cea605f1c9')" /></n-form-item>
+                    <n-button type="primary" secondary round :disabled="!customHeaderName.trim()" @click="addCustomHeader">{{ $t('auto.42b949077d2f') }}</n-button>
                   </n-form>
                   <div class="connector-header-list">
                     <div class="connector-header-list-head">
-                      <strong>Name</strong>
-                      <span>Value</span>
+                      <strong>{{ $t('auto.709a23220f2c') }}</strong>
+                      <span>{{ $t('auto.8dce170de238') }}</span>
                     </div>
                     <div v-if="headerEntries.length" class="connector-header-items">
                       <article v-for="header in headerEntries" :key="header.name">
@@ -195,14 +191,14 @@
                             @keyup.enter="saveHeaderEdit"
                             @keyup.esc="cancelHeaderEdit"
                           />
-                          <span v-else class="connector-header-editable-value" title="Double-click to edit" @dblclick="startHeaderEdit(header.name, header.value)">{{ header.value }}</span>
+                          <span v-else class="connector-header-editable-value" :title="$t('auto.1b1ef72c442d')" @dblclick="startHeaderEdit(header.name, header.value)">{{ header.value }}</span>
                         </div>
                         <n-button quaternary circle size="small" @click="removeHeader(header.name)">x</n-button>
                       </article>
                     </div>
                     <div v-else class="connector-header-empty">
-                      <strong>No custom headers yet</strong>
-                      <span>Authentication headers are managed above and do not need to be added again.</span>
+                      <strong>{{ $t('auto.c4b7b31826f5') }}</strong>
+                      <span>{{ $t('auto.e14070d86453') }}</span>
                     </div>
                   </div>
                 </section>
@@ -211,6 +207,50 @@
 
             <n-tab-pane name="request" tab="Request">
               <div class="connector-form-card connector-mapping-workspace">
+                <section class="connector-fetch-card">
+                  <div class="connector-fetch-card__head">
+                    <div>
+                      <p class="eyebrow">{{ $t('auto.b782e1c19f1c') }}</p>
+                      <strong>{{ $t('auto.3d9c9a2eebad') }}</strong>
+                    </div>
+                    <n-tag round :type="activeProtocol === 'websocket' ? 'success' : activeProtocol === 'sse' ? 'warning' : 'info'">{{ activeProtocol.toUpperCase() }}</n-tag>
+                  </div>
+
+                  <div class="connector-fetch-row">
+                    <n-input
+                      v-model:value="testPrompt"
+                      :placeholder="$t('auto.07ff42b04dae')"
+                      @keyup.enter="fetchResponse"
+                    />
+                    <n-button type="primary" round :loading="testing" :disabled="!form.uri.trim()" @click="fetchResponse">{{ $t('auto.30d4276ab288') }}</n-button>
+                  </div>
+
+                  <div v-if="testResult" class="connector-test-result connector-test-result--compact">
+                    <div class="connector-test-result__summary">
+                      <n-tag :type="testResult.status === 'success' ? 'success' : 'error'" round size="small">{{ testResult.status }}</n-tag>
+                      <span>{{ testResult.duration }}{{ $t('auto.26cc3217be64') }}</span>
+                      <span v-if="testResult.rawResponse" class="connector-test-result__destination">{{ $t('auto.c0246c09f896') }}</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      class="connector-request-preview-toggle"
+                      :aria-expanded="requestPreviewOpen"
+                      @click="requestPreviewOpen = !requestPreviewOpen"
+                    >
+                      <span>
+                        <n-icon><CodeSlashOutline /></n-icon> {{ $t('auto.c8a14f4451e9') }} </span>
+                      <n-icon class="connector-request-preview-toggle__chevron" :class="{ 'is-open': requestPreviewOpen }"><ChevronDownOutline /></n-icon>
+                    </button>
+                    <pre v-if="requestPreviewOpen" class="connector-request-preview-code">{{ testResult.requestPreview }}</pre>
+
+                    <div v-if="testResult.error" class="connector-test-error">
+                      <strong>{{ $t('auto.7f2f6a15cf8d') }}</strong>
+                      <pre>{{ testResult.error }}</pre>
+                    </div>
+                  </div>
+                </section>
+
                 <div class="connector-request-response-grid">
                   <section class="connector-request-column">
                     <template v-if="form.params.connector_config.transport === 'http' && form.params.connector_config.request">
@@ -218,21 +258,21 @@
                         <div class="connector-mapping-card connector-input-mapping-card">
                           <div class="connector-mapping-head">
                             <div>
-                              <p class="eyebrow">Input mapping</p>
+                              <p class="eyebrow">{{ $t('auto.e48882e558ed') }}</p>
                               <strong>{{ httpInputTitle }}</strong>
                             </div>
-                            <n-button secondary round size="small" @click="markPromptSelection">Use selected value as input</n-button>
+                            <n-button secondary round size="small" @click="markPromptSelection">{{ $t('auto.bf958ba7624d') }}</n-button>
                           </div>
                           <n-form class="connector-mapping-controls" label-placement="top">
                             <div class="connector-inline-fields connector-method-row">
-                              <n-form-item label="Method">
+                              <n-form-item :label="$t('auto.88306943fea7')">
                                 <n-select
                                   :value="form.params.connector_config.request.method"
                                   :options="methodOptions"
                                   @update:value="setHttpMethod(String($event))"
                                 />
                               </n-form-item>
-                              <n-form-item v-if="!isHttpGet" label="Body Type">
+                              <n-form-item v-if="!isHttpGet" :label="$t('auto.d6b23a46b95c')">
                                 <n-select
                                   :value="form.params.connector_config.request.bodyType"
                                   :options="bodyTypeOptionsWithoutNone"
@@ -240,8 +280,8 @@
                                 />
                               </n-form-item>
                             </div>
-                            <n-form-item v-if="!isHttpGet" label="URL Query Params (optional)">
-                              <n-input v-model:value="queryParamsText" placeholder="api-version=v1&amp;tenant=demo" @blur="syncQueryParams" />
+                            <n-form-item v-if="!isHttpGet" :label="$t('auto.cd760ea4ed59')">
+                              <n-input v-model:value="queryParamsText" :placeholder="$t('auto.31f59de7b939')" @blur="syncQueryParams" />
                             </n-form-item>
                           </n-form>
                           <div
@@ -273,22 +313,22 @@
                         <div class="connector-mapping-card connector-input-mapping-card">
                           <div class="connector-mapping-head">
                             <div>
-                              <p class="eyebrow">Input mapping</p>
+                              <p class="eyebrow">{{ $t('auto.e48882e558ed') }}</p>
                               <strong>{{ streamInputTitle }}</strong>
                             </div>
-                            <n-button secondary round size="small" @click="markPromptSelection">Use selected value as input</n-button>
+                            <n-button secondary round size="small" @click="markPromptSelection">{{ $t('auto.bf958ba7624d') }}</n-button>
                           </div>
                           <n-form class="connector-mapping-controls" label-placement="top">
                             <div class="connector-inline-fields connector-method-row">
-                              <n-form-item label="Method">
+                              <n-form-item :label="$t('auto.88306943fea7')">
                                 <n-select :value="form.params.connector_config.stream.method" :options="sseMethodOptions" @update:value="setSseMethod(String($event))" />
                               </n-form-item>
-                              <n-form-item v-if="!isSseGet" label="Body Type">
+                              <n-form-item v-if="!isSseGet" :label="$t('auto.d6b23a46b95c')">
                                 <n-select :value="form.params.connector_config.stream.bodyType" :options="bodyTypeOptionsWithoutNone" @update:value="setSseBodyType(String($event))" />
                               </n-form-item>
                             </div>
-                            <n-form-item v-if="!isSseGet" label="URL Query Params (optional)">
-                              <n-input v-model:value="queryParamsText" placeholder="stream=true&amp;tenant=demo" @blur="syncQueryParams" />
+                            <n-form-item v-if="!isSseGet" :label="$t('auto.cd760ea4ed59')">
+                              <n-input v-model:value="queryParamsText" :placeholder="$t('auto.4b7cab170e06')" @blur="syncQueryParams" />
                             </n-form-item>
                           </n-form>
                           <div
@@ -320,14 +360,14 @@
                         <div class="connector-mapping-card connector-input-mapping-card">
                           <div class="connector-mapping-head">
                             <div>
-                              <p class="eyebrow">Input mapping</p>
-                              <strong>Paste the WebSocket message payload</strong>
+                              <p class="eyebrow">{{ $t('auto.e48882e558ed') }}</p>
+                              <strong>{{ $t('auto.1c45f755ae96') }}</strong>
                             </div>
-                            <n-button secondary round size="small" @click="markPromptSelection">Use selected value as input</n-button>
+                            <n-button secondary round size="small" @click="markPromptSelection">{{ $t('auto.bf958ba7624d') }}</n-button>
                           </div>
                           <n-form class="connector-mapping-controls" label-placement="top">
-                            <n-form-item label="URL Query Params">
-                              <n-input v-model:value="queryParamsText" placeholder="session=demo&amp;stream=true" @blur="syncQueryParams" />
+                            <n-form-item :label="$t('auto.471b4c7c17f0')">
+                              <n-input v-model:value="queryParamsText" :placeholder="$t('auto.a09bfc8688a7')" @blur="syncQueryParams" />
                             </n-form-item>
                           </n-form>
                           <div
@@ -345,13 +385,34 @@
                   </section>
 
                   <section class="connector-response-column">
-                    <div class="connector-mapping-card">
+                    <div
+                      ref="outputMappingRef"
+                      class="connector-mapping-card connector-output-mapping-card"
+                      :class="{
+                        'has-fetched-response': Boolean(testResult?.rawResponse),
+                        'has-stream-preview': hasSsePreview,
+                      }"
+                    >
                       <div class="connector-mapping-head">
                         <div>
-                          <p class="eyebrow">Output mapping</p>
-                          <strong>Paste any response sample and select the answer value</strong>
+                          <p class="eyebrow">{{ $t('auto.76968653c994') }}</p>
+                          <strong>{{ outputMappingTitle }}</strong>
                         </div>
-                        <n-button secondary round size="small" @click="markOutputSelection">Use selected value as output</n-button>
+                        <div class="connector-output-actions">
+                          <n-tag v-if="testResult?.rawResponse" type="success" round size="small">{{ $t('auto.8e8bc0ca4aa7') }}</n-tag>
+                          <n-button v-if="hasSsePreview" secondary round size="small" @click="streamDetailsOpen = true">
+                            <template #icon><n-icon><ListOutline /></n-icon></template> {{ $t('auto.b1552353cb01') }} </n-button>
+                          <n-button secondary round size="small" @click="markOutputSelection">{{ $t('auto.39caadf5acae') }}</n-button>
+                        </div>
+                      </div>
+                      <div v-if="hasSsePreview" class="connector-stream-summary">
+                        <div class="connector-stream-summary__metrics">
+                          <n-tag round size="small" type="info">{{ sseResponsePreview?.events.length }} {{ $t('auto.e05f338ff3b5') }}</n-tag>
+                          <n-tag round size="small" type="success">{{ sseResponsePreview?.parsedEventCount }} {{ $t('auto.840fa3c3debd') }}</n-tag>
+                          <n-tag v-if="sseResponsePreview?.terminalEventCount" round size="small">
+                            {{ sseResponsePreview.terminalEventCount }} {{ $t('auto.00853bff9822') }} </n-tag>
+                        </div>
+                        <span>{{ $t('auto.3f73c018b30a') }}</span>
                       </div>
                       <div
                         ref="responseBodyRef"
@@ -365,28 +426,7 @@
                     </div>
                   </section>
                 </div>
-              </div>
-            </n-tab-pane>
 
-            <n-tab-pane name="test" tab="Fetch Response">
-              <div class="connector-form-card connector-test-card">
-                <div class="connector-default-head">
-                  <div>
-                    <p class="eyebrow">Live Request</p>
-                    <strong>Send a real request and load its response into Output Mapping.</strong>
-                  </div>
-                  <n-tag round :type="activeProtocol === 'websocket' ? 'success' : activeProtocol === 'sse' ? 'warning' : 'info'">{{ activeProtocol.toUpperCase() }}</n-tag>
-                </div>
-                <n-input v-model:value="testPrompt" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" placeholder="Prompt sent in place of the input token" />
-                <n-button type="primary" round :loading="testing" :disabled="!form.uri.trim()" @click="fetchResponse">Fetch Response</n-button>
-                <div v-if="testResult" class="connector-test-result">
-                  <n-tag :type="testResult.status === 'success' ? 'success' : 'error'" round>{{ testResult.status }}</n-tag>
-                  <span>{{ testResult.duration }}ms</span>
-                  <strong>Request Preview</strong><pre>{{ testResult.requestPreview }}</pre>
-                  <strong>Raw Response</strong><pre>{{ testResult.rawResponse }}</pre>
-                  <strong>Extracted Response</strong><pre>{{ testResult.extractedResponse }}</pre>
-                  <strong v-if="testResult.error">Error</strong><pre v-if="testResult.error">{{ testResult.error }}</pre>
-                </div>
               </div>
             </n-tab-pane>
           </n-tabs>
@@ -404,21 +444,19 @@
         <div class="connector-ai-modal-head">
           <span class="connector-ai-modal-icon"><n-icon size="24"><SparklesOutline /></n-icon></span>
           <div>
-            <p class="eyebrow">AI Connector Setup</p>
-            <h3>Generate configuration from request information</h3>
-            <span>AI will fill the endpoint, map the input, send a real request, and select the response output.</span>
+            <p class="eyebrow">{{ $t('auto.87a35dafc388') }}</p>
+            <h3>{{ $t('auto.9ab49b4159f7') }}</h3>
+            <span>{{ $t('auto.52b62df95b89') }}</span>
           </div>
           <n-tag round :type="aiModelConfigured ? 'success' : 'warning'">{{ activeAIModelLabel }}</n-tag>
         </div>
 
-        <n-alert v-if="!aiModelConfigured" type="warning" title="AI model is not ready">
-          Configure the active model and API key in Settings &gt; AI settings before generating.
-        </n-alert>
+        <n-alert v-if="!aiModelConfigured" type="warning" :title="$t('auto.15ad4f14af55')"> {{ $t('auto.79261d73956d') }} </n-alert>
 
         <div class="connector-ai-paste-guide">
           <div>
-            <strong>Paste the most complete request information you have</strong>
-            <span>Use any format you like—cURL, raw HTTP, JSON, API documentation, or plain-language notes. The format does not matter as long as the information is complete.</span>
+            <strong>{{ $t('auto.fd34ce1faa71') }}</strong>
+            <span>{{ $t('auto.f3fb42c11b49') }}</span>
           </div>
           <span>{{ aiRequestInfo.length.toLocaleString() }} / 50,000</span>
         </div>
@@ -435,36 +473,94 @@
         <div v-if="aiGenerating" class="connector-ai-progress" aria-live="polite">
           <n-spin size="small" />
           <div>
-            <strong>AI is configuring and verifying this connector</strong>
-            <span>All endpoint settings are locked until analysis, request testing, and response mapping finish.</span>
+            <strong>{{ $t('auto.1916373551d8') }}</strong>
+            <span>{{ $t('auto.892d6a4a57bc') }}</span>
           </div>
           <div class="connector-ai-progress-steps" aria-hidden="true">
-            <span>Analyze request</span><span>Fill fields</span><span>Send request</span><span>Map output</span>
+            <span>{{ $t('auto.42229167b686') }}</span><span>{{ $t('auto.0bd2518f8424') }}</span><span>{{ $t('auto.a89d64179469') }}</span><span>{{ $t('auto.c4eb86d403e1') }}</span>
           </div>
         </div>
 
         <div class="connector-ai-modal-actions">
-          <n-button secondary round :disabled="aiGenerating" @click="aiModalOpen = false">Cancel</n-button>
+          <n-button secondary round :disabled="aiGenerating" @click="aiModalOpen = false">{{ $t('auto.77dfd2135f4d') }}</n-button>
           <n-button class="connector-ai-generate-button" type="primary" round :loading="aiGenerating" :disabled="!canGenerateWithAI" @click="generateWithAI">
             <template #icon><n-icon><SparklesOutline /></n-icon></template>
-            {{ aiGenerating ? 'Generating and testing…' : 'Generate Configuration' }}
+            {{ aiGenerating ? $t('auto.b42504a45a6a') : $t('auto.db1b7f338318') }}
           </n-button>
         </div>
+      </n-card>
+    </n-modal>
+
+    <n-modal v-model:show="streamDetailsOpen" transform-origin="center">
+      <n-card class="connector-stream-modal" :bordered="false" size="huge" role="dialog" aria-modal="true">
+        <div class="connector-stream-modal__head">
+          <span class="connector-stream-modal__icon"><n-icon size="22"><ListOutline /></n-icon></span>
+          <div>
+            <p class="eyebrow">{{ $t('auto.eb4947c2a6ea') }}</p>
+            <h3>{{ $t('auto.4b442080782e') }}</h3>
+            <span>{{ $t('auto.3b11116673b8') }}</span>
+          </div>
+          <n-button quaternary circle :aria-label="$t('auto.500d2ad55d7f')" @click="streamDetailsOpen = false">
+            <template #icon><n-icon><CloseOutline /></n-icon></template>
+          </n-button>
+        </div>
+
+        <div class="connector-stream-modal__stats">
+          <div><strong>{{ sseResponsePreview?.events.length || 0 }}</strong><span>{{ $t('auto.65939a4f425f') }}</span></div>
+          <div><strong>{{ sseResponsePreview?.parsedEventCount || 0 }}</strong><span>{{ $t('auto.9f87239b24c1') }}</span></div>
+          <div><strong>{{ sseResponsePreview?.plainEventCount || 0 }}</strong><span>{{ $t('auto.7f8b899acc82') }}</span></div>
+          <div><strong>{{ sseResponsePreview?.terminalEventCount || 0 }}</strong><span>{{ $t('auto.cb1bb31276e8') }}</span></div>
+        </div>
+
+        <n-tabs type="line" animated>
+          <n-tab-pane name="events" tab="Parsed events">
+            <div class="connector-stream-event-list">
+              <article v-for="event in sseResponsePreview?.events" :key="event.index" class="connector-stream-event">
+                <header>
+                  <div>
+                    <span class="connector-stream-event__index">{{ event.index }}</span>
+                    <strong>{{ event.event }}</strong>
+                  </div>
+                  <div class="connector-stream-event__meta">
+                    <n-tag v-if="event.terminal" round size="small" type="warning">{{ $t('auto.a1f52cdcb3f2') }}</n-tag>
+                    <n-tag v-else-if="event.parsedData !== undefined" round size="small" type="success">JSON</n-tag>
+                    <n-tag v-else round size="small">{{ $t('auto.c3328c39b0e2') }}</n-tag>
+                    <span v-if="event.id">{{ $t('auto.a078622f8db4') }} {{ event.id }}</span>
+                    <span v-if="event.retry">{{ $t('auto.1fd7e461fef0') }} {{ event.retry }}</span>
+                  </div>
+                </header>
+                <pre>{{ formatSseEventData(event) }}</pre>
+              </article>
+            </div>
+          </n-tab-pane>
+          <n-tab-pane name="raw" tab="Raw response">
+            <div class="connector-stream-raw-head">
+              <span>{{ $t('auto.8375816c99ec') }}</span>
+              <n-button secondary round size="small" @click="copyRawStream">
+                <template #icon><n-icon><CopyOutline /></n-icon></template> {{ $t('auto.b96670edc2f8') }} </n-button>
+            </div>
+            <pre class="connector-stream-raw">{{ sseResponsePreview?.raw }}</pre>
+          </n-tab-pane>
+        </n-tabs>
       </n-card>
     </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
+import { translateSource } from '../../../i18n'
+
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { NTabPane, NTabs, useMessage, useNotification } from 'naive-ui'
-import { SparklesOutline } from '@vicons/ionicons5'
+import { ChevronDownOutline, CloseOutline, CodeSlashOutline, CopyOutline, ListOutline, SparklesOutline } from '@vicons/ionicons5'
 import { useRoute, useRouter } from 'vue-router'
 import GlassPanel from '../../../components/GlassPanel.vue'
-import { CONFIGURABLE_CONNECTOR, applyTemplate, connectorService, currentUser, defaultConnectorConfig, endpointToConfig } from '../../../services/connectorService'
+import { CONFIGURABLE_CONNECTOR, applyTemplate, connectorService, currentUser, defaultConnectorConfig, endpointToConfig, normalizePromptMessageTemplate } from '../../../services/connectorService'
 import type { AuthType, ConnectorAIConfigureResult, ConnectorConfig, ConnectorProtocol, ConnectorTestResult } from '../../../types/connector'
 import { useMoonshotStore } from '../../../stores/moonshot'
 import { useSettingsStore } from '../../../stores/settings'
+import { buildSseResponsePreview, formatSseEventData } from '../../../utils/sseResponse'
+import type { SseResponsePreview } from '../../../utils/sseResponse'
 
 const route = useRoute()
 const router = useRouter()
@@ -478,6 +574,7 @@ const activeTab = ref('basic')
 const guideOpen = ref(false)
 const permissionDenied = ref(false)
 const testing = ref(false)
+const requestPreviewOpen = ref(false)
 const aiModalOpen = ref(false)
 const aiGenerating = ref(false)
 const AI_REQUEST_PLACEHOLDER = `Paste request information in any format. Include as much as possible:
@@ -495,12 +592,15 @@ const testResult = ref<ConnectorTestResult | null>(null)
 const requestBodyRef = ref<HTMLElement | null>(null)
 const queryParamsRef = ref<HTMLElement | null>(null)
 const responseBodyRef = ref<HTMLElement | null>(null)
+const outputMappingRef = ref<HTMLElement | null>(null)
 const headersText = ref('{\n  "content-type": "application/json"\n}')
 const queryParamsText = ref('{\n  "prompt": "{{ prompt }}"\n}')
 const formFieldsText = ref('{\n  "message": "{{ prompt }}"\n}')
 const keyValueBodyText = ref('input=hi&role=user')
 const defaultParamsText = ref('{}')
 const sampleResponse = ref('{\n  "blocked": false,\n  "response": "Hi! How can I assist you today?"\n}')
+const sseResponsePreview = ref<SseResponsePreview | null>(null)
+const streamDetailsOpen = ref(false)
 const outputTokenLabel = ref('response')
 const promptToken = '{{ prompt }}'
 const customHeaderName = ref('')
@@ -508,6 +608,12 @@ const customHeaderValue = ref('')
 const editingHeaderName = ref('')
 const editingHeaderValue = ref('')
 const activeProtocol = computed(() => form.params.connector_config.transport)
+const hasSsePreview = computed(() => activeProtocol.value === 'sse' && Boolean(sseResponsePreview.value?.events.length))
+const outputMappingTitle = computed(() => (
+  hasSsePreview.value
+    ? 'Select the final answer field from the merged stream JSON'
+    : 'Paste any response sample and select the answer value'
+))
 const isConfigurableApp = computed(() => form.connector_type === CONFIGURABLE_CONNECTOR)
 const activeRequestConfig = computed(() => {
   const config = form.params.connector_config
@@ -565,16 +671,16 @@ const methodOptions = ['GET', 'POST', 'PUT', 'PATCH'].map((value) => ({ label: v
 const sseMethodOptions = ['GET', 'POST'].map((value) => ({ label: value, value }))
 const authOptions = [
   { label: 'None', value: 'none' },
-  { label: 'Bearer Token', value: 'bearer' },
-  { label: 'API Key', value: 'api-key' },
+  { label: translateSource('auto.398e3e4864a3'), value: 'bearer' },
+  { label: translateSource('auto.47acd2028cf8'), value: 'api-key' },
   { label: 'Cookie', value: 'cookie' },
-  { label: 'Basic Auth', value: 'basic' },
+  { label: translateSource('auto.767641352dbb'), value: 'basic' },
 ]
 const bodyTypeOptions = [
-  { label: 'JSON body', value: 'json' },
-  { label: 'Form body', value: 'form' },
-  { label: 'Raw body', value: 'raw' },
-  { label: 'No body', value: 'none' },
+  { label: translateSource('auto.05ae0b33808b'), value: 'json' },
+  { label: translateSource('auto.27fed83377a0'), value: 'form' },
+  { label: translateSource('auto.38de4727d19e'), value: 'raw' },
+  { label: translateSource('auto.0621557856e0'), value: 'none' },
 ]
 const bodyTypeOptionsWithoutNone = bodyTypeOptions.filter((option) => option.value !== 'none')
 const canSave = computed(() => form.name.trim() && (isConfigurableApp.value ? form.uri.trim() : true) && !permissionDenied.value && !aiGenerating.value)
@@ -597,14 +703,14 @@ onMounted(async () => {
   const connector = await connectorService.getConnector(editingId.value)
   if (!connector) {
     permissionDenied.value = true
-    message.error('Connector type was not found.')
+    message.error(translateSource('auto.3a8ba6524410'))
     return
   }
   const endpointId = String(route.query.endpointId || '')
   const endpoint = endpointId ? connector.endpoints?.find((item) => item.id === endpointId) : undefined
   if (endpointId && !endpoint) {
     permissionDenied.value = true
-    message.error('Connector endpoint was not found.')
+    message.error(translateSource('auto.0ae7c5427163'))
     return
   }
   Object.assign(form, endpoint ? endpointToConfig(endpoint) : connector.config)
@@ -614,6 +720,10 @@ onMounted(async () => {
 
 function setProtocol(protocol: ConnectorProtocol) {
   Object.assign(form, applyTemplate(form, protocol))
+  sseResponsePreview.value = null
+  streamDetailsOpen.value = false
+  requestPreviewOpen.value = false
+  testResult.value = null
   syncAllTextFields()
 }
 
@@ -636,9 +746,9 @@ async function openAIAssistant() {
 async function generateWithAI() {
   if (!canGenerateWithAI.value) {
     if (!aiModelConfigured.value) {
-      message.error('Configure the active AI model and API key in Settings > AI settings first.')
+      message.error(translateSource('auto.0080cf9d127b'))
     } else {
-      message.warning('Paste a real request example before generating the connector configuration.')
+      message.warning(translateSource('auto.a1001773bb41'))
     }
     return
   }
@@ -658,7 +768,7 @@ async function generateWithAI() {
     }
   } catch (error) {
     notification.error({
-      title: 'AI configuration failed',
+      title: translateSource('auto.c4f696a040a2'),
       content: error instanceof Error ? error.message : 'AI configuration failed. Existing fields were kept.',
       duration: 14000,
       keepAliveOnHover: true,
@@ -677,7 +787,7 @@ async function applyAIConfiguration(result: ConnectorAIConfigureResult) {
   if (result.testResult) {
     testResult.value = result.testResult
     if (result.testResult.rawResponse) {
-      const formatted = formatResponseSample(result.testResult.rawResponse)
+      const formatted = prepareResponseSample(result.testResult.rawResponse)
       const responseConfig = result.config?.params.connector_config.response
       const selected = responseConfig?.selectedText || result.testResult.extractedResponse
       sampleResponse.value = insertGeneratedOutputToken(formatted, selected)
@@ -702,7 +812,7 @@ function notifyAIConfigurationFailure(result: ConnectorAIConfigureResult) {
   const needs = result.missingInformation.filter(Boolean)
   const detail = needs.length ? ` Needed: ${needs.join(' ')}` : ''
   notification.error({
-    title: 'AI configuration needs more information',
+    title: translateSource('auto.9fefd008e9dd'),
     content: `${result.message}${detail}`,
     duration: 14000,
     keepAliveOnHover: true,
@@ -780,12 +890,12 @@ function applyHeaderPreset(kind: 'bearer' | 'x-api-key' | 'cookie') {
   if (kind === 'cookie') {
     setAuthType('cookie')
   }
-  message.success('Authentication preset selected. Enter the credential above.')
+  message.success(translateSource('auto.fe26f52c7caf'))
 }
 
 function addCustomHeader() {
   if (!customHeaderName.value.trim()) {
-    message.warning('Enter a custom header name first.')
+    message.warning(translateSource('auto.942b2b0b00bc'))
     return
   }
   const headers = parseHeadersText()
@@ -837,14 +947,16 @@ async function saveConnector() {
   form.ownerName = currentUser.name
   const saved = await connectorService.saveConnector({ ...form, id: form.id })
   await store.loadOverview()
-  message.success('Connector endpoint saved')
-  router.push(`/agents/connectors/${encodeURIComponent(form.connector_type)}`)
+  message.success(translateSource('auto.41b6b9983229'))
+  if (form.connector_type === CONFIGURABLE_CONNECTOR) router.push('/agents/connectors')
+  else router.push(`/agents/connectors/${encodeURIComponent(form.connector_type)}`)
   void saved
 }
 
 function goBack() {
   const connectorType = form.connector_type || String(route.query.connector_type || '')
-  if (connectorType) router.push(`/agents/connectors/${encodeURIComponent(connectorType)}`)
+  if (connectorType === CONFIGURABLE_CONNECTOR) router.push('/agents/connectors')
+  else if (connectorType) router.push(`/agents/connectors/${encodeURIComponent(connectorType)}`)
   else router.push('/agents/connectors')
 }
 
@@ -856,13 +968,28 @@ async function fetchResponse() {
   syncFormFields()
   if (!validateConnectorConfiguration()) return
   testing.value = true
+  requestPreviewOpen.value = false
   try {
     testResult.value = await connectorService.testConnector(form, testPrompt.value)
     if (testResult.value.rawResponse) {
-      sampleResponse.value = formatResponseSample(testResult.value.rawResponse)
+      sampleResponse.value = prepareResponseSample(testResult.value.rawResponse)
       outputTokenLabel.value = 'response'
+      form.params.connector_config.response.path = ''
+      form.params.connector_config.response.type =
+        activeProtocol.value === 'sse' && sseResponsePreview.value?.mode === 'event-data'
+          ? 'event-data'
+          : 'json-path'
+      form.params.connector_config.response.selectedText = undefined
+      form.params.connector_config.response.prefix = undefined
+      form.params.connector_config.response.suffix = undefined
       activeTab.value = 'request'
-      message.success('Response loaded into Output Mapping. Select the AI answer value next.')
+      await nextTick()
+      outputMappingRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      message.success(
+        hasSsePreview.value
+          ? `${sseResponsePreview.value?.events.length || 0} stream events were merged. Select the final answer field next.`
+          : 'Response loaded into Output Mapping. Select the AI answer value next.',
+      )
     } else if (testResult.value.error) {
       message.error(testResult.value.error)
     }
@@ -879,7 +1006,7 @@ function validateConnectorConfiguration() {
   try {
     parsedUrl = new URL(form.uri.trim())
   } catch {
-    message.error('Enter a complete request URL.')
+    message.error(translateSource('auto.455634071858'))
     activeTab.value = 'basic'
     return false
   }
@@ -897,7 +1024,7 @@ function validateConnectorConfiguration() {
     return false
   }
   if (auth.type === 'basic' && !auth.username?.trim()) {
-    message.error('Enter the Basic Auth username.')
+    message.error(translateSource('auto.7093a8f12c84'))
     activeTab.value = 'auth'
     return false
   }
@@ -909,7 +1036,7 @@ function validateConnectorConfiguration() {
   if (requestConfig && 'bodyTemplate' in requestConfig && requestConfig.bodyTemplate) promptSources.push(requestConfig.bodyTemplate)
   if (requestConfig && 'messageTemplate' in requestConfig && requestConfig.messageTemplate) promptSources.push(requestConfig.messageTemplate)
   if (!promptSources.some((value) => /\{\{\s*prompt\s*\}\}/.test(String(value)))) {
-    message.error('Map {{ prompt }} into the query, form, request body, or WebSocket message before continuing.')
+    message.error(translateSource('auto.89cb50e8fdc6'))
     activeTab.value = 'request'
     return false
   }
@@ -921,6 +1048,27 @@ function formatResponseSample(raw: string) {
     return JSON.stringify(JSON.parse(raw), null, 2)
   } catch {
     return raw
+  }
+}
+
+function prepareResponseSample(raw: string) {
+  if (activeProtocol.value !== 'sse') {
+    sseResponsePreview.value = null
+    streamDetailsOpen.value = false
+    return formatResponseSample(raw)
+  }
+  sseResponsePreview.value = buildSseResponsePreview(raw)
+  return sseResponsePreview.value.mergedSample
+}
+
+async function copyRawStream() {
+  const raw = sseResponsePreview.value?.raw || ''
+  if (!raw) return
+  try {
+    await navigator.clipboard.writeText(raw)
+    message.success(translateSource('auto.5afe24276c35'))
+  } catch {
+    message.error(translateSource('auto.e9e82803ae11'))
   }
 }
 
@@ -964,7 +1112,7 @@ function syncDefaultParams() {
   try {
     form.params = parseJsonObject(defaultParamsText.value) as unknown as ConnectorConfig['params']
   } catch {
-    message.error('Params must be a valid JSON object.')
+    message.error(translateSource('auto.e3fa3a1e0363'))
   }
 }
 
@@ -994,7 +1142,7 @@ function syncQueryParams() {
   try {
     activeRequestConfig.value.queryParams = parseQueryString(queryParamsText.value)
   } catch {
-    message.error('Query params must use key=value pairs, for example input=hi&role=user.')
+    message.error(translateSource('auto.8d33a3c1c416'))
   }
 }
 
@@ -1010,7 +1158,7 @@ function syncFormFields() {
   try {
     carrier.formFields = parseJsonObject(formFieldsText.value)
   } catch {
-    message.error('Form fields must be a valid JSON object.')
+    message.error(translateSource('auto.b284b0142020'))
   }
 }
 
@@ -1051,14 +1199,19 @@ function markPromptSelection() {
   const target = isKeyValueEditorActive.value ? queryParamsRef.value : requestBodyRef.value
   if (!target) return
   insertPromptToken(target)
-  const next = editorText(target)
+  const selectedTemplate = editorText(target)
+  const next = isKeyValueEditorActive.value ? selectedTemplate : normalizePromptMessageTemplate(selectedTemplate)
   if (isKeyValueEditorActive.value) {
     keyValueBodyText.value = next
     syncKeyValueBody()
   } else {
     setActiveBodyTemplate(next)
+    if (next !== selectedTemplate) {
+      target.innerHTML = renderPromptTokens(next)
+      message.info(translateSource('auto.23ff01bafbc7'))
+    }
   }
-  message.success('Input value was replaced with a prompt block.')
+  message.success(translateSource('auto.e654a813b649'))
   requestAnimationFrame(() => target.focus())
 }
 
@@ -1202,11 +1355,19 @@ function markOutputSelection() {
     ? selection.toString()
     : ''
   if (!selected) {
-    message.warning('Select the response value that should be displayed as the model output.')
+    message.warning(translateSource('auto.c20511988f83'))
     return
   }
   const location = inferResponseLocation(sampleResponse.value, selected)
-  if (location.type === 'json-path') {
+  if (activeProtocol.value === 'sse' && sseResponsePreview.value?.mode === 'event-data') {
+    form.params.connector_config.response.type = 'event-data'
+    form.params.connector_config.response.path = ''
+    form.params.connector_config.response.prefix = undefined
+    form.params.connector_config.response.suffix = undefined
+    form.params.connector_config.response.selectedText = undefined
+    outputTokenLabel.value = 'data'
+    message.success(translateSource('auto.f3bc88da378c'))
+  } else if (location.type === 'json-path') {
     form.params.connector_config.response.type = 'json-path'
     form.params.connector_config.response.path = location.path
     form.params.connector_config.response.prefix = undefined
@@ -1221,7 +1382,7 @@ function markOutputSelection() {
     form.params.connector_config.response.suffix = location.suffix
     form.params.connector_config.response.selectedText = selected
     outputTokenLabel.value = inferOutputLabel(sampleResponse.value, selected)
-    message.success('Output text fragment was mapped.')
+    message.success(translateSource('auto.eb5c696fb628'))
   }
   insertOutputToken(target)
   sampleResponse.value = editorText(target)

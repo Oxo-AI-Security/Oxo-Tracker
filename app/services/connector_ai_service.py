@@ -2,18 +2,23 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from copy import deepcopy
+from time import sleep
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
+from app.services.http_transport import open_with_current_network_settings
 from app.services.settings_store import SettingsStore
 
 
 MAX_REQUEST_INFORMATION_CHARS = 50_000
 MAX_MODEL_RESPONSE_BYTES = 2_000_000
 PROMPT_TOKEN = "{{ prompt }}"
+AI_CONNECTION_ATTEMPTS = 3
+AI_CONNECTION_RETRY_DELAYS = (0.25, 0.75)
 
 
 class ConnectorAIError(RuntimeError):
@@ -28,7 +33,8 @@ class ConnectorAIService:
         request_open: Callable[..., Any] | None = None,
     ) -> None:
         self.settings = settings or SettingsStore().get_active_ai_settings()
-        self.request_open = request_open or urlopen
+        self.request_open = request_open or open_with_current_network_settings
+        self._usage = threading.local()
 
     @property
     def provider(self) -> str:
@@ -37,6 +43,23 @@ class ConnectorAIService:
     @property
     def model(self) -> str:
         return str(self.settings.get("model") or "")
+
+    def consume_last_usage(self) -> dict[str, int]:
+        usage = getattr(self._usage, "value", {})
+        self._usage.value = {}
+        return {
+            "input_tokens": int(
+                usage.get("prompt_tokens")
+                or usage.get("input_tokens")
+                or 0
+            ),
+            "output_tokens": int(
+                usage.get("completion_tokens")
+                or usage.get("output_tokens")
+                or 0
+            ),
+            "total_tokens": int(usage.get("total_tokens") or 0),
+        }
 
     def generate_draft(self, request_information: str) -> dict[str, Any]:
         cleaned = request_information.strip()
@@ -150,19 +173,32 @@ selectedText must be copied exactly from the response and must not be invented.
             headers=headers,
             method="POST",
         )
-        try:
-            with self.request_open(request, timeout=90) as response:
-                raw = response.read(MAX_MODEL_RESPONSE_BYTES + 1)
-        except HTTPError as error:
-            detail = error.read(4_000).decode("utf-8", errors="replace")
-            raise ConnectorAIError(_provider_http_error(error.code, detail)) from error
-        except (URLError, TimeoutError, OSError) as error:
-            reason = getattr(error, "reason", None)
-            raise ConnectorAIError(f"Unable to reach the active AI model: {reason or error}") from error
+        raw = b""
+        for attempt in range(AI_CONNECTION_ATTEMPTS):
+            try:
+                with self.request_open(request, timeout=90) as response:
+                    raw = response.read(MAX_MODEL_RESPONSE_BYTES + 1)
+                break
+            except HTTPError as error:
+                detail = error.read(4_000).decode("utf-8", errors="replace")
+                raise ConnectorAIError(_provider_http_error(error.code, detail)) from error
+            except (URLError, TimeoutError, OSError) as error:
+                if attempt < AI_CONNECTION_ATTEMPTS - 1 and _is_connection_setup_error(error):
+                    sleep(AI_CONNECTION_RETRY_DELAYS[attempt])
+                    continue
+                reason = getattr(error, "reason", None)
+                raise ConnectorAIError(
+                    f"Unable to reach the active AI model after {attempt + 1} attempt(s): {reason or error}"
+                ) from error
         if len(raw) > MAX_MODEL_RESPONSE_BYTES:
             raise ConnectorAIError("The active AI model returned an unexpectedly large response.")
         try:
             envelope = json.loads(raw.decode("utf-8"))
+            self._usage.value = (
+                envelope.get("usage")
+                if isinstance(envelope.get("usage"), dict)
+                else {}
+            )
             content = (envelope.get("choices") or [{}])[0].get("message", {}).get("content", "")
             if isinstance(content, list):
                 content = "".join(str(item.get("text") or "") for item in content if isinstance(item, dict))
@@ -203,6 +239,7 @@ def normalize_connector_draft(payload: dict[str, Any]) -> dict[str, Any]:
         body_template = json.dumps(raw_body, ensure_ascii=False)
     else:
         body_template = str(raw_body or "")
+    body_template = _trim_messages_after_prompt(body_template)
 
     auth_source = source.get("auth") if isinstance(source.get("auth"), dict) else {}
     auth_type = str(auth_source.get("type") or "none").lower()
@@ -303,6 +340,8 @@ def normalize_response_mapping(payload: dict[str, Any], raw_response: str) -> di
         "prefix": str(payload.get("prefix") or "") or None,
         "suffix": str(payload.get("suffix") or "") or None,
     }
+    if mapping["type"] == "event-data" and mapping["path"]:
+        mapping["type"] = "json-path"
     json_path = _json_path_for_selected_text(raw_response, mapping["selectedText"])
     if json_path:
         mapping["type"] = "json-path"
@@ -318,6 +357,29 @@ def normalize_response_mapping(payload: dict[str, Any], raw_response: str) -> di
     elif response_type == "json-path" and not mapping["path"]:
         mapping["path"] = "$.output"
     return {key: value for key, value in mapping.items() if value is not None}
+
+
+def _trim_messages_after_prompt(body_template: str) -> str:
+    """Remove captured conversation turns that occur after the live prompt."""
+    try:
+        body = json.loads(body_template)
+    except (TypeError, ValueError):
+        return body_template
+    if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
+        return body_template
+    messages = body["messages"]
+    prompt_index = next(
+        (
+            index
+            for index, item in enumerate(messages)
+            if _has_prompt_token(json.dumps(item, ensure_ascii=False))
+        ),
+        -1,
+    )
+    if prompt_index < 0 or prompt_index == len(messages) - 1:
+        return body_template
+    body["messages"] = messages[: prompt_index + 1]
+    return json.dumps(body, ensure_ascii=False)
 
 
 def _chat_completions_url(base_url: str) -> str:
@@ -352,6 +414,24 @@ def _provider_http_error(status_code: int, detail: str) -> str:
         return "The active AI model is rate limited. Wait briefly and try again."
     safe_detail = re.sub(r"(?i)(api[-_ ]?key|authorization)[^,}\n]*", r"\1: ***", detail)[:500]
     return f"The active AI model returned HTTP {status_code}. {safe_detail}".strip()
+
+
+def _is_connection_setup_error(error: BaseException) -> bool:
+    reason = getattr(error, "reason", error)
+    error_number = getattr(reason, "winerror", None) or getattr(reason, "errno", None)
+    if error_number in {61, 10060, 10061, 10065}:
+        return True
+    lowered = str(reason).lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "connection refused",
+            "actively refused",
+            "timed out",
+            "temporary failure",
+            "network is unreachable",
+        )
+    )
 
 
 def _string_dict(value: Any) -> dict[str, str]:

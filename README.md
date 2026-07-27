@@ -14,6 +14,7 @@ The product is designed for AI security review workflows where teams need repeat
 - **Agent and connector management**: create model endpoints and configurable connectors for HTTP, SSE, and WebSocket based AI applications.
 - **Agent security review**: upload design documents, diagrams, prompts, tool specs, and screenshots to extract application functions and build a review map.
 - **Local-first evidence store**: keep benchmark jobs, red-team sessions, settings, and generated reports in project data directories for repeatable local review.
+- **Persistent Attack Agent**: run Planner → Executor → target → AI WATCH workflows in the background with LangGraph checkpoints, prompt-only Skills, pause/resume/stop controls, and no default fixed round limit.
 
 ## Interface Preview
 
@@ -59,9 +60,23 @@ data/
   moonshot-data/              Moonshot assets installed locally
   jobs/                       local benchmark job runtime data
   redteam_sessions/           local red-team session runtime data
+  task_agent_v2/              persistent Attack Agent state and checkpoints
 scripts/                      setup/test helper scripts
 tests/                        backend tests
 ```
+
+## Persistent Attack Agent
+
+In a Red Team chat, click **Attack Agent**, enter an observable research goal, and select **Set Goal**. The task continues in the backend when you switch pages or refresh. AI WATCH is enabled automatically; success records retain the exact request, response, evidence, and progress, then the composer returns to normal so another goal can be entered.
+
+The gear button to the right of Attack Agent opens prompt-only Executor Skills and a plain-Vue three-agent workflow view. Default execution is `guarded_unbounded` with `max_rounds=null`. Executor messages are sent directly to the configured target. AI WATCH records P0-P3 findings without stopping the task; target failures, optional budgets, pause, resume, and manual stop remain enforced.
+
+See:
+
+- [Task Agent V2 architecture](docs/task-agent-architecture-v2.md)
+- [Task Agent system prompts](docs/task-agent-system-prompts-v2.md)
+- [OSAI notes to Skill mapping](docs/osai-notes-skill-mapping.md)
+- [Migration and operation guide](docs/task-agent-migration-guide.md)
 
 ## Prerequisites
 

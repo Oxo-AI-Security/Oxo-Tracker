@@ -8,8 +8,8 @@
               <n-icon><SparklesOutline /></n-icon>
             </span>
             <span>
-              <small>AI security operations</small>
-              <strong>Workspace command center</strong>
+              <small>{{ $t('auto.29a6e8352546') }}</small>
+              <strong>{{ $t('auto.abc2104c6e0c') }}</strong>
             </span>
           </div>
           <span class="dashboard-health-pill" :class="store.health === 'ok' ? 'is-success' : 'is-warning'">
@@ -19,21 +19,14 @@
         </div>
 
         <div class="dashboard-hero-message">
-          <h2>Oxo Tracker <span>Center</span></h2>
-          <p class="dashboard-overview__lead">
-            See your targets, test coverage, red-team assets, and execution readiness in one
-            connected AI security workspace.
-          </p>
+          <h2>Oxo Tracker <span>{{ $t('auto.a2391118c814') }}</span></h2>
+          <p class="dashboard-overview__lead"> {{ $t('auto.81acc9ace935') }} </p>
         </div>
 
         <div class="dashboard-hero-actions">
           <n-button type="primary" round @click="go('/benchmark')">
-            <template #icon><n-icon><PlayCircleOutline /></n-icon></template>
-            Run security test
-          </n-button>
-          <n-button secondary round @click="go('/agents')">
-            Review agent workspace
-            <template #icon><n-icon><ArrowForwardOutline /></n-icon></template>
+            <template #icon><n-icon><PlayCircleOutline /></n-icon></template> {{ $t('auto.0cc0a3c58092') }} </n-button>
+          <n-button secondary round @click="go('/agents')"> {{ $t('auto.93286e82b3e7') }} <template #icon><n-icon><ArrowForwardOutline /></n-icon></template>
           </n-button>
         </div>
 
@@ -49,7 +42,7 @@
             <span>{{ item.label }}</span>
           </button>
         </div>
-        <div class="dashboard-evaluation-flow" aria-label="Evaluation pipeline overview">
+        <div class="dashboard-evaluation-flow" :aria-label="$t('auto.ed70bcc3ec84')">
           <article
             v-for="stage in evaluationFlow"
             :key="stage.label"
@@ -68,7 +61,7 @@
           </article>
         </div>
       </div>
-      <aside class="dashboard-overview__status" aria-label="Workspace status">
+      <aside class="dashboard-overview__status" :aria-label="$t('auto.1de2026cd37a')">
         <button
           v-for="card in statusCards"
           :key="card.label"
@@ -115,13 +108,13 @@
     <GlassPanel class="wide-panel dashboard-inventory-panel">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Operational readiness</p>
-          <h2>Testing inventory</h2>
-          <span class="dashboard-section-copy">Coverage assets available for repeatable model checks.</span>
+          <p class="eyebrow">{{ $t('auto.f83f304269b7') }}</p>
+          <h2>{{ $t('auto.764cfef3dbd6') }}</h2>
+          <span class="dashboard-section-copy">{{ $t('auto.0b31e177e2e2') }}</span>
         </div>
         <div class="dashboard-readiness-badge">
           <strong>{{ readinessScore }}%</strong>
-          <span>ready</span>
+          <span>{{ $t('auto.75c0533730ca') }}</span>
         </div>
       </div>
       <div class="inventory-bars">
@@ -162,45 +155,38 @@
     <GlassPanel class="action-panel dashboard-cookbook-panel">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Custom test suites</p>
-          <h2>Create cookbooks</h2>
-          <span class="dashboard-section-copy">Package recipe coverage into reusable suites.</span>
+          <p class="eyebrow">{{ $t('auto.a5668d82a6af') }}</p>
+          <h2>{{ $t('auto.b1f87c13d22a') }}</h2>
+          <span class="dashboard-section-copy">{{ $t('auto.c5e87685d36d') }}</span>
         </div>
         <span class="dashboard-panel-icon">
           <n-icon size="22"><LayersOutline /></n-icon>
         </span>
       </div>
-      <p class="action-copy">
-        Combine recipes into repeatable evaluation suites for regression, safety tuning, and
-        targeted model checks.
-      </p>
+      <p class="action-copy"> {{ $t('auto.e34a322b0ffd') }} </p>
       <div class="dashboard-cookbook-summary">
         <article role="button" tabindex="0" @click="go('/payload/cookbooks')" @keyup.enter="go('/payload/cookbooks')">
-          <span>Suites</span>
+          <span>{{ $t('auto.b4e883d3f0f5') }}</span>
           <strong>{{ store.cookbooks.length }}</strong>
         </article>
         <article role="button" tabindex="0" @click="go('/payload/recipes')" @keyup.enter="go('/payload/recipes')">
-          <span>Recipes</span>
+          <span>{{ $t('auto.9fb1092f32d4') }}</span>
           <strong>{{ store.recipes.length }}</strong>
         </article>
       </div>
       <n-button type="primary" round @click="$router.push('/cookbooks')">
-        <template #icon><n-icon><BookOutline /></n-icon></template>
-        Select Recipes
-      </n-button>
+        <template #icon><n-icon><BookOutline /></n-icon></template> {{ $t('auto.8c6097271482') }} </n-button>
     </GlassPanel>
 
     <GlassPanel class="dashboard-running-panel">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Running jobs</p>
-          <h2>Execution context</h2>
-          <span class="dashboard-section-copy">Live runs, prompt progress, and result traceability.</span>
+          <p class="eyebrow">{{ $t('auto.f1d16117039b') }}</p>
+          <h2>{{ $t('auto.90e52bd11234') }}</h2>
+          <span class="dashboard-section-copy">{{ $t('auto.4f2c47aef26d') }}</span>
         </div>
         <n-button secondary round size="small" @click="$router.push('/benchmark')">
-          <template #icon><n-icon><PlayCircleOutline /></n-icon></template>
-          Run Test
-        </n-button>
+          <template #icon><n-icon><PlayCircleOutline /></n-icon></template> {{ $t('auto.e90380fee41d') }} </n-button>
       </div>
       <n-list v-if="activeJobs.length">
         <n-list-item v-for="job in activeJobs" :key="job.id">
@@ -223,16 +209,14 @@
               :show-indicator="false"
               color="#7c3aed"
             />
-            <n-button secondary round size="small" @click.stop="$router.push(`/jobs/${job.id}`)">Details</n-button>
+            <n-button secondary round size="small" @click.stop="$router.push(`/jobs/${job.id}`)">{{ $t('auto.dc3decbb9384') }}</n-button>
           </div>
         </n-list-item>
       </n-list>
-      <n-empty v-else description="No running jobs">
+      <n-empty v-else :description="$t('auto.4ce624630f29')">
         <template #extra>
           <n-button secondary round @click="$router.push('/benchmark')">
-            <template #icon><n-icon><PlayCircleOutline /></n-icon></template>
-            Launch benchmark
-          </n-button>
+            <template #icon><n-icon><PlayCircleOutline /></n-icon></template> {{ $t('auto.5acc3de3f87c') }} </n-button>
         </template>
       </n-empty>
     </GlassPanel>
@@ -240,6 +224,8 @@
 </template>
 
 <script setup lang="ts">
+import { translateSource } from '../i18n'
+
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -264,27 +250,31 @@ import { useMoonshotStore } from '../stores/moonshot'
 const store = useMoonshotStore()
 const router = useRouter()
 
-const healthLabel = computed(() => store.health === 'ok' ? 'Operational' : 'Needs review')
+const healthLabel = computed(() => (
+  store.health === 'ok'
+    ? translateSource('dashboard.operational')
+    : translateSource('dashboard.needsReview')
+))
 
 const heroStats = computed(() => [
-  { label: 'tracked assets', value: store.totalAssets, path: '/payload', tone: 'is-primary' },
-  { label: 'attack modules', value: store.attackModules.length, path: '/agents', tone: 'is-neutral' },
-  { label: 'active executions', value: activeJobs.value.length, path: executionRoute.value, tone: 'is-neutral' },
+  { label: translateSource('dashboard.trackedAssets'), value: store.totalAssets, path: '/payload', tone: 'is-primary' },
+  { label: translateSource('dashboard.attackModules'), value: store.attackModules.length, path: '/agents', tone: 'is-neutral' },
+  { label: translateSource('dashboard.activeExecutions'), value: activeJobs.value.length, path: executionRoute.value, tone: 'is-neutral' },
 ])
 
 const metricCards = computed(() => [
-  { label: 'Endpoints', value: store.endpoints.length, hint: 'available targets', icon: CubeOutline, path: '/agents', tone: 'violet' },
-  { label: 'Recipes', value: store.recipes.length, hint: 'benchmark flows', icon: DocumentTextOutline, path: '/payload/recipes', tone: 'cyan' },
-  { label: 'Cookbooks', value: store.cookbooks.length, hint: 'test suites', icon: LibraryOutline, path: '/payload/cookbooks', tone: 'green' },
-  { label: 'Attack Modules', value: store.attackModules.length, hint: 'red-team tools', icon: ShieldCheckmarkOutline, path: '/agents', tone: 'amber' },
+  { label: translateSource('dashboard.endpoints'), value: store.endpoints.length, hint: translateSource('auto.d234acb5d45b'), icon: CubeOutline, path: '/agents', tone: 'violet' },
+  { label: translateSource('dashboard.recipes'), value: store.recipes.length, hint: translateSource('auto.e9d090fce6d7'), icon: DocumentTextOutline, path: '/payload/recipes', tone: 'cyan' },
+  { label: translateSource('dashboard.cookbooks'), value: store.cookbooks.length, hint: translateSource('auto.de989574990d'), icon: LibraryOutline, path: '/payload/cookbooks', tone: 'green' },
+  { label: translateSource('auto.2c953374a7b3'), value: store.attackModules.length, hint: translateSource('auto.9f2fd1154e8d'), icon: ShieldCheckmarkOutline, path: '/agents', tone: 'amber' },
 ])
 
 const inventory = computed(() => {
   const values = [
-    { label: 'Datasets', value: store.datasets.length, path: '/payload/datasets', color: '#7c3aed' },
-    { label: 'Metrics', value: store.metrics.length, path: '/benchmark', color: '#0284c7' },
-    { label: 'Connectors', value: store.connectorTypes.length, path: '/agents/connectors', color: '#16a34a' },
-    { label: 'Results', value: store.results.length, path: '/history', color: '#f59e0b' },
+    { label: translateSource('dashboard.datasets'), value: store.datasets.length, path: '/payload/datasets', color: '#7c3aed' },
+    { label: translateSource('dashboard.metrics'), value: store.metrics.length, path: '/benchmark', color: '#0284c7' },
+    { label: translateSource('dashboard.connectors'), value: store.connectorTypes.length, path: '/agents/connectors', color: '#16a34a' },
+    { label: translateSource('dashboard.results'), value: store.results.length, path: '/history', color: '#f59e0b' },
   ]
   const max = Math.max(...values.map((item) => item.value), 1)
   return values.map((item) => ({ ...item, percent: Math.max(6, Math.round((item.value / max) * 100)) }))
@@ -308,18 +298,18 @@ const readinessScore = computed(() => {
 
 const statusCards = computed(() => [
   {
-    label: 'Platform health',
+    label: translateSource('auto.d7fe0239bb1a'),
     value: healthLabel.value,
-    hint: `${store.health} service response`,
+    hint: translateSource('dashboard.serviceResponse', { status: store.health }),
     path: '/settings',
     icon: store.health === 'ok' ? CheckmarkCircleOutline : ShieldCheckmarkOutline,
     tone: store.health === 'ok' ? 'is-success' : 'is-warning',
     color: '#16a34a',
   },
   {
-    label: 'Readiness score',
+    label: translateSource('auto.041f08dbc430'),
     value: `${readinessScore.value}%`,
-    hint: 'inventory checks passing',
+    hint: translateSource('auto.d29e8a1eafde'),
     path: '/benchmark',
     icon: SpeedometerOutline,
     tone: 'is-brand',
@@ -327,9 +317,9 @@ const statusCards = computed(() => [
     color: '#7c3aed',
   },
   {
-    label: 'Active executions',
+    label: translateSource('dashboard.activeExecutions'),
     value: activeJobs.value.length,
-    hint: `${store.jobs.length} total runs indexed`,
+    hint: translateSource('dashboard.totalRuns', { count: store.jobs.length }),
     path: executionRoute.value,
     icon: PulseOutline,
     tone: activeJobs.value.length ? 'is-live' : 'is-muted',
@@ -338,16 +328,16 @@ const statusCards = computed(() => [
 ])
 
 const readinessSignals = computed(() => [
-  { label: 'Prompt templates', value: store.promptTemplates.length, path: '/payload/prompt-templates' },
-  { label: 'Runners', value: store.runners.length, path: '/benchmark' },
-  { label: 'Results', value: store.results.length, path: '/history' },
+  { label: translateSource('auto.69ba249d0c70'), value: store.promptTemplates.length, path: '/payload/prompt-templates' },
+  { label: translateSource('dashboard.runners'), value: store.runners.length, path: '/benchmark' },
+  { label: translateSource('dashboard.results'), value: store.results.length, path: '/history' },
 ])
 
 const evaluationFlow = computed(() => [
-  { label: 'Targets', value: store.endpoints.length, hint: 'Endpoints ready', path: '/agents', tone: 'is-violet' },
-  { label: 'Coverage', value: store.recipes.length, hint: 'Recipes mapped', path: '/payload/recipes', tone: 'is-cyan' },
-  { label: 'Suites', value: store.cookbooks.length, hint: 'Cookbooks built', path: '/payload/cookbooks', tone: 'is-green' },
-  { label: 'Evidence', value: store.results.length, hint: 'Results captured', path: '/history', tone: 'is-amber' },
+  { label: translateSource('dashboard.targets'), value: store.endpoints.length, hint: translateSource('auto.49ea0431b96e'), path: '/agents', tone: 'is-violet' },
+  { label: translateSource('dashboard.coverage'), value: store.recipes.length, hint: translateSource('auto.7a35b61269e2'), path: '/payload/recipes', tone: 'is-cyan' },
+  { label: translateSource('dashboard.suites'), value: store.cookbooks.length, hint: translateSource('auto.5139fed70dc3'), path: '/payload/cookbooks', tone: 'is-green' },
+  { label: translateSource('dashboard.evidence'), value: store.results.length, hint: translateSource('auto.56c87f2714bf'), path: '/history', tone: 'is-amber' },
 ])
 
 function go(path: string) {

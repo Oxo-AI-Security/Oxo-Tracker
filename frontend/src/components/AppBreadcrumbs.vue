@@ -1,5 +1,5 @@
 <template>
-  <nav class="app-breadcrumbs" :class="{ 'app-breadcrumbs--nested': breadcrumbs.length > 1 }" aria-label="Breadcrumb">
+  <nav class="app-breadcrumbs" :class="{ 'app-breadcrumbs--nested': breadcrumbs.length > 1 }" :aria-label="$t('auto.c766e665183d')">
     <ol>
       <li v-for="(crumb, index) in breadcrumbs" :key="`${crumb.label}-${index}`">
         <n-icon v-if="index > 0" class="app-breadcrumbs__separator" aria-hidden="true">
@@ -18,11 +18,13 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import { ChevronForwardOutline } from '@vicons/ionicons5'
 
 interface BreadcrumbDefinition {
   label: string
+  labelKey?: string
   to?: string
   param?: string
   prefix?: string
@@ -34,6 +36,7 @@ interface BreadcrumbItem {
 }
 
 const route = useRoute()
+const { t } = useI18n()
 
 function humanize(value: string) {
   return decodeURIComponent(value)
@@ -48,11 +51,15 @@ const breadcrumbs = computed<BreadcrumbItem[]>(() => {
     const rawParameter = Array.isArray(parameter) ? parameter[0] : parameter
     const parameterLabel = rawParameter ? humanize(String(rawParameter)) : ''
     return {
-      label: parameterLabel ? `${definition.prefix || ''}${parameterLabel}` : definition.label,
+      label: parameterLabel
+        ? `${definition.prefix || ''}${parameterLabel}`
+        : definition.labelKey
+          ? t(definition.labelKey)
+          : definition.label,
       to: definition.to,
     }
   })
 
-  return items.length ? items : [{ label: 'Dashboard' }]
+  return items.length ? items : [{ label: t('route.dashboard') }]
 })
 </script>

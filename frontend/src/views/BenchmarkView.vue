@@ -13,17 +13,15 @@
 
       <section v-if="step === 1" class="wizard-body">
         <h2>
-          <template v-if="selectedEndpoints.length">{{ selectedEndpoints.length }} Endpoint(s) to be tested</template>
-          <template v-else>Select the Endpoint(s) to be tested</template>
+          <template v-if="selectedEndpoints.length">{{ selectedEndpoints.length }} {{ $t('auto.ec814ab2f067') }}</template>
+          <template v-else>{{ $t('auto.1ef030ac9123') }}</template>
         </h2>
         <div class="endpoint-filter-row">
-          <n-input v-model:value="endpointSearch" clearable class="endpoint-search-input" placeholder="Search endpoints">
+          <n-input v-model:value="endpointSearch" clearable class="endpoint-search-input" :placeholder="$t('auto.33e66c40056a')">
             <template #prefix><n-icon><SearchOutline /></n-icon></template>
           </n-input>
           <n-button secondary round @click="router.push('/endpoints')">
-            <template #icon><n-icon><AddOutline /></n-icon></template>
-            Create New Endpoint
-          </n-button>
+            <template #icon><n-icon><AddOutline /></n-icon></template> {{ $t('auto.ece414ae195d') }} </n-button>
         </div>
 
         <n-scrollbar v-if="filteredEndpoints.length" class="wizard-card-scrollbar">
@@ -41,18 +39,16 @@
               </div>
               <p>{{ endpoint.created_at ? `Added on ${endpoint.created_at}` : endpoint.connector_type || 'Endpoint' }}</p>
               <n-button secondary round size="small" @click.stop="router.push('/endpoints')">
-                <template #icon><n-icon><CreateOutline /></n-icon></template>
-                Edit
-              </n-button>
+                <template #icon><n-icon><CreateOutline /></n-icon></template> {{ $t('auto.5301648dcf6b') }} </n-button>
               <n-checkbox :checked="selectedEndpoints.includes(endpointId(endpoint))" @click.stop @update:checked="toggleEndpoint(endpoint)" />
             </article>
           </div>
         </n-scrollbar>
-        <n-empty v-else class="endpoint-empty-state" description="No endpoints found" />
+        <n-empty v-else class="endpoint-empty-state" :description="$t('auto.f9048ed7196e')" />
       </section>
 
       <section v-else-if="step === 2" class="wizard-body cookbook-test-body">
-        <h2>Select the cookbooks you want to run</h2>
+        <h2>{{ $t('auto.ee50d7a884d7') }}</h2>
         <div class="category-row">
           <button
             v-for="category in categories"
@@ -85,21 +81,17 @@
               <div class="chip-cloud compact">
                 <n-tag v-for="tag in cookbookTags(cookbook).slice(0, 3)" :key="tag" round size="small">{{ tag }}</n-tag>
               </div>
-              <p>{{ cookbook.description || 'No description' }}</p>
-              <div v-if="requiresEvaluator(cookbook)" class="additional-requirements">
-                Additional Requirements
-              </div>
-              <small>{{ promptCount(cookbook) }} prompts<br />{{ datasetCount(cookbook) }} datasets</small>
-              <button class="cookbook-about-button" type="button" @click.stop="openCookbookAbout(cookbook)">
-                About
-              </button>
+              <p>{{ cookbook.description || $t('auto.f354c94fcf63') }}</p>
+              <div v-if="requiresEvaluator(cookbook)" class="additional-requirements"> {{ $t('auto.6a361e2d94b6') }} </div>
+              <small>{{ promptCount(cookbook) }} {{ $t('auto.3b5ad64a06ec') }}<br />{{ datasetCount(cookbook) }} {{ $t('auto.061ac740047f') }}</small>
+              <button class="cookbook-about-button" type="button" @click.stop="openCookbookAbout(cookbook)"> {{ $t('auto.6b21fb791ac0') }} </button>
             </article>
           </div>
         </n-scrollbar>
       </section>
 
       <section v-else-if="step === 3" class="wizard-body run-config-body">
-        <h2>Provide these additional requirements</h2>
+        <h2>{{ $t('auto.b9c2f40f81a1') }}</h2>
         <div class="requirements-panel">
           <template v-for="cookbook in requirementCookbooks" :key="cookbookId(cookbook)">
             <section class="requirement-card">
@@ -108,28 +100,23 @@
                   <n-icon><BookOutline /></n-icon>
                   {{ cookbook.name || cookbook.id }}
                 </h3>
-                <p>
-                  This cookbook requires connection to evaluator model(s) to help score the tests.
-                  Provide access to at least one alternative evaluator model.
-                </p>
+                <p> {{ $t('auto.747cd06c8fa7') }} </p>
                 <ul>
                   <li v-for="endpoint in requiredEndpointLabels(cookbook)" :key="endpoint">{{ endpoint }}</li>
                 </ul>
               </div>
               <div>
-                <h4>Connect evaluator models</h4>
-                <p>Ensure that Moonshot has access to these endpoints.</p>
+                <h4>{{ $t('auto.04431dff5ce3') }}</h4>
+                <p>{{ $t('auto.998e93d2b2c5') }}</p>
                 <div v-for="endpoint in requiredEndpoints(cookbook)" :key="endpoint.id" class="evaluator-config-group">
                   <div class="evaluator-card">
                     <n-icon><CubeOutline /></n-icon>
                     <strong>{{ endpoint.label }}</strong>
                     <n-tag size="small" round :type="endpoint.configured ? 'success' : 'warning'">
-                      {{ endpoint.configured ? 'Configured' : endpoint.exists ? 'Token required' : 'Missing' }}
+                      {{ endpoint.configured ? 'Configured' : endpoint.exists ? $t('auto.1dfa895c487f') : 'Missing' }}
                     </n-tag>
                     <n-button secondary round size="small" @click="openEvaluatorConfig(endpoint.id, evaluatorConfigKey(cookbook, endpoint.id))">
-                      <template #icon><n-icon><CreateOutline /></n-icon></template>
-                      Configure
-                    </n-button>
+                      <template #icon><n-icon><CreateOutline /></n-icon></template> {{ $t('auto.792c81a4cfdc') }} </n-button>
                   </div>
                 </div>
               </div>
@@ -137,39 +124,39 @@
 
             <div v-if="isCookbookConfigOpen(cookbook)" class="evaluator-config-panel inline">
               <div class="builder-header">
-                <h2>Configure {{ configuringEvaluatorId }}</h2>
+                <h2>{{ $t('auto.792c81a4cfdc') }} {{ configuringEvaluatorId }}</h2>
                 <n-button circle quaternary @click="closeEvaluatorConfig">
                   <template #icon><n-icon><CloseOutline /></n-icon></template>
                 </n-button>
               </div>
               <n-form label-placement="top">
-                <n-form-item label="Name*">
+                <n-form-item :label="$t('auto.57162c35dea4')">
                   <n-input v-model:value="evaluatorForm.name" :disabled="Boolean(configuringEvaluatorId)" />
                 </n-form-item>
-                <n-form-item label="Connection Type*">
+                <n-form-item :label="$t('auto.1698cae51b38')">
                   <n-select
                     v-model:value="evaluatorForm.connector_type"
                     filterable
                     :options="connectorOptions"
-                    placeholder="openai-connector"
+                    :placeholder="$t('auto.7570458c3e6e')"
                   />
                 </n-form-item>
                 <n-form-item label="URI">
-                  <n-input v-model:value="evaluatorForm.uri" placeholder="URI of the evaluator model endpoint" />
+                  <n-input v-model:value="evaluatorForm.uri" :placeholder="$t('auto.039b0acb846a')" />
                 </n-form-item>
-                <n-form-item label="Token*">
+                <n-form-item :label="$t('auto.cf1dcef754f6')">
                   <n-input v-model:value="evaluatorForm.token" type="password" show-password-on="click" placeholder="YOUR_TOKEN" />
                 </n-form-item>
-                <n-form-item label="Model*">
+                <n-form-item :label="$t('auto.eac8cf6f13d4')">
                   <n-input v-model:value="evaluatorForm.model" placeholder="gpt-4o" />
                 </n-form-item>
-                <n-form-item label="Max Calls Per Second*">
+                <n-form-item :label="$t('auto.e95137370c13')">
                   <n-input-number v-model:value="evaluatorForm.max_calls_per_second" :min="1" />
                 </n-form-item>
-                <n-form-item label="Max Concurrency*">
+                <n-form-item :label="$t('auto.34167f06ef5f')">
                   <n-input-number v-model:value="evaluatorForm.max_concurrency" :min="1" />
                 </n-form-item>
-                <n-form-item label="Other Parameters*">
+                <n-form-item :label="$t('auto.4d7ded687ca3')">
                   <n-input
                     v-model:value="evaluatorParamsText"
                     type="textarea"
@@ -178,8 +165,8 @@
                 </n-form-item>
               </n-form>
               <div class="endpoint-form-actions">
-                <n-button round @click="closeEvaluatorConfig">Cancel</n-button>
-                <n-button type="primary" round :loading="savingEvaluator" @click="saveEvaluatorEndpoint">Save</n-button>
+                <n-button round @click="closeEvaluatorConfig">{{ $t('auto.77dfd2135f4d') }}</n-button>
+                <n-button type="primary" round :loading="savingEvaluator" @click="saveEvaluatorEndpoint">{{ $t('auto.efc007a393f6') }}</n-button>
               </div>
             </div>
           </template>
@@ -189,20 +176,20 @@
       <section v-else-if="step === 4" class="wizard-body run-config-body">
         <div class="run-config-form">
           <n-form label-placement="top">
-            <n-form-item label="Name">
+            <n-form-item :label="$t('auto.709a23220f2c')">
               <n-input v-model:value="runForm.run_name" placeholder="my-facts-about-sg-run" />
             </n-form-item>
-            <n-form-item label="Description (optional)">
+            <n-form-item :label="$t('auto.388de6fa3aa3')">
               <n-input v-model:value="runForm.description" type="textarea" :autosize="{ minRows: 4, maxRows: 6 }" />
             </n-form-item>
             <div class="run-smaller">
-              <strong>Run a smaller set</strong>
-              <p>Set the prompt count independently for each selected cookbook.</p>
+              <strong>{{ $t('auto.93b705df8fcd') }}</strong>
+              <p>{{ $t('auto.4543eb46e828') }}</p>
               <div class="cookbook-run-list">
                 <article v-for="cookbook in selectedCookbookRecords" :key="cookbookId(cookbook)" class="cookbook-run-card">
                   <div>
                     <strong>{{ cookbook.name || cookbook.id }}</strong>
-                    <span>{{ promptCount(cookbook) }} available prompts</span>
+                    <span>{{ promptCount(cookbook) }} {{ $t('auto.33f78ec13ef3') }}</span>
                   </div>
                   <n-slider
                     :value="cookbookPercentage(cookbook)"
@@ -222,58 +209,58 @@
                       size="small"
                       @update:value="updateCookbookPromptCount(cookbook, Number($event || 1))"
                     />
-                    <span>prompts</span>
+                    <span>{{ $t('auto.3b5ad64a06ec') }}</span>
                   </div>
                 </article>
               </div>
-              <span>Total prompts that will be run: {{ estimatedPrompts }}</span>
+              <span>{{ $t('auto.1550a6a23950') }} {{ estimatedPrompts }}</span>
             </div>
             <div class="run-all-row">
-              <strong>Run All ({{ totalPrompts }} prompts)</strong>
+              <strong>{{ $t('auto.f9665ab9024b') }}{{ totalPrompts }} {{ $t('auto.ec6c65695a7e') }}</strong>
               <n-switch v-model:value="runAll" @update:value="toggleRunAll" />
             </div>
             <div class="run-smaller thread-tuning">
-              <strong>Thread count</strong>
-              <p>Controls concurrent model requests for this run. Higher values are faster but may hit provider rate limits.</p>
+              <strong>{{ $t('auto.3d178ecb88e1') }}</strong>
+              <p>{{ $t('auto.96164026cc8a') }}</p>
               <n-slider v-model:value="runForm.thread_count" :min="1" :max="20" :step="1" />
-              <b>{{ runForm.thread_count }} threads</b>
+              <b>{{ runForm.thread_count }} {{ $t('auto.c91e11a1f2a2') }}</b>
             </div>
           </n-form>
         </div>
       </section>
 
       <section v-else class="wizard-body completed-body">
-        <h2>Tests Completed</h2>
-        <n-button secondary round @click="router.push('/assets')">See Details</n-button>
+        <h2>{{ $t('auto.07ebd0dc9b57') }}</h2>
+        <n-button secondary round @click="router.push('/assets')">{{ $t('auto.4fde0bd56a0d') }}</n-button>
         <div class="completion-card">
           <strong>{{ runForm.run_name }}</strong>
           <div class="completion-progress">
             <span>100%</span>
             <n-progress type="line" :percentage="100" :show-indicator="false" color="#3d6dff" />
-            <n-button round @click="router.push('/assets')">View Report</n-button>
+            <n-button round @click="router.push('/assets')">{{ $t('auto.52bc93f4eb9a') }}</n-button>
           </div>
         </div>
         <div class="completion-actions">
           <GlassPanel dense class="completion-tile">
             <n-icon size="34"><ShieldCheckmarkOutline /></n-icon>
-            <h3>Discover</h3>
-            <p>new vulnerabilities</p>
+            <h3>{{ $t('auto.4827ea22716a') }}</h3>
+            <p>{{ $t('auto.b73c19da98a1') }}</p>
           </GlassPanel>
           <GlassPanel dense class="completion-tile" @click="router.push('/cookbooks')">
             <n-icon size="34"><BookOutline /></n-icon>
-            <h3>Create</h3>
-            <p>cookbooks</p>
+            <h3>{{ $t('auto.6e157c5da441') }}</h3>
+            <p>{{ $t('auto.b14f77cad843') }}</p>
           </GlassPanel>
-          <button class="back-home" type="button" @click="router.push('/')">Back to home -></button>
+          <button class="back-home" type="button" @click="router.push('/')">{{ $t('auto.0a6e143df6d8') }}</button>
         </div>
       </section>
 
       <footer v-if="step < 5" class="wizard-footer">
-        <button v-if="step > 1" class="wizard-link" type="button" @click="step -= 1">&lt;- BACK</button>
+        <button v-if="step > 1" class="wizard-link" type="button" @click="step -= 1">{{ $t('auto.29b589877c65') }}</button>
         <span v-else />
-        <button v-if="step < 4" class="wizard-link" type="button" @click="nextStep">NEXT -></button>
+        <button v-if="step < 4" class="wizard-link" type="button" @click="nextStep">{{ $t('auto.7b6106b2fb1d') }}</button>
         <button v-else class="wizard-link" type="button" :disabled="running" @click="runBenchmark">
-          {{ running ? 'RUNNING...' : 'RUN ->' }}
+          {{ running ? 'RUNNING...' : $t('auto.b8777457fe3a') }}
         </button>
       </footer>
     </GlassPanel>
@@ -294,26 +281,26 @@
       <div v-if="selectedCookbookAbout" class="cookbook-about-body">
         <section class="cookbook-about-summary">
           <div>
-            <small>Prompts</small>
+            <small>{{ $t('auto.eea5311d723f') }}</small>
             <strong>{{ promptCount(selectedCookbookAbout).toLocaleString() }}</strong>
           </div>
           <div>
-            <small>Datasets</small>
+            <small>{{ $t('auto.93a7f22476e9') }}</small>
             <strong>{{ datasetCount(selectedCookbookAbout).toLocaleString() }}</strong>
           </div>
           <div>
-            <small>Recipes</small>
+            <small>{{ $t('auto.9fb1092f32d4') }}</small>
             <strong>{{ cookbookRecipeRecords(selectedCookbookAbout).length.toLocaleString() }}</strong>
           </div>
         </section>
 
         <section class="cookbook-about-section">
-          <h3>Overview</h3>
-          <p>{{ selectedCookbookAbout.description || 'No description is available for this cookbook.' }}</p>
+          <h3>{{ $t('auto.0efc2e6be4c2') }}</h3>
+          <p>{{ selectedCookbookAbout.description || $t('auto.89f53d9d9037') }}</p>
         </section>
 
         <section v-if="cookbookTags(selectedCookbookAbout).length" class="cookbook-about-section">
-          <h3>Tags</h3>
+          <h3>{{ $t('auto.848eed0fbd54') }}</h3>
           <div class="cookbook-about-tags">
             <n-tag v-for="tag in cookbookTags(selectedCookbookAbout)" :key="tag" round>
               {{ tag }}
@@ -322,19 +309,19 @@
         </section>
 
         <section class="cookbook-about-section">
-          <h3>Included Recipes</h3>
+          <h3>{{ $t('auto.a6fce427b3f2') }}</h3>
           <div v-if="cookbookRecipeRecords(selectedCookbookAbout).length" class="cookbook-about-recipes">
             <article v-for="recipe in cookbookRecipeRecords(selectedCookbookAbout).slice(0, 8)" :key="String(recipe.id || recipe.name)">
               <strong>{{ recipe.name || recipe.id }}</strong>
-              <span>{{ recipe.datasets?.length || 0 }} datasets</span>
+              <span>{{ recipe.datasets?.length || 0 }} {{ $t('auto.061ac740047f') }}</span>
             </article>
           </div>
-          <p v-else>No recipe metadata is available.</p>
+          <p v-else>{{ $t('auto.ab29891000f5') }}</p>
         </section>
 
         <section v-if="requiresEvaluator(selectedCookbookAbout)" class="cookbook-about-section requirement-highlight">
-          <h3>Additional Requirements</h3>
-          <p>This cookbook uses evaluator model endpoints to score responses after the target model has answered.</p>
+          <h3>{{ $t('auto.6a361e2d94b6') }}</h3>
+          <p>{{ $t('auto.7759ae9b8eab') }}</p>
           <div class="cookbook-about-tags">
             <n-tag v-for="endpoint in requiredEndpointLabels(selectedCookbookAbout)" :key="endpoint" round type="warning">
               {{ endpoint }}
@@ -347,6 +334,8 @@
 </template>
 
 <script setup lang="ts">
+import { translateSource } from '../i18n'
+
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, useNotification } from 'naive-ui'
@@ -399,17 +388,17 @@ const evaluatorForm = reactive<EndpointCreatePayload>({
 })
 
 const steps = [
-  { key: 'endpoint', label: 'Connect Endpoint', index: 1 },
-  { key: 'tests', label: 'Select Tests', index: 2 },
-  { key: 'requirements', label: 'Configure Requirements', index: 3 },
-  { key: 'run', label: 'Run', index: 4 },
+  { key: 'endpoint', label: translateSource('auto.af204023eb51'), index: 1 },
+  { key: 'tests', label: translateSource('auto.52f491fdd1ad'), index: 2 },
+  { key: 'requirements', label: translateSource('auto.d1d328fb841f'), index: 3 },
+  { key: 'run', label: translateSource('common.run'), index: 4 },
 ]
 
 const categories = ['IMDA Starter Kit', 'Capability', 'Trust & Safety', 'Others']
 
 const runForm = reactive({
   run_name: `Oxo-AI-test-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}`,
-  description: 'getting started',
+  description: translateSource('auto.3c7b9417e41a'),
   prompt_selection_percentage: 5,
   thread_count: 4,
   random_seed: 0,
@@ -580,11 +569,11 @@ function selectedCookbookPercentagesPayload() {
 
 function nextStep() {
   if (step.value === 1 && !selectedEndpoints.value.length) {
-    message.warning('Select at least one endpoint')
+    message.warning(translateSource('auto.8f5c9888549d'))
     return
   }
   if (step.value === 2 && !selectedCookbooks.value.length) {
-    message.warning('Select at least one cookbook')
+    message.warning(translateSource('auto.db4e736cf8c2'))
     return
   }
   if (step.value === 2 && !requirementCookbooks.value.length) {
@@ -616,16 +605,16 @@ async function runBenchmark() {
     return
   }
   if (!runForm.run_name.trim()) {
-    message.warning('Please enter run name')
+    message.warning(translateSource('auto.4f32d7ac38a6'))
     return
   }
   if (!selectedRecipes.value.length) {
-    message.warning('Selected cookbook has no recipes')
+    message.warning(translateSource('auto.eaf727055251'))
     return
   }
   running.value = true
   try {
-    notify('info', { title: 'Job starting', content: runForm.run_name.trim() })
+    notify('info', { title: translateSource('auto.83b11ff4e174'), content: runForm.run_name.trim() })
     await moonshotApi.runRecipeBenchmark({
       run_name: runForm.run_name.trim(),
       endpoints: selectedEndpoints.value,
@@ -639,12 +628,12 @@ async function runBenchmark() {
       random_seed: runForm.random_seed,
       system_prompt: runForm.system_prompt,
     }).then((response) => {
-      notify('success', { title: 'Job created', content: `Run ${response.runner_id} is now running.` })
+      notify('success', { title: translateSource('auto.0c4c43c79bd1'), content: `Run ${response.runner_id} is now running.` })
       router.push(`/jobs/${encodeURIComponent(response.runner_id)}`)
     })
     await store.loadOverview()
   } catch (error) {
-    notify('error', { title: 'Job failed to start', content: error instanceof Error ? error.message : 'Benchmark failed' })
+    notify('error', { title: translateSource('auto.1686a5d2f668'), content: error instanceof Error ? error.message : 'Benchmark failed' })
     message.error(error instanceof Error ? error.message : 'Benchmark failed')
   } finally {
     running.value = false
@@ -795,19 +784,19 @@ function closeEvaluatorConfig() {
 async function saveEvaluatorEndpoint() {
   if (!configuringEvaluatorId.value) return
   if (!evaluatorForm.name.trim()) {
-    message.warning('Please enter evaluator endpoint name')
+    message.warning(translateSource('auto.364b9a372803'))
     return
   }
   if (!evaluatorForm.connector_type) {
-    message.warning('Please select connection type')
+    message.warning(translateSource('auto.b95a2e242aac'))
     return
   }
   if (!evaluatorForm.token.trim()) {
-    message.warning('Token is required')
+    message.warning(translateSource('auto.bd221630cfdc'))
     return
   }
   if (!evaluatorForm.model.trim()) {
-    message.warning('Model is required')
+    message.warning(translateSource('auto.6a6f4eaf3c25'))
     return
   }
 
@@ -830,10 +819,10 @@ async function saveEvaluatorEndpoint() {
     }
     await store.loadOverview()
     closeEvaluatorConfig()
-    notify('success', { title: 'Endpoint saved', content: payload.name })
-    message.success('Evaluator endpoint saved')
+    notify('success', { title: translateSource('auto.9a215f514178'), content: payload.name })
+    message.success(translateSource('auto.c8284c31029a'))
   } catch (error) {
-    notify('error', { title: 'Save endpoint failed', content: error instanceof Error ? error.message : 'Save evaluator endpoint failed' })
+    notify('error', { title: translateSource('auto.c7166f9c55fd'), content: error instanceof Error ? error.message : 'Save evaluator endpoint failed' })
     message.error(error instanceof Error ? error.message : 'Save evaluator endpoint failed')
   } finally {
     savingEvaluator.value = false

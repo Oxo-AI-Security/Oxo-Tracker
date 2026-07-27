@@ -2,16 +2,41 @@ import type { ResponseExtractConfig } from '../types/connector'
 
 export function extractResponse(raw: string, config: ResponseExtractConfig) {
   if (config.type === 'text') return raw
-  if (config.type === 'event-data') {
-    const line = raw.split(/\r?\n/).find((item) => item.startsWith('data:'))
-    return line ? line.replace(/^data:\s*/, '') : raw
+  const payloads = eventPayloads(raw)
+  if (config.type === 'event-data' && !config.path) {
+    return payloads.length ? payloads.join('') : raw
+  }
+  for (const path of [config.path, config.fallbackPath]) {
+    if (!path) continue
+    const streamedValues = payloads.flatMap((payload) => {
+      try {
+        const value = readJsonPath(JSON.parse(payload), path)
+        return value == null ? [] : [stringifyExtractedValue(value)]
+      } catch {
+        return []
+      }
+    })
+    if (streamedValues.length) return streamedValues.join('')
   }
   try {
     const parsed = JSON.parse(raw)
-    return String(readJsonPath(parsed, config.path) ?? readJsonPath(parsed, config.fallbackPath || '') ?? '')
+    const value = readJsonPath(parsed, config.path) ?? readJsonPath(parsed, config.fallbackPath || '')
+    return value == null ? '' : stringifyExtractedValue(value)
   } catch {
     return ''
   }
+}
+
+function eventPayloads(raw: string) {
+  return raw
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.replace(/^data:\s*/, '').trim())
+    .filter((payload) => payload && payload !== '[DONE]')
+}
+
+function stringifyExtractedValue(value: unknown) {
+  return typeof value === 'string' ? value : typeof value === 'object' ? JSON.stringify(value) : String(value)
 }
 
 function readJsonPath(value: unknown, path: string) {

@@ -27,6 +27,8 @@ export const connectorService = {
 
   async saveConnector(config: ConnectorConfig) {
     config.params.connector_config.description = config.description || ''
+    normalizeResponseConfig(config.params.connector_config.response)
+    normalizePromptTemplates(config)
     const payload: EndpointCreatePayload = {
       name: config.name,
       connector_type: config.connector_type || CONFIGURABLE_CONNECTOR,
@@ -175,6 +177,7 @@ function normalizeParams(params: Record<string, unknown>) {
     normalized.timeout = timeout > 1000 ? Math.max(1, Math.round(timeout / 1000)) : Math.max(1, timeout)
     config.auth ||= { type: 'none' }
     config.response ||= { type: 'json-path', path: '$.output' }
+    normalizeResponseConfig(config.response)
     if (config.request) {
       config.request.headers ||= { 'content-type': 'application/json' }
       config.request.queryParams ||= {}
@@ -196,6 +199,36 @@ function normalizeParams(params: Record<string, unknown>) {
     return normalized
   }
   return defaultConnectorConfig('http').params
+}
+
+function normalizeResponseConfig(response: ConnectorConfig['params']['connector_config']['response']) {
+  if (response.type === 'event-data' && response.path?.trim()) response.type = 'json-path'
+}
+
+function normalizePromptTemplates(config: ConnectorConfig) {
+  const connectorConfig = config.params.connector_config
+  if (connectorConfig.request) {
+    connectorConfig.request.bodyTemplate = normalizePromptMessageTemplate(connectorConfig.request.bodyTemplate)
+  }
+  if (connectorConfig.stream) {
+    connectorConfig.stream.bodyTemplate = normalizePromptMessageTemplate(connectorConfig.stream.bodyTemplate || '')
+  }
+  if (connectorConfig.websocket) {
+    connectorConfig.websocket.messageTemplate = normalizePromptMessageTemplate(connectorConfig.websocket.messageTemplate || '')
+  }
+}
+
+export function normalizePromptMessageTemplate(template: string) {
+  try {
+    const body = JSON.parse(template) as { messages?: unknown[] }
+    if (!Array.isArray(body.messages)) return template
+    const promptIndex = body.messages.findIndex((item) => /\{\{\s*prompt\s*\}\}/.test(JSON.stringify(item)))
+    if (promptIndex < 0 || promptIndex === body.messages.length - 1) return template
+    body.messages = body.messages.slice(0, promptIndex + 1)
+    return JSON.stringify(body, null, 2)
+  } catch {
+    return template
+  }
 }
 
 function inferProtocol(type: string, endpoints: ConnectorEndpointItem[]): ConnectorProtocol {

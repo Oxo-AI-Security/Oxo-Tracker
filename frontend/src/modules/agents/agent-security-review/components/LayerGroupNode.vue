@@ -1,7 +1,7 @@
 <template>
   <div class="agent-review-layer-group">
     <strong>{{ data.label }}</strong>
-    <span>{{ data.count }} components</span>
+    <span>{{ data.count }} {{ $t('auto.c212f08ed115') }}</span>
   </div>
 </template>
 

@@ -1,5 +1,10 @@
 <template>
-  <n-config-provider :theme="settings.naiveTheme" :theme-overrides="themeOverrides">
+  <n-config-provider
+    :theme="settings.naiveTheme"
+    :theme-overrides="themeOverrides"
+    :locale="naiveLocale"
+    :date-locale="naiveDateLocale"
+  >
     <n-message-provider>
       <n-notification-provider placement="top-right">
         <router-view />
@@ -10,10 +15,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
+import { dateEnUS, dateZhCN, enUS, zhCN } from 'naive-ui'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useSettingsStore } from './stores/settings'
 
 const settings = useSettingsStore()
+const naiveLocale = computed(() => (settings.locale === 'zh-CN' ? zhCN : enUS))
+const naiveDateLocale = computed(() => (settings.locale === 'zh-CN' ? dateZhCN : dateEnUS))
 
 const lightThemeOverrides: GlobalThemeOverrides = {
   common: {
