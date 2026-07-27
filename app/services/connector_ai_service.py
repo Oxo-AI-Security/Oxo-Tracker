@@ -4,8 +4,9 @@ import json
 import os
 import re
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
-from time import sleep
+from time import monotonic, sleep
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
@@ -22,13 +23,75 @@ AI_CONNECTION_ATTEMPTS = 3
 AI_CONNECTION_RETRY_DELAYS = (0.25, 0.75)
 AI_MODEL_MAX_CONCURRENCY = max(
     1,
-    min(16, int(os.getenv("AI_MODEL_MAX_CONCURRENCY", "2"))),
+    min(16, int(os.getenv("AI_MODEL_MAX_CONCURRENCY", "3"))),
 )
 AI_MODEL_QUEUE_TIMEOUT_SECONDS = max(
-    30,
-    min(900, int(os.getenv("AI_MODEL_QUEUE_TIMEOUT_SECONDS", "300"))),
+    10,
+    min(300, int(os.getenv("AI_MODEL_QUEUE_TIMEOUT_SECONDS", "90"))),
 )
-_AI_MODEL_SLOTS = threading.BoundedSemaphore(AI_MODEL_MAX_CONCURRENCY)
+
+
+class _ModelQueueTimeout(RuntimeError):
+    pass
+
+
+class _PriorityModelScheduler:
+    """Bound provider load without allowing background workers to starve control calls."""
+
+    def __init__(self, concurrency: int) -> None:
+        self.concurrency = max(1, int(concurrency))
+        self._active = 0
+        self._next_ticket = 0
+        self._waiters: list[tuple[int, int]] = []
+        self._condition = threading.Condition()
+
+    @contextmanager
+    def slot(self, *, priority: int, timeout_seconds: float):
+        started = monotonic()
+        with self._condition:
+            ticket = self._next_ticket
+            self._next_ticket += 1
+            waiter = (int(priority), ticket)
+            self._waiters.append(waiter)
+            acquired = False
+            try:
+                while True:
+                    first = min(self._waiters) if self._waiters else None
+                    if self._active < self.concurrency and first == waiter:
+                        self._waiters.remove(waiter)
+                        self._active += 1
+                        acquired = True
+                        break
+                    remaining = timeout_seconds - (monotonic() - started)
+                    if remaining <= 0:
+                        raise _ModelQueueTimeout
+                    self._condition.wait(timeout=min(remaining, 0.5))
+            finally:
+                if not acquired and waiter in self._waiters:
+                    self._waiters.remove(waiter)
+                    self._condition.notify_all()
+        try:
+            yield max(0.0, monotonic() - started)
+        finally:
+            with self._condition:
+                self._active = max(0, self._active - 1)
+                self._condition.notify_all()
+
+
+_SCHEDULER_LOCK = threading.Lock()
+_MODEL_SCHEDULERS: dict[str, _PriorityModelScheduler] = {}
+
+
+def _model_scheduler(
+    group: str,
+    concurrency: int,
+) -> _PriorityModelScheduler:
+    with _SCHEDULER_LOCK:
+        scheduler = _MODEL_SCHEDULERS.get(group)
+        if scheduler is None:
+            scheduler = _PriorityModelScheduler(concurrency)
+            _MODEL_SCHEDULERS[group] = scheduler
+        return scheduler
 
 
 class ConnectorAIError(RuntimeError):
@@ -44,6 +107,10 @@ class ConnectorAIService:
         request_timeout_seconds: int = 90,
         max_tokens: int = 4_000,
         max_connection_attempts: int = AI_CONNECTION_ATTEMPTS,
+        scheduler_group: str = "default",
+        scheduler_concurrency: int = AI_MODEL_MAX_CONCURRENCY,
+        scheduler_priority: int = 10,
+        queue_timeout_seconds: int = AI_MODEL_QUEUE_TIMEOUT_SECONDS,
     ) -> None:
         self.settings = settings or SettingsStore().get_active_ai_settings()
         self.request_open = request_open or open_with_current_network_settings
@@ -56,7 +123,18 @@ class ConnectorAIService:
             1,
             min(AI_CONNECTION_ATTEMPTS, int(max_connection_attempts)),
         )
+        self.scheduler_group = str(scheduler_group or "default")
+        self.scheduler_priority = int(scheduler_priority)
+        self.queue_timeout_seconds = max(
+            5,
+            min(300, int(queue_timeout_seconds)),
+        )
+        self._scheduler = _model_scheduler(
+            self.scheduler_group,
+            max(1, min(16, int(scheduler_concurrency))),
+        )
         self._usage = threading.local()
+        self._transport = threading.local()
 
     @property
     def provider(self) -> str:
@@ -82,6 +160,11 @@ class ConnectorAIService:
             ),
             "total_tokens": int(usage.get("total_tokens") or 0),
         }
+
+    def consume_last_transport_metrics(self) -> dict[str, Any]:
+        metrics = getattr(self._transport, "value", {})
+        self._transport.value = {}
+        return dict(metrics)
 
     def generate_draft(self, request_information: str) -> dict[str, Any]:
         cleaned = request_information.strip()
@@ -165,7 +248,13 @@ selectedText must be copied exactly from the response and must not be invented.
         )
         return normalize_response_mapping(self._chat_json(system_prompt, user_payload), raw_response)
 
-    def _chat_json(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+    def _chat_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        scheduler_priority: int | None = None,
+    ) -> dict[str, Any]:
         api_key = str(self.settings.get("api_key") or "").strip()
         base_url = str(self.settings.get("base_url") or "").strip()
         model = self.model.strip()
@@ -196,39 +285,56 @@ selectedText must be copied exactly from the response and must not be invented.
             method="POST",
         )
         raw = b""
-        if not _AI_MODEL_SLOTS.acquire(timeout=AI_MODEL_QUEUE_TIMEOUT_SECONDS):
-            raise ConnectorAIError(
-                "The active AI model is busy with other Attack Agent work. "
-                "No request was sent before the local queue timeout."
-            )
         try:
-            for attempt in range(self.max_connection_attempts):
-                try:
-                    with self.request_open(
-                        request,
-                        timeout=self.request_timeout_seconds,
-                    ) as response:
-                        raw = response.read(MAX_MODEL_RESPONSE_BYTES + 1)
-                    break
-                except HTTPError as error:
-                    detail = error.read(4_000).decode("utf-8", errors="replace")
-                    raise ConnectorAIError(
-                        _provider_http_error(error.code, detail)
-                    ) from error
-                except (URLError, TimeoutError, OSError) as error:
-                    if (
-                        attempt < self.max_connection_attempts - 1
-                        and _is_connection_setup_error(error)
-                    ):
-                        sleep(AI_CONNECTION_RETRY_DELAYS[attempt])
-                        continue
-                    reason = getattr(error, "reason", None)
-                    raise ConnectorAIError(
-                        "Unable to reach the active AI model after "
-                        f"{attempt + 1} attempt(s): {reason or error}"
-                    ) from error
-        finally:
-            _AI_MODEL_SLOTS.release()
+            slot = self._scheduler.slot(
+                priority=(
+                    self.scheduler_priority
+                    if scheduler_priority is None
+                    else int(scheduler_priority)
+                ),
+                timeout_seconds=self.queue_timeout_seconds,
+            )
+            with slot as queue_wait_seconds:
+                self._transport.value = {
+                    "scheduler_group": self.scheduler_group,
+                    "scheduler_priority": (
+                        self.scheduler_priority
+                        if scheduler_priority is None
+                        else int(scheduler_priority)
+                    ),
+                    "queue_wait_ms": round(queue_wait_seconds * 1_000, 2),
+                }
+                for attempt in range(self.max_connection_attempts):
+                    try:
+                        with self.request_open(
+                            request,
+                            timeout=self.request_timeout_seconds,
+                        ) as response:
+                            raw = response.read(MAX_MODEL_RESPONSE_BYTES + 1)
+                        break
+                    except HTTPError as error:
+                        detail = error.read(4_000).decode("utf-8", errors="replace")
+                        raise ConnectorAIError(
+                            _provider_http_error(error.code, detail)
+                        ) from error
+                    except (URLError, TimeoutError, OSError) as error:
+                        if (
+                            attempt < self.max_connection_attempts - 1
+                            and _is_connection_setup_error(error)
+                        ):
+                            sleep(AI_CONNECTION_RETRY_DELAYS[attempt])
+                            continue
+                        reason = getattr(error, "reason", None)
+                        raise ConnectorAIError(
+                            "Unable to reach the active AI model after "
+                            f"{attempt + 1} attempt(s): {reason or error}"
+                        ) from error
+        except _ModelQueueTimeout as error:
+            raise ConnectorAIError(
+                "The active AI model is busy. This call was not sent before "
+                f"the {self.queue_timeout_seconds}s local queue deadline "
+                f"(scheduler={self.scheduler_group})."
+            ) from error
         if len(raw) > MAX_MODEL_RESPONSE_BYTES:
             raise ConnectorAIError("The active AI model returned an unexpectedly large response.")
         try:

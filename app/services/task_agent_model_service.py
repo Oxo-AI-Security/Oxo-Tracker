@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import types
@@ -38,6 +39,15 @@ class TaskAgentModelService:
             request_timeout_seconds=75,
             max_tokens=3_000,
             max_connection_attempts=2,
+            scheduler_group="task-agent-control",
+            scheduler_concurrency=max(
+                1,
+                min(
+                    8,
+                    int(os.getenv("ATTACK_AGENT_MODEL_CONCURRENCY", "3")),
+                ),
+            ),
+            scheduler_priority=0,
         )
         self.prompts = prompt_registry or PromptRegistry()
         self._call_state = threading.local()
@@ -191,7 +201,11 @@ class TaskAgentModelService:
                 separators=(",", ":"),
             )
             try:
-                raw = self.ai_client._chat_json(prompt.content, current_user_prompt)
+                raw = self._chat_json(
+                    prompt.content,
+                    current_user_prompt,
+                    payload=current_payload,
+                )
             except ConnectorAIError as error:
                 if not _is_input_length_error(error):
                     raise TaskAgentModelError(
@@ -212,9 +226,10 @@ class TaskAgentModelService:
                     separators=(",", ":"),
                 )
                 try:
-                    raw = self.ai_client._chat_json(
+                    raw = self._chat_json(
                         prompt.content,
                         emergency_prompt,
+                        payload=current_payload,
                     )
                 except ConnectorAIError as retry_error:
                     raise TaskAgentModelError(
@@ -231,6 +246,11 @@ class TaskAgentModelService:
                     if hasattr(self.ai_client, "consume_last_usage")
                     else {}
                 )
+                transport = (
+                    self.ai_client.consume_last_transport_metrics()
+                    if hasattr(self.ai_client, "consume_last_transport_metrics")
+                    else {}
+                )
                 self._call_state.metrics = {
                     "role": role,
                     "attempt": attempt + 1,
@@ -242,6 +262,7 @@ class TaskAgentModelService:
                     "compacted": fitted_chars < original_chars,
                     "emergency_compaction": emergency_used,
                     "budget_chars": MODEL_INPUT_CHAR_BUDGET,
+                    **transport,
                 }
                 return result
             except ValidationError as error:
@@ -252,6 +273,28 @@ class TaskAgentModelService:
                         f"{validation_feedback}"
                     ) from error
         raise TaskAgentModelError(f"{role} did not return output")
+
+    def _chat_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        context = payload.get("UNTRUSTED_DATA")
+        is_parallel_branch = bool(
+            isinstance(context, dict) and context.get("parallelBranch")
+        )
+        if isinstance(self.ai_client, ConnectorAIService):
+            return self.ai_client._chat_json(
+                system_prompt,
+                user_prompt,
+                # The primary research loop owns the goal and must not sit
+                # behind queued speculative branches. Existing calls are not
+                # preempted, but the next free slot goes to the primary.
+                scheduler_priority=20 if is_parallel_branch else 0,
+            )
+        return self.ai_client._chat_json(system_prompt, user_prompt)
 
 
 def _is_input_length_error(error: Exception) -> bool:

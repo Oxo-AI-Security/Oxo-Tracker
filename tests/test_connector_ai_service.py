@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 from io import BytesIO
 from urllib.error import URLError
 
@@ -8,6 +10,7 @@ from app.api.routes import moonshot_explicit
 from app.services.connector_ai_service import (
     ConnectorAIError,
     ConnectorAIService,
+    _PriorityModelScheduler,
     normalize_connector_draft,
     normalize_response_mapping,
 )
@@ -184,6 +187,38 @@ def test_ai_read_timeout_is_not_retried_three_times() -> None:
         )
 
     assert len(calls) == 1
+
+
+def test_priority_scheduler_serves_primary_before_queued_background_work() -> None:
+    scheduler = _PriorityModelScheduler(1)
+    first_started = threading.Event()
+    release_first = threading.Event()
+    order: list[str] = []
+
+    def run(label: str, priority: int, hold: bool = False) -> None:
+        with scheduler.slot(priority=priority, timeout_seconds=2):
+            order.append(label)
+            if hold:
+                first_started.set()
+                release_first.wait(timeout=2)
+
+    first = threading.Thread(target=run, args=("branch-active", 20, True))
+    queued_branch = threading.Thread(
+        target=run,
+        args=("branch-queued", 20),
+    )
+    primary = threading.Thread(target=run, args=("primary", 0))
+    first.start()
+    assert first_started.wait(timeout=1)
+    queued_branch.start()
+    time.sleep(0.02)
+    primary.start()
+    time.sleep(0.02)
+    release_first.set()
+    for thread in (first, queued_branch, primary):
+        thread.join(timeout=2)
+
+    assert order == ["branch-active", "primary", "branch-queued"]
 
 
 def test_normalizer_keeps_partial_fields_and_reports_missing_input_mapping() -> None:

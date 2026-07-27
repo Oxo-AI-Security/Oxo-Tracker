@@ -753,6 +753,51 @@
               <div class="task-goal-progress" aria-hidden="true">
                 <i :style="{ width: `${activeChat.taskAgentEvaluation?.progress || taskAgentWorkingProgress}%` }"></i>
               </div>
+              <section
+                v-if="childChatsFor(activeChat.id).length"
+                class="task-goal-agents"
+                aria-label="Parallel Attack Agents"
+              >
+                <header>
+                  <span>PARALLEL AGENTS</span>
+                  <b>
+                    1 coordinator + {{ childChatsFor(activeChat.id).length }} specialists
+                  </b>
+                </header>
+                <div class="task-goal-agent-lanes">
+                  <article class="task-goal-agent coordinator">
+                    <span class="task-goal-agent-avatar">
+                      <n-icon><SparklesOutline /></n-icon>
+                    </span>
+                    <span>
+                      <strong>Main coordinator</strong>
+                      <small>{{ activeChat.taskAgentNode || 'orchestrating' }}</small>
+                    </span>
+                    <i :class="activeChat.taskAgentStatus">
+                      {{ taskAgentStatusText(activeChat.taskAgentStatus) }}
+                    </i>
+                  </article>
+                  <button
+                    v-for="branch in childChatsFor(activeChat.id)"
+                    :key="branch.id"
+                    type="button"
+                    class="task-goal-agent specialist"
+                    :title="branch.branchFocus || branch.title"
+                    @click="openChatThread(branch.id)"
+                  >
+                    <span class="task-goal-agent-avatar">
+                      {{ String(branch.branchIndex || 1).padStart(2, '0') }}
+                    </span>
+                    <span>
+                      <strong>Specialist {{ branch.branchIndex || 1 }}</strong>
+                      <small>{{ branch.taskAgentMethod || branch.branchFocus || 'Exploring an independent route' }}</small>
+                    </span>
+                    <i :class="branch.taskAgentStatus">
+                      {{ taskAgentStatusText(branch.taskAgentStatus) }}
+                    </i>
+                  </button>
+                </div>
+              </section>
               <div v-if="taskAgentDetailsExpanded" class="task-goal-details">
                 <div class="task-goal-meta">
                   <span>{{ activeChat.taskAgentMaxRounds == null ? $t('auto.62a2840faf0b') : `Limit ${activeChat.taskAgentMaxRounds} rounds` }}</span>
