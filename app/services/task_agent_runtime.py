@@ -868,7 +868,13 @@ def public_task_snapshot(
     graph_service: TaskAgentGraph | None = None,
 ) -> dict[str, Any]:
     started = _parse_datetime(str(state.get("started_at") or state.get("created_at") or ""))
-    elapsed = max(0.0, (datetime.now(timezone.utc) - started).total_seconds())
+    status = str(state.get("status") or TaskStatus.QUEUED.value)
+    finished = (
+        _parse_datetime(str(state.get("updated_at") or ""))
+        if status in TERMINAL_STATUSES
+        else datetime.now(timezone.utc)
+    )
+    elapsed = max(0.0, (finished - started).total_seconds())
     return {
         "task_id": str(state.get("task_id") or ""),
         "session_id": str(state.get("session_id") or ""),
@@ -877,7 +883,7 @@ def public_task_snapshot(
         "target_key": str(
             state.get("target_key") or state.get("runner_id") or ""
         ),
-        "status": str(state.get("status") or TaskStatus.QUEUED.value),
+        "status": status,
         "current_node": str(state.get("current_node") or "queued"),
         "route": state.get("route"),
         "stop_reason": state.get("stop_reason"),

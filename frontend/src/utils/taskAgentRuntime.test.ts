@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   isTaskAgentGoalActive,
+  liveTaskAgentElapsedSeconds,
   mapBackendTaskStatus,
   shouldPollTask,
   shouldReleaseGoalComposer,
@@ -42,5 +43,12 @@ describe('persistent Task Agent UI state', () => {
     expect(shouldReleaseGoalComposer({ status: 'running' })).toBe(false)
     expect(shouldReleaseGoalComposer({ status: 'paused' })).toBe(false)
     expect(shouldReleaseGoalComposer({ status: 'stopped_safety' })).toBe(false)
+  })
+
+  it('advances elapsed time locally between slower server snapshots', () => {
+    expect(liveTaskAgentElapsedSeconds(20.2, 1_000, 1_700, true)).toBe(20)
+    expect(liveTaskAgentElapsedSeconds(20.2, 1_000, 1_800, true)).toBe(21)
+    expect(liveTaskAgentElapsedSeconds(20.2, 1_000, 2_800, true)).toBe(22)
+    expect(liveTaskAgentElapsedSeconds(20.2, 1_000, 8_000, false)).toBe(20)
   })
 })

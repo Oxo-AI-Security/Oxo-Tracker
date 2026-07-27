@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from app.services.task_agent_graph import _adjudicate_claimed_success
+from app.services.task_agent_runtime import public_task_snapshot
 from app.services.task_agent_store import TaskAgentStore
 
 
@@ -46,6 +47,19 @@ def test_steering_is_durable_and_consumed_once(tmp_path: Path):
     assert [
         event["event_type"] for event in store.list_events("parent")
     ] == ["steering.applied"]
+
+
+def test_terminal_snapshot_elapsed_time_stops_at_update_time():
+    snapshot = {
+        **_snapshot("finished", status="failed"),
+        "started_at": "2026-07-27T00:00:00+00:00",
+        "created_at": "2026-07-27T00:00:00+00:00",
+        "updated_at": "2026-07-27T00:00:05.500000+00:00",
+    }
+
+    public = public_task_snapshot(snapshot)
+
+    assert public["elapsed_seconds"] == 5.5
 
 
 def test_failed_branch_report_preserves_negative_experience(tmp_path: Path):

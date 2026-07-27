@@ -57,3 +57,21 @@ export function isTaskAgentGoalActive(
 export function shouldReleaseGoalComposer(snapshot: Pick<TaskAgentSnapshot, 'status'>) {
   return snapshot.status === 'succeeded'
 }
+
+export function liveTaskAgentElapsedSeconds(
+  baseSeconds: number | null | undefined,
+  syncedAtMs: number | null | undefined,
+  nowMs: number,
+  isActive: boolean,
+) {
+  const normalizedBase =
+    Number.isFinite(Number(baseSeconds)) && Number(baseSeconds) > 0
+      ? Number(baseSeconds)
+      : 0
+  const normalizedSync = Number(syncedAtMs)
+  if (!isActive || !Number.isFinite(normalizedSync) || normalizedSync <= 0) {
+    return Math.floor(normalizedBase)
+  }
+  const localDeltaSeconds = Math.max(0, nowMs - normalizedSync) / 1000
+  return Math.floor(normalizedBase + localDeltaSeconds)
+}

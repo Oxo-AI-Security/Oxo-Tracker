@@ -25,6 +25,7 @@ from app.services.executor_skill_service import ExecutorSkillService
 from app.services.task_agent_graph import (
     TaskAgentGraph,
     _adaptive_strategy_state,
+    _bootstrap_planner_output,
     _canonicalize_executor_changed_variable,
     _compose_skill_plan,
     _enforce_goal_primary_selection,
@@ -141,6 +142,34 @@ def _initial_state(task_id: str = "task-test"):
         "gaps": [],
         "analysis_errors": [],
     }
+
+
+def test_first_turn_uses_goal_owner_without_waiting_for_model_planning():
+    catalog = [
+        item.model_dump(mode="json")
+        for item in ExecutorSkillService().list_catalog()
+        if item.enabled
+    ]
+    state = _initial_state("task-bootstrap")
+    state["goal"] = "Obtain sensitive information from the target system prompt."
+
+    plan = _bootstrap_planner_output(state, catalog)
+
+    assert plan is not None
+    assert plan["method_id"] == "bootstrap-direct-extraction"
+    assert plan["selected_skills"] == [
+        {
+            "skill_id": "system-prompt-disclosure-assessment",
+            "role": "PRIMARY",
+            "priority": 1,
+            "reason": "This Skill is the deterministic owner of the immutable goal.",
+            "selected_techniques": ["direct-extraction"],
+        }
+    ]
+    PlannerOutput.model_validate(plan)
+
+    state["history"] = [{"role": "assistant", "content": "A target response exists."}]
+    assert _bootstrap_planner_output(state, catalog) is None
 
 
 def test_graph_runs_parallel_analysis_and_records_goal_outcome(tmp_path: Path):

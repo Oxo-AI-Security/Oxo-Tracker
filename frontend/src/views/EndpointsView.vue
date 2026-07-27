@@ -759,7 +759,7 @@
                   <span v-if="activeChat.taskAgentMethod">{{ $t('auto.88306943fea7') }} {{ activeChat.taskAgentMethod }}</span>
                   <span v-if="activeChat.taskAgentSkill">Skill {{ activeChat.taskAgentSkill }}</span>
                   <span>{{ activeChat.taskAgentModel || $t('auto.91a7e1c1fd99') }}</span>
-                  <span v-if="activeChat.taskAgentElapsedSeconds != null">{{ Math.round(activeChat.taskAgentElapsedSeconds) }}s</span>
+                  <span v-if="activeChat.taskAgentElapsedSeconds != null">{{ displayedTaskAgentSeconds(activeChat) }}s</span>
                   <span v-if="activeChat.taskAgentInputTokens || activeChat.taskAgentOutputTokens">
                     ~{{ (activeChat.taskAgentInputTokens || 0) + (activeChat.taskAgentOutputTokens || 0) }} {{ $t('auto.3391436a4e72') }} </span>
                 </div>
@@ -1604,6 +1604,7 @@ import { renderMarkdown } from '../utils/markdown'
 import { isRefusalOnlySensitiveFinding } from '../utils/sensitiveInformation'
 import {
   isTaskAgentGoalActive,
+  liveTaskAgentElapsedSeconds,
   mapBackendTaskStatus,
   shouldReleaseGoalComposer,
 } from '../utils/taskAgentRuntime'
@@ -1803,6 +1804,7 @@ interface RedTeamChatThread {
   taskAgentSkillsToContinue?: string[]
   taskAgentSkillsToDrop?: string[]
   taskAgentElapsedSeconds?: number
+  taskAgentElapsedSyncedAt?: number
   taskAgentInputTokens?: number
   taskAgentOutputTokens?: number
   taskAgentLastOutcome?: '' | 'achieved' | 'stopped' | 'error'
@@ -1901,6 +1903,8 @@ const taskAgentMaxActiveSkills = ref(readTaskAgentMaxActiveSkills())
 const taskAgentMaxChildChats = ref(readTaskAgentMaxChildChats())
 const taskAgentDetailsExpanded = ref(false)
 const taskAgentPollTimers = new Map<string, number>()
+const taskAgentClockMs = ref(Date.now())
+let taskAgentClockTimer: number | undefined
 const taskAgentInitializedSnapshots = new Set<string>()
 const taskAgentRevealTokens = new Map<string, string>()
 const taskAgentBranchSpawnLocks = new Set<string>()
@@ -2409,11 +2413,18 @@ const templateBody = computed(() =>
 const canCreateTemplate = computed(() => templateForm.name.trim() && templateBody.value.includes(PROMPT_TOKEN))
 
 onMounted(() => {
+  taskAgentClockTimer = window.setInterval(() => {
+    taskAgentClockMs.value = Date.now()
+  }, 250)
   void loadSessions().then(resumePersistentTaskAgents)
   void loadConnectorCount()
 })
 
 onUnmounted(() => {
+  if (taskAgentClockTimer != null) {
+    window.clearInterval(taskAgentClockTimer)
+    taskAgentClockTimer = undefined
+  }
   for (const timer of taskAgentPollTimers.values()) window.clearTimeout(timer)
   taskAgentPollTimers.clear()
   taskAgentRevealTokens.clear()
@@ -2578,6 +2589,7 @@ function createEmptyChatThread(session: RedTeamSession, now = new Date().toISOSt
     taskAgentMethod: '',
     taskAgentSkill: '',
     taskAgentElapsedSeconds: 0,
+    taskAgentElapsedSyncedAt: Date.now(),
     taskAgentInputTokens: 0,
     taskAgentOutputTokens: 0,
     taskAgentLastOutcome: '',
@@ -2928,6 +2940,7 @@ async function startPersistentTaskAgentGoal() {
   chat.taskAgentMethod = ''
   chat.taskAgentSkill = ''
   chat.taskAgentElapsedSeconds = 0
+  chat.taskAgentElapsedSyncedAt = Date.now()
   chat.taskAgentInputTokens = 0
   chat.taskAgentOutputTokens = 0
   chat.taskAgentLastOutcome = ''
@@ -3066,6 +3079,15 @@ function taskAgentStatusText(status: TaskAgentStatus | undefined) {
     error: translateSource('taskAgent.status.error'),
   }
   return labels[status || 'idle']
+}
+
+function displayedTaskAgentSeconds(chat: RedTeamChatThread) {
+  return liveTaskAgentElapsedSeconds(
+    chat.taskAgentElapsedSeconds,
+    chat.taskAgentElapsedSyncedAt,
+    taskAgentClockMs.value,
+    TASK_AGENT_RUNNING_STATUSES.has(chat.taskAgentStatus || 'idle'),
+  )
 }
 
 function taskAgentProgress(chat: RedTeamChatThread | null | undefined) {
@@ -3376,6 +3398,13 @@ function syncTaskAgentSnapshot(
   snapshot: TaskAgentSnapshot,
 ) {
   const wasTerminal = ['achieved', 'stopped', 'error'].includes(chat.taskAgentStatus || '')
+  const snapshotSyncedAt = Date.now()
+  const sameTask = chat.taskAgentTaskId === snapshot.task_id
+  const localElapsed = sameTask
+    ? Number(chat.taskAgentElapsedSeconds || 0) +
+      Math.max(0, snapshotSyncedAt - Number(chat.taskAgentElapsedSyncedAt || snapshotSyncedAt)) /
+        1000
+    : 0
   chat.taskAgentTaskId = snapshot.task_id
   chat.taskAgentRunId = snapshot.task_id
   chat.taskAgentStatus = backendStatusToUi(snapshot)
@@ -3409,7 +3438,11 @@ function syncTaskAgentSnapshot(
   chat.taskAgentSkillsToDrop = Array.isArray(snapshot.evaluator_output?.skills_to_drop)
     ? snapshot.evaluator_output.skills_to_drop.map(String)
     : []
-  chat.taskAgentElapsedSeconds = snapshot.elapsed_seconds
+  chat.taskAgentElapsedSeconds =
+    snapshot.status === 'running' || snapshot.status === 'pausing' || snapshot.status === 'paused'
+      ? Math.max(Number(snapshot.elapsed_seconds || 0), localElapsed)
+      : Number(snapshot.elapsed_seconds || 0)
+  chat.taskAgentElapsedSyncedAt = snapshotSyncedAt
   chat.taskAgentInputTokens = snapshot.input_tokens
   chat.taskAgentOutputTokens = snapshot.output_tokens
   const taskReviewActive =
@@ -4036,6 +4069,7 @@ async function clearTaskAgentGoal() {
   chat.taskAgentMethod = ''
   chat.taskAgentSkill = ''
   chat.taskAgentElapsedSeconds = 0
+  chat.taskAgentElapsedSyncedAt = Date.now()
   chat.taskAgentInputTokens = 0
   chat.taskAgentOutputTokens = 0
   chat.taskAgentLastOutcome = ''
