@@ -34,7 +34,11 @@ class TaskAgentModelService:
         ai_client: ConnectorAIService | None = None,
         prompt_registry: PromptRegistry | None = None,
     ) -> None:
-        self.ai_client = ai_client or ConnectorAIService()
+        self.ai_client = ai_client or ConnectorAIService(
+            request_timeout_seconds=75,
+            max_tokens=3_000,
+            max_connection_attempts=2,
+        )
         self.prompts = prompt_registry or PromptRegistry()
         self._call_state = threading.local()
 
@@ -944,12 +948,13 @@ def _structured_output_contract() -> dict[str, str]:
 def _normalize_structured_output(
     model_type: type[OutputModel], raw: Any
 ) -> Any:
-    """Repair only unambiguous JSON shape drift before strict validation.
+    """Repair unambiguous JSON shape drift before strict validation.
 
     Models occasionally emit a scalar for a schema field declared as an array.
     Wrapping a primitive scalar as a one-item array preserves its exact meaning.
-    All other type, value, enum, range, and extra-key errors remain strict and
-    continue through the existing validation-feedback retry path.
+    Unknown keys are discarded because they do not change the declared contract
+    and should not trigger another expensive model call. Missing required fields,
+    invalid values, enums, and ranges remain strict.
     """
 
     return _normalize_for_annotation(model_type, raw)
@@ -986,7 +991,11 @@ def _normalize_for_annotation(annotation: Any, value: Any) -> Any:
         return value
 
     if _is_model_type(annotation) and isinstance(value, dict):
-        normalized = dict(value)
+        normalized = {
+            field_name: value[field_name]
+            for field_name in annotation.model_fields
+            if field_name in value
+        }
         for field_name, field in annotation.model_fields.items():
             if field_name in normalized:
                 normalized[field_name] = _normalize_for_annotation(

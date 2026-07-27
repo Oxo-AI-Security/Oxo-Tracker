@@ -6,6 +6,7 @@ import pytest
 
 from app.api.routes import moonshot_explicit
 from app.services.connector_ai_service import (
+    ConnectorAIError,
     ConnectorAIService,
     normalize_connector_draft,
     normalize_response_mapping,
@@ -158,6 +159,31 @@ def test_ai_connection_refusal_is_retried_without_losing_request() -> None:
 
     assert result["config"]["name"] == "Retry Chat"
     assert len(calls) == 3
+
+
+def test_ai_read_timeout_is_not_retried_three_times() -> None:
+    calls = []
+
+    def open_request(request, timeout):
+        calls.append((request.full_url, timeout))
+        raise TimeoutError("The read operation timed out")
+
+    service = ConnectorAIService(
+        settings={
+            "provider": "qwen",
+            "model": "qwen-max",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "api_key": "settings-secret",
+        },
+        request_open=open_request,
+    )
+
+    with pytest.raises(ConnectorAIError, match="after 1 attempt"):
+        service.generate_draft(
+            "POST https://example.test/chat with a JSON message field"
+        )
+
+    assert len(calls) == 1
 
 
 def test_normalizer_keeps_partial_fields_and_reports_missing_input_mapping() -> None:

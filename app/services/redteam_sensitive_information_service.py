@@ -147,7 +147,11 @@ class RedTeamSensitiveInformationService:
     """Analyze exactly one completed red-team turn with the active Settings model."""
 
     def __init__(self, *, ai_client: ConnectorAIService | None = None) -> None:
-        self.ai_client = ai_client or ConnectorAIService()
+        self.ai_client = ai_client or ConnectorAIService(
+            request_timeout_seconds=45,
+            max_tokens=1_800,
+            max_connection_attempts=1,
+        )
 
     @property
     def provider(self) -> str:

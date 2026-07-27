@@ -143,9 +143,7 @@ class TargetGateway:
         )
         response = extract_assistant_text(raw).strip()
         if not response:
-            response = _safe_json(raw)[:60_000]
-        if not response:
-            raise RuntimeError("The target returned no assistant response.")
+            raise RuntimeError(_missing_target_response_message(raw))
         return response, raw, prepared_prompt
 
 
@@ -735,21 +733,20 @@ class TaskAgentGraph:
         response = ""
         raw: Any = None
         prepared_prompt = message
-        attempts = max(1, int(state["config"].get("max_node_retries", 2)) + 1)
-        for attempt in range(attempts):
-            try:
-                response, raw, prepared_prompt = self.target_gateway.send(
-                    runner_id=str(state["runner_id"]),
-                    message=message,
-                    prompt_template=str(state.get("payload_name") or ""),
-                    attack_module=str(state.get("attack_module") or ""),
-                )
-                target_error = None
-                break
-            except Exception as error:
-                target_error = error
-                if attempt < attempts - 1:
-                    time.sleep(min(0.25 * (2**attempt), 2.0))
+        # An outbound delivery may have reached the target even when the
+        # response is missing. Retrying it here can create duplicate messages
+        # and multiplies the target timeout. The router already handles target
+        # failures across rounds, where a new strategy can be selected safely.
+        try:
+            response, raw, prepared_prompt = self.target_gateway.send(
+                runner_id=str(state["runner_id"]),
+                message=message,
+                prompt_template=str(state.get("payload_name") or ""),
+                attack_module=str(state.get("attack_module") or ""),
+            )
+            target_error = None
+        except Exception as error:
+            target_error = error
         if target_error is not None:
             failures = int(state.get("consecutive_target_failures") or 0) + 1
             return {
@@ -1338,6 +1335,43 @@ def extract_assistant_text(value: Any, depth: int = 0) -> str:
             if extracted.strip():
                 return extracted
     return extract_assistant_text(value.get("root"), depth + 1)
+
+
+def _missing_target_response_message(raw: Any) -> str:
+    latest_chat = _latest_runner_chat(raw)
+    if latest_chat is None:
+        return (
+            "The target returned no extractable assistant response. Check the "
+            "endpoint response mapping instead of treating its protocol envelope "
+            "as chat content."
+        )
+    duration = str(latest_chat.get("duration") or "").strip()
+    suffix = f" after {duration} seconds" if duration else ""
+    return (
+        f"The target completed without an assistant response{suffix}. "
+        "The endpoint likely timed out or its response mapping produced an "
+        "empty predicted_result."
+    )
+
+
+def _latest_runner_chat(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        try:
+            return _latest_runner_chat(json.loads(value))
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(value, dict):
+        return None
+    current_chats = value.get("current_chats")
+    if not isinstance(current_chats, dict):
+        return None
+    for group in reversed(list(current_chats.values())):
+        if not isinstance(group, list):
+            continue
+        for item in reversed(group):
+            if isinstance(item, dict):
+                return item
+    return None
 
 
 def _research_context(

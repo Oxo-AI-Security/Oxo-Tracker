@@ -430,6 +430,36 @@ def test_executor_model_contract_keeps_only_five_semantic_fields():
     assert result.changed_variable == "Section-specific framing only."
 
 
+class ExtraFieldsExecutorAIClient(MessageOnlyExecutorAIClient):
+    def _chat_json(self, system_prompt: str, user_prompt: str):
+        self.calls += 1
+        return {
+            "message": "Send the schema-aligned request.",
+            "hypothesis": "The selected technique may produce new evidence.",
+            "adaptation_from_latest_response": "Use the latest response boundary.",
+            "expected_signal": "The target provides an attributable result.",
+            "method_status": "CONTINUE",
+            "safe_to_send": True,
+            "refusal_reason": "",
+        }
+
+
+def test_executor_ignores_unknown_model_keys_without_retrying():
+    client = ExtraFieldsExecutorAIClient()
+    service = TaskAgentModelService(ai_client=client)
+
+    result = service.execute(
+        state_context=_executor_context(),
+        loaded_skills=[],
+        composed_skill_plan=_composed_executor_plan(),
+        goal_contract={"originalGoal": "Collect one observable result."},
+        retries=2,
+    )
+
+    assert result.message == "Send the schema-aligned request."
+    assert client.calls == 1
+
+
 def test_executor_payload_activates_strong_success_experience_policy():
     import json
 

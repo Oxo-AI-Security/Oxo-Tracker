@@ -1602,6 +1602,7 @@ import { useMoonshotStore } from '../stores/moonshot'
 import type { EndpointCreatePayload, EndpointRecord } from '../types/moonshot'
 import { renderMarkdown } from '../utils/markdown'
 import { isRefusalOnlySensitiveFinding } from '../utils/sensitiveInformation'
+import { isRunnerEnvelopeWithoutAssistantResponse } from '../utils/taskAgentResponse'
 import {
   isTaskAgentGoalActive,
   liveTaskAgentElapsedSeconds,
@@ -3195,8 +3196,15 @@ function appendBackgroundTurnMessages(
       }, 420)
     }
   }
-  const rawResponse =
-    turn.raw_response == null
+  const responseUnavailable = isRunnerEnvelopeWithoutAssistantResponse(
+    turn.response,
+  )
+  const visibleResponse = responseUnavailable
+    ? 'Target returned no assistant response.'
+    : turn.response
+  const rawResponse = responseUnavailable
+    ? ''
+    : turn.raw_response == null
       ? ''
       : typeof turn.raw_response === 'string'
         ? turn.raw_response
@@ -3205,7 +3213,7 @@ function appendBackgroundTurnMessages(
   if (existingAssistant) {
     if (!animate && existingAssistant.status !== 'done') {
       Object.assign(existingAssistant, {
-        content: turn.response,
+        content: visibleResponse,
         rawResponse,
         status: 'done',
         presentation: undefined,
@@ -3221,7 +3229,7 @@ function appendBackgroundTurnMessages(
       void revealBackgroundAssistantMessage(
         chat,
         assistantId,
-        turn.response,
+        visibleResponse,
         rawResponse,
         turn.created_at,
         token,
@@ -3233,7 +3241,7 @@ function appendBackgroundTurnMessages(
   chat.messages.push({
     id: assistantId,
     role: 'assistant',
-    content: turn.response,
+    content: visibleResponse,
     rawResponse,
     createdAt: turn.created_at,
     status: 'done',
@@ -5205,6 +5213,12 @@ function moonshotContextStrategy(value: string) {
 }
 
 function normalizeAssistantResponse(response: unknown) {
+  if (isRunnerEnvelopeWithoutAssistantResponse(response)) {
+    return {
+      content: 'Target returned no assistant response.',
+      rawResponse: '',
+    }
+  }
   return {
     content: extractAssistantText(response) || String(response ?? '') || 'No response content.',
     rawResponse: formatRawResponse(response),
@@ -5212,10 +5226,20 @@ function normalizeAssistantResponse(response: unknown) {
 }
 
 function displayAssistantContent(content: string) {
-  return extractAssistantText(content) || content
+  const extracted = extractAssistantText(content)
+  if (extracted) return extracted
+  return isRunnerEnvelopeWithoutAssistantResponse(content)
+    ? 'Target returned no assistant response.'
+    : content
 }
 
 function rawResponseForMessage(chat: RedTeamMessage) {
+  if (
+    isRunnerEnvelopeWithoutAssistantResponse(chat.content) ||
+    isRunnerEnvelopeWithoutAssistantResponse(chat.rawResponse || '')
+  ) {
+    return ''
+  }
   if (chat.rawResponse?.trim()) return formatRawResponse(chat.rawResponse)
   return looksLikeJson(chat.content) ? formatRawResponse(chat.content) : ''
 }
@@ -5273,7 +5297,10 @@ function extractAssistantText(value: unknown, depth = 0): string {
   if (typeof value === 'string') {
     if (depth < 6 && looksLikeJson(value)) {
       try {
-        return extractAssistantText(JSON.parse(value), depth + 1) || value
+        const parsed = JSON.parse(value)
+        const extracted = extractAssistantText(parsed, depth + 1)
+        if (extracted) return extracted
+        return isRunnerEnvelopeWithoutAssistantResponse(parsed) ? '' : value
       } catch {
         return value
       }

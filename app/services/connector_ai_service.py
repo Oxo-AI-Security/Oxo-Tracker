@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 from copy import deepcopy
@@ -19,6 +20,15 @@ MAX_MODEL_RESPONSE_BYTES = 2_000_000
 PROMPT_TOKEN = "{{ prompt }}"
 AI_CONNECTION_ATTEMPTS = 3
 AI_CONNECTION_RETRY_DELAYS = (0.25, 0.75)
+AI_MODEL_MAX_CONCURRENCY = max(
+    1,
+    min(16, int(os.getenv("AI_MODEL_MAX_CONCURRENCY", "2"))),
+)
+AI_MODEL_QUEUE_TIMEOUT_SECONDS = max(
+    30,
+    min(900, int(os.getenv("AI_MODEL_QUEUE_TIMEOUT_SECONDS", "300"))),
+)
+_AI_MODEL_SLOTS = threading.BoundedSemaphore(AI_MODEL_MAX_CONCURRENCY)
 
 
 class ConnectorAIError(RuntimeError):
@@ -31,9 +41,21 @@ class ConnectorAIService:
         *,
         settings: dict[str, str] | None = None,
         request_open: Callable[..., Any] | None = None,
+        request_timeout_seconds: int = 90,
+        max_tokens: int = 4_000,
+        max_connection_attempts: int = AI_CONNECTION_ATTEMPTS,
     ) -> None:
         self.settings = settings or SettingsStore().get_active_ai_settings()
         self.request_open = request_open or open_with_current_network_settings
+        self.request_timeout_seconds = max(
+            10,
+            min(300, int(request_timeout_seconds)),
+        )
+        self.max_tokens = max(256, min(16_000, int(max_tokens)))
+        self.max_connection_attempts = max(
+            1,
+            min(AI_CONNECTION_ATTEMPTS, int(max_connection_attempts)),
+        )
         self._usage = threading.local()
 
     @property
@@ -164,7 +186,7 @@ selectedText must be copied exactly from the response and must not be invented.
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.1,
-            "max_tokens": 4_000,
+            "max_tokens": self.max_tokens,
             "response_format": {"type": "json_object"},
         }
         request = Request(
@@ -174,22 +196,39 @@ selectedText must be copied exactly from the response and must not be invented.
             method="POST",
         )
         raw = b""
-        for attempt in range(AI_CONNECTION_ATTEMPTS):
-            try:
-                with self.request_open(request, timeout=90) as response:
-                    raw = response.read(MAX_MODEL_RESPONSE_BYTES + 1)
-                break
-            except HTTPError as error:
-                detail = error.read(4_000).decode("utf-8", errors="replace")
-                raise ConnectorAIError(_provider_http_error(error.code, detail)) from error
-            except (URLError, TimeoutError, OSError) as error:
-                if attempt < AI_CONNECTION_ATTEMPTS - 1 and _is_connection_setup_error(error):
-                    sleep(AI_CONNECTION_RETRY_DELAYS[attempt])
-                    continue
-                reason = getattr(error, "reason", None)
-                raise ConnectorAIError(
-                    f"Unable to reach the active AI model after {attempt + 1} attempt(s): {reason or error}"
-                ) from error
+        if not _AI_MODEL_SLOTS.acquire(timeout=AI_MODEL_QUEUE_TIMEOUT_SECONDS):
+            raise ConnectorAIError(
+                "The active AI model is busy with other Attack Agent work. "
+                "No request was sent before the local queue timeout."
+            )
+        try:
+            for attempt in range(self.max_connection_attempts):
+                try:
+                    with self.request_open(
+                        request,
+                        timeout=self.request_timeout_seconds,
+                    ) as response:
+                        raw = response.read(MAX_MODEL_RESPONSE_BYTES + 1)
+                    break
+                except HTTPError as error:
+                    detail = error.read(4_000).decode("utf-8", errors="replace")
+                    raise ConnectorAIError(
+                        _provider_http_error(error.code, detail)
+                    ) from error
+                except (URLError, TimeoutError, OSError) as error:
+                    if (
+                        attempt < self.max_connection_attempts - 1
+                        and _is_connection_setup_error(error)
+                    ):
+                        sleep(AI_CONNECTION_RETRY_DELAYS[attempt])
+                        continue
+                    reason = getattr(error, "reason", None)
+                    raise ConnectorAIError(
+                        "Unable to reach the active AI model after "
+                        f"{attempt + 1} attempt(s): {reason or error}"
+                    ) from error
+        finally:
+            _AI_MODEL_SLOTS.release()
         if len(raw) > MAX_MODEL_RESPONSE_BYTES:
             raise ConnectorAIError("The active AI model returned an unexpectedly large response.")
         try:
@@ -419,7 +458,7 @@ def _provider_http_error(status_code: int, detail: str) -> str:
 def _is_connection_setup_error(error: BaseException) -> bool:
     reason = getattr(error, "reason", error)
     error_number = getattr(reason, "winerror", None) or getattr(reason, "errno", None)
-    if error_number in {61, 10060, 10061, 10065}:
+    if error_number in {61, 10061, 10065}:
         return True
     lowered = str(reason).lower()
     return any(
@@ -427,9 +466,10 @@ def _is_connection_setup_error(error: BaseException) -> bool:
         for marker in (
             "connection refused",
             "actively refused",
-            "timed out",
             "temporary failure",
             "network is unreachable",
+            "connection reset",
+            "remote end closed connection",
         )
     )
 
