@@ -9,7 +9,7 @@
     "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri",
-    "desktop:dev": "tauri dev",
+    "desktop:dev": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/dev-desktop.ps1",
     "desktop:build": "tauri build --bundles nsis"
   },
   "dependencies": {

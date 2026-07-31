@@ -1,4 +1,2 @@
--r requirements.txt
-pytest>=8.3.0
-httpx>=0.28.0
-
+-r requirements-desktop.lock
+pytest==9.0.3

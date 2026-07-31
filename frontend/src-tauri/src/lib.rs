@@ -5,7 +5,7 @@ use std::{
     sync::Mutex,
     time::Duration,
 };
-use tauri::{Manager, RunEvent};
+use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
@@ -55,6 +55,12 @@ fn lock_error<T>(error: std::sync::PoisonError<T>) -> String {
 }
 
 fn start_sidecar(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    if connect_development_backend(app)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?
+    {
+        return Ok(());
+    }
+
     let resource_root = app.path().resource_dir()?;
     // NSIS current-user installs live at %LOCALAPPDATA%\Oxo Tracker. Keep
     // mutable application data in Tauri's identifier-scoped directory so an
@@ -163,6 +169,47 @@ fn start_sidecar(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
+#[cfg(debug_assertions)]
+fn connect_development_backend(app: &mut tauri::App) -> Result<bool, String> {
+    let base_url = std::env::var("OXO_DESKTOP_DEV_API_BASE_URL").map_err(|_| {
+        "Desktop development backend is not configured. Run `npm run desktop:dev` from the frontend directory instead of invoking `tauri dev` directly."
+            .to_string()
+    })?;
+    let token = std::env::var("OXO_DESKTOP_DEV_TOKEN")
+        .map_err(|_| "Desktop development token is missing".to_string())?;
+    let port = std::env::var("OXO_DESKTOP_DEV_PORT")
+        .map_err(|_| "Desktop development port is missing".to_string())?
+        .parse::<u16>()
+        .map_err(|error| format!("Invalid desktop development port: {error}"))?;
+    let expected_url = format!("http://127.0.0.1:{port}");
+    if base_url != expected_url {
+        return Err("Desktop development API must use the loopback address".into());
+    }
+
+    let challenge = Uuid::new_v4().simple().to_string();
+    verify_health(port, &token, &challenge)
+        .map_err(|error| format!("Development backend health check failed: {error}"))?;
+    let runtime = DesktopBootstrap {
+        api_base_url: base_url,
+        token,
+    };
+    app.state::<DesktopState>()
+        .bootstrap
+        .lock()
+        .map_err(lock_error)?
+        .replace(runtime);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    Ok(true)
+}
+
+#[cfg(not(debug_assertions))]
+fn connect_development_backend(_app: &mut tauri::App) -> Result<bool, String> {
+    Ok(false)
+}
+
 fn record_startup_error(handle: &tauri::AppHandle, error: String) {
     if let Ok(mut slot) = handle.state::<DesktopState>().startup_error.lock() {
         *slot = Some(error);
@@ -231,6 +278,16 @@ pub fn run() {
         .expect("failed to build Oxo Tracker desktop application");
 
     app.run(|handle, event| {
+        if matches!(
+            &event,
+            RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::CloseRequested { .. },
+                ..
+            } if label == "main"
+        ) {
+            handle.exit(0);
+        }
         if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
             if let Ok(mut slot) = handle.state::<DesktopState>().child.lock() {
                 if let Some(child) = slot.take() {

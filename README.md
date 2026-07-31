@@ -1,6 +1,6 @@
 # Oxo Tracker
 
-Oxo Tracker is a secure AI evaluation workspace for testing model agents, prompt safety, connector behavior, and red-team resilience. It combines a FastAPI backend, a Vue 3 workspace, and local Moonshot assets so evaluation teams can configure targets, run benchmark suites, inspect prompt traces, and keep adversarial conversations in one place.
+Oxo Tracker is a Tauri v2 desktop application for testing model agents, prompt safety, connector behavior, and red-team resilience. It combines a Rust desktop host, a FastAPI Python sidecar, a Vue 3 workspace, and local Moonshot assets so evaluation teams can configure targets, run benchmark suites, inspect prompt traces, and keep adversarial conversations in one place.
 
 The product is designed for AI security review workflows where teams need repeatable tests, visible evidence, and side-by-side comparison between clean and attacked interactions.
 
@@ -13,7 +13,7 @@ The product is designed for AI security review workflows where teams need repeat
 - **Payload library**: browse and curate cookbooks, recipes, datasets, attack modules, and prompt templates used by evaluation runs.
 - **Agent and connector management**: create model endpoints and configurable connectors for HTTP, SSE, and WebSocket based AI applications.
 - **Agent security review**: upload design documents, diagrams, prompts, tool specs, and screenshots to extract application functions and build a review map.
-- **Local-first evidence store**: keep benchmark jobs, red-team sessions, settings, and generated reports in project data directories for repeatable local review.
+- **Local-first evidence store**: keep benchmark jobs, red-team sessions, settings, and generated reports in the desktop application's identifier-scoped local data directory.
 - **Persistent Attack Agent**: run Planner → Executor → target → AI WATCH workflows in the background with LangGraph checkpoints, prompt-only Skills, pause/resume/stop controls, and no default fixed round limit.
 
 ## Interface Preview
@@ -40,11 +40,15 @@ Use the Cookbooks view to inspect built-in and custom evaluation suites, select 
 
 ## Architecture
 
-Oxo Tracker uses a Python backend for API orchestration and Moonshot integration, and a Vue frontend for the evaluation workspace.
+The primary product architecture is Tauri v2 + Vue 3 + a Python sidecar:
 
-- Backend: FastAPI, local job runtime, Moonshot service adapters, settings and report stores.
-- Frontend: Vue 3, Vite, Pinia, Naive UI, evaluation views, red-team chat workspace, and connector builder.
-- Data: local Moonshot assets, benchmark job JSON files, red-team sessions, generated reports, and settings.
+- Desktop host: Tauri v2/Rust owns the window, process lifecycle, per-launch session token, loopback health check, and sidecar shutdown.
+- Backend: FastAPI provides API orchestration, Moonshot adapters, local job runtime, settings, and report stores.
+- Frontend: Vue 3, Vite, Pinia, and Naive UI run inside the system WebView2 runtime.
+- Data: packaged releases keep mutable data under `%LOCALAPPDATA%\com.oxoai.oxo-tracker`; desktop development uses the separate `%LOCALAPPDATA%\com.oxoai.oxo-tracker-development` directory.
+- Models: product features call user-configured online model APIs. No local model runtime or model weights are required.
+
+The browser-only frontend/backend workflow remains available for isolated debugging, but normal product development should use the desktop development command described below.
 
 ## Project Layout
 
@@ -56,12 +60,17 @@ app/                         FastAPI backend
   schemas/                    request/response schemas
   services/                   application services
 frontend/                     Vue 3 + Vite + Naive UI frontend
+  src-tauri/                  Tauri v2 host, capabilities, icons, and bundle config
+desktop/                      desktop asset policy and PyInstaller specification
 data/
   moonshot-data/              Moonshot assets installed locally
   jobs/                       local benchmark job runtime data
   redteam_sessions/           local red-team session runtime data
   task_agent_v2/              persistent Attack Agent state and checkpoints
 scripts/                      setup/test helper scripts
+  dev-desktop.ps1             source-mode desktop development launcher
+  build-desktop.ps1           local Windows installer build
+  release-desktop.ps1         signed local release build
 tests/                        backend tests
 ```
 
@@ -82,15 +91,20 @@ See:
 
 - Python 3.11.x. The project currently targets `>=3.11,<3.12`.
 - Node.js 20+ and npm.
+- Rust stable installed with `rustup`.
+- Visual Studio Build Tools with **Desktop development with C++**, or the documented portable LLVM/cargo-xwin fallback.
+- Microsoft Edge WebView2 Runtime.
 - Git.
 - Network access for Python and npm dependency installation.
 
-Recommended local ports:
+Browser-only development defaults:
 
 - Backend: `http://127.0.0.1:8001`
 - Frontend: `http://127.0.0.1:5173`
 
-## Windows Deployment
+Desktop development keeps Vite on `127.0.0.1:5173`, while the managed Python sidecar receives a random loopback port for each launch.
+
+## Windows Desktop Development (Primary)
 
 Run the commands from PowerShell in the project root.
 
@@ -101,68 +115,51 @@ git clone https://github.com/Oxo-AI-Security/Oxo-Tracker.git
 cd Oxo-Tracker
 ```
 
-### 2. Create the Python environment
-
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-If PowerShell blocks script activation, run this once in the current terminal:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-```
-
-### 3. Create backend configuration
-
-```powershell
-Copy-Item .env.example .env
-```
-
-The default `.env.example` points all Moonshot asset paths to `data/moonshot-data`.
-
-### 4. Install Moonshot data
-
-```powershell
-Push-Location data
-..\.venv\Scripts\python.exe -m moonshot -i moonshot-data -u
-Pop-Location
-```
-
-On Windows, some TensorFlow packages in Moonshot data may not resolve cleanly. Use the provided Windows requirements file:
-
-```powershell
-pip install -r requirements-moonshot-data-windows.txt
-python -m nltk.downloader punkt stopwords
-python -m spacy download en_core_web_lg
-```
-
-You can also run the bundled bootstrap script:
+### 2. Bootstrap the source-mode backend and Moonshot assets
 
 ```powershell
 .\scripts\bootstrap.ps1
 ```
 
-### 5. Install frontend dependencies
+The bootstrap script creates `.venv`, installs the same local-model-free dependency set used by desktop releases plus pytest, creates `.env`, installs Moonshot assets when absent, and downloads only the required NLTK language data. It does not install spaCy models, TensorFlow, PyTorch, Transformers, or local model weights.
+
+If PowerShell blocks scripts, allow them only for the current terminal:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\bootstrap.ps1
+```
+
+### 3. Install frontend dependencies
 
 ```powershell
 cd frontend
 npm install
-Copy-Item .env.example .env
 cd ..
 ```
 
-Make sure `frontend\.env` points to the backend:
+### 4. Start the desktop application directly from source
 
-```text
-VITE_API_BASE_URL=http://127.0.0.1:8001
+```powershell
+cd frontend
+npm run desktop:dev
 ```
 
-### 6. Start the backend
+This is the default daily development workflow. It does **not** run PyInstaller, NSIS, or create an installer. The launcher:
+
+- starts `app.desktop_server` directly with `.venv\Scripts\python.exe`;
+- uses the source `data\moonshot-data` directory without copying 500 MiB of assets;
+- allocates a random loopback port and a new 64-character session token;
+- starts Vite and the Tauri development window;
+- applies a development-only Tauri config that does not require packaged sidecar binaries or resources;
+- keeps frontend hot module replacement enabled;
+- stops the Python process when the Tauri process exits.
+
+Backend source changes require restarting `npm run desktop:dev`; frontend changes update through Vite HMR. Calling `tauri dev` directly is intentionally rejected because it would bypass the managed Python development backend.
+
+### Optional browser-only development
+
+Use this only when debugging the backend or Vue UI independently. Start the backend in one terminal:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -175,9 +172,7 @@ Backend API docs are available at:
 http://127.0.0.1:8001/docs
 ```
 
-### 7. Start the frontend
-
-Open a second PowerShell terminal:
+Then start the browser frontend in another terminal:
 
 ```powershell
 cd frontend
@@ -190,9 +185,9 @@ Open:
 http://127.0.0.1:5173
 ```
 
-## Linux Deployment
+## Linux Browser Development (Optional)
 
-Run the commands from a shell in the project root.
+The packaged desktop target is currently Windows x64. Linux can still run the browser-only development workflow.
 
 ### 1. Clone the repository
 
@@ -207,7 +202,7 @@ cd Oxo-Tracker
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 If `python3.11` is not installed, install it first with your package manager.
@@ -233,13 +228,13 @@ cd data
 cd ..
 ```
 
-Install Moonshot data dependencies:
+Install the lightweight language data used by supported metrics:
 
 ```bash
-pip install -r data/moonshot-data/requirements.txt
-python -m nltk.downloader punkt stopwords
-python -m spacy download en_core_web_lg
+python -m nltk.downloader punkt punkt_tab averaged_perceptron_tagger_eng stopwords
 ```
+
+Do not install the Moonshot asset repository's full requirements file; it includes local-model stacks that Oxo Tracker does not use.
 
 ### 5. Install frontend dependencies
 
@@ -284,29 +279,30 @@ Open:
 http://127.0.0.1:5173
 ```
 
-## Production Build
+## Windows Desktop Build and Manual Release
 
-Build the frontend:
+An unsigned engineering installer can be built locally for validation:
 
-```bash
-cd frontend
-npm run build
+```powershell
+.\scripts\build-desktop.ps1 -Version 0.1.0 -AllowUnsigned
 ```
 
-Preview the built frontend locally:
+A formal release requires a clean Git worktree and an Authenticode certificate:
 
-```bash
-npm run preview -- --host 127.0.0.1 --port 4173
+```powershell
+.\scripts\release-desktop.ps1 -Version 1.0.0 -CertificateThumbprint <certificate-thumbprint>
 ```
 
-For production deployment, run the FastAPI backend with a process manager such as systemd, Supervisor, PM2, Docker, or your platform service manager. Serve `frontend/dist` with Nginx or another static web server, and proxy `/api` requests to the backend.
+The build creates an NSIS per-user installer plus SHA-256, SBOM, third-party notices, dataset manifest, and release notes under `artifacts\desktop-release\<version>`. There is no GitHub Actions workflow and the scripts do not upload anything. Review the local artifacts, then manually create a Release in [Oxo-AI-Security/Oxo-Tracker-Releases](https://github.com/Oxo-AI-Security/Oxo-Tracker-Releases).
 
 ## Environment Files
 
 Do not commit real `.env` files. Use the example files as templates:
 
 - Root backend config: `.env.example` -> `.env`
-- Frontend config: `frontend/.env.example` -> `frontend/.env`
+- Frontend config: `frontend/.env.example` -> `frontend/.env` for browser-only development.
+
+Desktop development receives its random API URL and token from the launcher; it does not use `VITE_API_BASE_URL`.
 
 Common frontend setting:
 
@@ -367,13 +363,33 @@ npm run build
 
 Run backend tests:
 
-```bash
-pytest
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Run frontend tests and Rust formatting checks:
+
+```powershell
+cd frontend
+npm test -- --run
+cd src-tauri
+cargo fmt --check
 ```
 
 ## Troubleshooting
 
-### Frontend cannot reach backend
+### Desktop development does not start
+
+Always use the managed launcher:
+
+```powershell
+cd frontend
+npm run desktop:dev
+```
+
+Confirm `.venv\Scripts\python.exe`, `data\moonshot-data\datasets`, Rust, Visual Studio Build Tools, and WebView2 are present. Running `tauri dev` directly is unsupported because it does not start the Python source backend.
+
+### Browser frontend cannot reach backend
 
 Check `frontend/.env`:
 
@@ -385,7 +401,9 @@ Restart the Vite dev server after changing `.env`.
 
 ### Port already in use
 
-Use another backend port:
+The desktop launcher requires `127.0.0.1:5173` and stops before opening Tauri when another process owns that port. Close the existing Vite/browser-development process, then run `npm run desktop:dev` again. This guard prevents Tauri from loading a stale development page.
+
+For browser-only backend development, use another backend port:
 
 ```bash
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8002
@@ -409,17 +427,18 @@ cd ..
 
 On Windows, replace `../.venv/bin/python` with `..\.venv\Scripts\python.exe`.
 
-### Windows dependency installation fails on TensorFlow
+### Rust cannot find a Windows linker
 
-Use:
+Install Visual Studio Build Tools with the **Desktop development with C++** workload, then open a new PowerShell terminal. The local scripts can also use an existing LLVM/LLD and cargo-xwin SDK cache when Build Tools are unavailable.
 
-```powershell
-pip install -r requirements-moonshot-data-windows.txt
+Do not solve desktop dependency errors by installing TensorFlow, PyTorch, spaCy models, Transformers, Ollama, or model weights; these are outside the supported product architecture.
+
+### Start with fresh development settings
+
+Desktop development keeps settings separate from installed releases at:
+
+```text
+%LOCALAPPDATA%\com.oxoai.oxo-tracker-development
 ```
 
-Then install language resources:
-
-```powershell
-python -m nltk.downloader punkt stopwords
-python -m spacy download en_core_web_lg
-```
+Close the application before moving this directory to the Recycle Bin. Source Moonshot assets under `data\moonshot-data` are not removed.
