@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import {
+  hasPendingTaskAgentReviews,
   isTaskAgentGoalActive,
+  isTaskAgentTerminalReady,
   liveTaskAgentElapsedSeconds,
   mapBackendTaskStatus,
   shouldPollTask,
   shouldReleaseGoalComposer,
+  taskAgentTerminalFinalizationPhase,
+  visibleTaskAgentProgress,
 } from './taskAgentRuntime'
+import type { TaskAiWatchReview } from '../api/taskAgents'
+
+const review = (
+  status: TaskAiWatchReview['status'],
+): TaskAiWatchReview => ({
+  round_key: 'round-1',
+  round: 1,
+  status,
+  queued_at: '2026-07-29T00:00:00Z',
+  summary: '',
+})
 
 describe('persistent Task Agent UI state', () => {
   it('maps graph nodes to visible phases without a round limit', () => {
@@ -22,6 +37,53 @@ describe('persistent Task Agent UI state', () => {
     expect(shouldPollTask({ status: 'paused' })).toBe(true)
     expect(shouldPollTask({ status: 'succeeded' })).toBe(false)
     expect(shouldPollTask({ status: 'stopped_manual' })).toBe(false)
+  })
+
+  it('does not finalize while the parent AI Watch review is pending', () => {
+    const parent = {
+      status: 'succeeded' as const,
+      ai_watch_reviews: {
+        'round-1': review('analyzing'),
+      },
+    }
+    expect(hasPendingTaskAgentReviews(parent)).toBe(true)
+    expect(isTaskAgentTerminalReady(parent)).toBe(false)
+    expect(taskAgentTerminalFinalizationPhase(parent)).toBe(
+      'waiting_for_parent_review',
+    )
+  })
+
+  it('waits for terminal child review and archive before summary', () => {
+    const parent = {
+      status: 'failed' as const,
+      ai_watch_reviews: {},
+    }
+    const child = {
+      status: 'stopping' as const,
+      ai_watch_reviews: {},
+    }
+    expect(taskAgentTerminalFinalizationPhase(parent, [child])).toBe(
+      'waiting_for_child_archive',
+    )
+  })
+
+  it('releases terminal chrome only after every review and child settles', () => {
+    const parent = {
+      status: 'stopped_safety' as const,
+      ai_watch_reviews: {
+        'round-1': review('complete'),
+      },
+    }
+    const child = {
+      status: 'stopped_manual' as const,
+      ai_watch_reviews: {
+        'round-1': review('complete'),
+      },
+    }
+    expect(isTaskAgentTerminalReady(parent)).toBe(true)
+    expect(taskAgentTerminalFinalizationPhase(parent, [child])).toBe(
+      'ready_for_summary',
+    )
   })
 
   it('uses differentiated success, safety stop, and failure states', () => {
@@ -43,6 +105,12 @@ describe('persistent Task Agent UI state', () => {
     expect(shouldReleaseGoalComposer({ status: 'running' })).toBe(false)
     expect(shouldReleaseGoalComposer({ status: 'paused' })).toBe(false)
     expect(shouldReleaseGoalComposer({ status: 'stopped_safety' })).toBe(false)
+  })
+
+  it('never renders 100 percent before verified success', () => {
+    expect(visibleTaskAgentProgress(100, 'evaluating', 72)).toBe(99)
+    expect(visibleTaskAgentProgress(100, 'paused', 72)).toBe(99)
+    expect(visibleTaskAgentProgress(100, 'achieved', 72)).toBe(100)
   })
 
   it('advances elapsed time locally between slower server snapshots', () => {

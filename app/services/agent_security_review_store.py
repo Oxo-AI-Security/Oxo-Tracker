@@ -8,10 +8,10 @@ from uuid import uuid4
 
 from fastapi import UploadFile
 
-from app.core.config import PROJECT_ROOT
+from app.core.paths import DATA_ROOT
 
 
-REVIEW_ROOT = PROJECT_ROOT / "data" / "agent-security-review"
+REVIEW_ROOT = DATA_ROOT / "agent-security-review"
 GLOBAL_SETTINGS_FILE = REVIEW_ROOT / "settings.json"
 
 

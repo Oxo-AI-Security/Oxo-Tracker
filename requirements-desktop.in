@@ -1,0 +1,29 @@
+# Oxo Tracker desktop runtime: online providers and non-model Moonshot features only.
+fastapi==0.135.1
+uvicorn==0.48.0
+python-dotenv==1.1.0
+pydantic==2.8.2
+pydantic-settings==2.12.0
+PyYAML==6.0.3
+langgraph==0.6.11
+langgraph-checkpoint-sqlite==2.0.11
+python-multipart==0.0.29
+aiverify-moonshot==0.7.6
+
+# Online connector clients retained by the desktop distribution.
+aiohttp==3.13.3
+anthropic==0.45.2
+boto3==1.42.19
+google-generativeai==0.8.6
+h2ogpte==1.6.52
+langchain-openai==0.3.35
+openai==1.109.1
+together==1.5.34
+
+# Lightweight Moonshot attacks and metrics; no local model runtime or weights.
+homoglyphs==2.0.4
+nltk==3.9.2
+pylcs==0.1.1
+py-readability-metrics==1.4.5
+ragas==0.1.19
+rouge-score==0.1.2

@@ -11,10 +11,10 @@ from urllib.parse import urlparse
 
 import yaml
 
-from app.core.config import PROJECT_ROOT
+from app.core.paths import DATA_ROOT
 
 
-SETTINGS_DIR = PROJECT_ROOT / "data" / "settings"
+SETTINGS_DIR = DATA_ROOT / "settings"
 SETTINGS_FILE = SETTINGS_DIR / "app-settings.yaml"
 LEGACY_SETTINGS_FILE = SETTINGS_DIR / "app-settings.json"
 
@@ -399,12 +399,33 @@ class SettingsStore:
         """Return the one active model configuration for trusted backend consumers."""
         settings = self._read()
         provider_id = settings["ai"]["activeProvider"]
-        provider = settings["ai"]["providers"][provider_id]
+        return self.get_ai_settings(provider_id, settings=settings)
+
+    def get_ai_settings(
+        self,
+        provider_id: str,
+        *,
+        model: str | None = None,
+        settings: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
+        """Resolve one configured provider for a trusted run-scoped consumer."""
+        if provider_id not in PROVIDER_CATALOG:
+            raise ValueError("Unsupported AI provider")
+        current = settings or self._read()
+        provider = current["ai"]["providers"][provider_id]
+        resolved_model = str(model or provider["model"]).strip()
+        if not resolved_model:
+            raise ValueError("Model is required")
+        api_key = self.get_provider_api_key(provider_id, settings=current)
+        if not api_key:
+            raise ValueError(
+                f"No API key is configured for provider {provider_id}"
+            )
         return {
             "provider": provider_id,
-            "model": str(provider["model"]),
+            "model": resolved_model,
             "base_url": str(provider["baseUrl"]),
-            "api_key": self.get_provider_api_key(provider_id, settings=settings),
+            "api_key": api_key,
         }
 
     def get_provider_api_key(

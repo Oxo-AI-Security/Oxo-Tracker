@@ -39,6 +39,15 @@ export const useMoonshotStore = defineStore('moonshot', () => {
       attackModules.value.length,
   )
 
+  function upsertJob(job: BenchmarkJob) {
+    const index = jobs.value.findIndex((item) => (
+      item.id.toLocaleLowerCase() === job.id.toLocaleLowerCase()
+      || item.runner_id.toLocaleLowerCase() === job.runner_id.toLocaleLowerCase()
+    ))
+    if (index >= 0) jobs.value.splice(index, 1, job)
+    else jobs.value.unshift(job)
+  }
+
   async function loadOverview() {
     loading.value = true
     error.value = ''
@@ -113,6 +122,7 @@ export const useMoonshotStore = defineStore('moonshot', () => {
     results,
     jobs,
     totalAssets,
+    upsertJob,
     loadOverview,
   }
 })

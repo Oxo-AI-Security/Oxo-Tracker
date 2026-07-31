@@ -1,18 +1,27 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
 import threading
+import uuid
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Final
 from urllib.parse import urlsplit
 
+from app.core.paths import DATA_ROOT as APP_DATA_ROOT
 
-DATA_ROOT: Final = Path("data") / "task_agent_v2"
+DATA_ROOT: Final = APP_DATA_ROOT / "task_agent_v2"
 ACTIVE_STATUSES: Final = ("queued", "running", "pausing", "paused", "stopping")
 RECOVERABLE_STATUSES: Final = ("queued", "running", "pausing", "stopping")
+CURRENT_SNAPSHOT_SCHEMA_VERSION: Final = 2
+CURRENT_TURN_SCHEMA_VERSION: Final = 1
+CURRENT_AI_WATCH_SCHEMA_VERSION: Final = 1
+CURRENT_BRANCH_REPORT_SCHEMA_VERSION: Final = 2
+CURRENT_DELIVERY_SCHEMA_VERSION: Final = 1
 
 
 class TaskStoreError(RuntimeError):
@@ -36,6 +45,7 @@ class TaskAgentStore:
 
     def create_task(self, snapshot: dict[str, Any]) -> None:
         now = _utc_now()
+        snapshot = migrate_task_snapshot(snapshot)
         with self._write_lock, self._connect() as connection:
             existing = connection.execute(
                 f"""
@@ -81,6 +91,7 @@ class TaskAgentStore:
         status: str | None = None,
         current_node: str | None = None,
         stop_reason: str | None = None,
+        stop_requested: bool = False,
     ) -> None:
         now = _utc_now()
         resolved_status = status or str(snapshot.get("status") or "running")
@@ -103,12 +114,13 @@ class TaskAgentStore:
             ):
                 return
             try:
-                persisted_snapshot = json.loads(
-                    str(current["snapshot_json"])
+                persisted_snapshot = migrate_task_snapshot(
+                    json.loads(str(current["snapshot_json"]))
                 )
             except (json.JSONDecodeError, TypeError):
                 persisted_snapshot = {}
-            snapshot = _merge_async_ai_watch_state(
+            snapshot = migrate_task_snapshot(snapshot)
+            snapshot = _merge_concurrent_snapshot_state(
                 persisted_snapshot,
                 snapshot,
             )
@@ -116,7 +128,11 @@ class TaskAgentStore:
                 """
                 UPDATE tasks
                    SET snapshot_json = ?, status = ?, current_node = ?,
-                       stop_reason = ?, updated_at = ?, version = version + 1
+                       stop_reason = ?,
+                       stop_requested = CASE
+                           WHEN ? THEN 1 ELSE stop_requested
+                       END,
+                       updated_at = ?, version = version + 1
                  WHERE task_id = ?
                 """,
                 (
@@ -124,6 +140,7 @@ class TaskAgentStore:
                     resolved_status,
                     resolved_node,
                     stop_reason if stop_reason is not None else snapshot.get("stop_reason"),
+                    stop_requested,
                     now,
                     task_id,
                 ),
@@ -132,18 +149,240 @@ class TaskAgentStore:
                 raise KeyError(task_id)
 
     def get_snapshot(self, task_id: str) -> dict[str, Any]:
-        with self._connect() as connection:
+        with self._write_lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT snapshot_json, status, current_node, stop_reason FROM tasks WHERE task_id = ?",
                 (task_id,),
             ).fetchone()
-        if row is None:
-            raise KeyError(task_id)
-        snapshot = json.loads(row["snapshot_json"])
-        snapshot["status"] = row["status"]
-        snapshot["current_node"] = row["current_node"]
-        snapshot["stop_reason"] = row["stop_reason"] or snapshot.get("stop_reason")
+            if row is None:
+                raise KeyError(task_id)
+            source = json.loads(row["snapshot_json"])
+            snapshot = migrate_task_snapshot(source)
+            snapshot["status"] = row["status"]
+            snapshot["current_node"] = row["current_node"]
+            snapshot["stop_reason"] = row["stop_reason"] or snapshot.get("stop_reason")
+            if snapshot != source:
+                connection.execute(
+                    """
+                    UPDATE tasks SET snapshot_json = ?, version = version + 1
+                     WHERE task_id = ?
+                    """,
+                    (_dumps(snapshot), task_id),
+                )
         return snapshot
+
+    def prepare_target_delivery(
+        self,
+        task_id: str,
+        delivery: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Durably create an outbound record before any network side effect."""
+
+        now = _utc_now()
+        round_key = str(delivery["round_key"])
+        with self._write_lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT snapshot_json FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            snapshot = migrate_task_snapshot(json.loads(row["snapshot_json"]))
+            deliveries = dict(snapshot.get("target_deliveries") or {})
+            existing = dict(deliveries.get(round_key) or {})
+            if existing:
+                return existing
+            record = {
+                "schema_version": CURRENT_DELIVERY_SCHEMA_VERSION,
+                **delivery,
+                "status": "PREPARED",
+                "prepared_at": delivery.get("prepared_at") or now,
+                "sending_at": None,
+                "delivered_at": None,
+                "committed_at": None,
+                "updated_at": now,
+                "transport_receipt": None,
+                "response": None,
+                "raw_response": None,
+                "error": None,
+            }
+            deliveries[round_key] = record
+            snapshot["target_deliveries"] = deliveries
+            connection.execute(
+                """
+                UPDATE tasks SET snapshot_json = ?, updated_at = ?,
+                                 version = version + 1
+                 WHERE task_id = ?
+                """,
+                (_dumps(snapshot), now, task_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO task_events (task_id, event_type, payload_json, created_at)
+                VALUES (?, 'target.delivery_prepared', ?, ?)
+                """,
+                (
+                    task_id,
+                    _dumps(
+                        {
+                            "delivery_id": record["delivery_id"],
+                            "round_key": round_key,
+                        }
+                    ),
+                    now,
+                ),
+            )
+            return record
+
+    def update_target_delivery(
+        self,
+        task_id: str,
+        round_key: str,
+        *,
+        status: str,
+        **updates: Any,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with self._write_lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT snapshot_json FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            snapshot = migrate_task_snapshot(json.loads(row["snapshot_json"]))
+            deliveries = dict(snapshot.get("target_deliveries") or {})
+            if round_key not in deliveries:
+                raise TaskStoreError(
+                    f"Target delivery {round_key} was not prepared."
+                )
+            record = {
+                **dict(deliveries[round_key]),
+                **updates,
+                "status": status,
+                "updated_at": now,
+            }
+            if status == "SENDING":
+                record["sending_at"] = record.get("sending_at") or now
+            elif status == "DELIVERED":
+                record["delivered_at"] = record.get("delivered_at") or now
+            elif status == "COMMITTED":
+                record["committed_at"] = record.get("committed_at") or now
+            deliveries[round_key] = record
+            snapshot["target_deliveries"] = deliveries
+            connection.execute(
+                """
+                UPDATE tasks SET snapshot_json = ?, updated_at = ?,
+                                 version = version + 1
+                 WHERE task_id = ?
+                """,
+                (_dumps(snapshot), now, task_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO task_events (task_id, event_type, payload_json, created_at)
+                VALUES (?, 'target.delivery_status', ?, ?)
+                """,
+                (
+                    task_id,
+                    _dumps(
+                        {
+                            "delivery_id": record["delivery_id"],
+                            "round_key": round_key,
+                            "status": status,
+                            "error": record.get("error"),
+                        }
+                    ),
+                    now,
+                ),
+            )
+            return record
+
+    def commit_target_turn(
+        self,
+        task_id: str,
+        *,
+        round_key: str,
+        turn: dict[str, Any],
+        history: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Atomically commit the receipt, conversation turn, and history."""
+
+        now = _utc_now()
+        with self._write_lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT snapshot_json FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            snapshot = migrate_task_snapshot(json.loads(row["snapshot_json"]))
+            deliveries = dict(snapshot.get("target_deliveries") or {})
+            delivery = dict(deliveries.get(round_key) or {})
+            if str(delivery.get("status") or "") not in {
+                "DELIVERED",
+                "COMMITTED",
+            }:
+                raise TaskStoreError(
+                    f"Target delivery {round_key} is not known to be delivered."
+                )
+            turns = [
+                dict(item)
+                for item in snapshot.get("committed_turns") or []
+                if str(item.get("round_key") or "") != round_key
+            ]
+            turn = {
+                "schema_version": CURRENT_TURN_SCHEMA_VERSION,
+                **turn,
+            }
+            turns.append(turn)
+            delivery.update(
+                {
+                    "status": "COMMITTED",
+                    "committed_at": delivery.get("committed_at") or now,
+                    "updated_at": now,
+                    "response": turn.get("response"),
+                    "raw_response": turn.get("raw_response"),
+                }
+            )
+            deliveries[round_key] = delivery
+            snapshot.update(
+                {
+                    "committed_turns": turns,
+                    "target_deliveries": deliveries,
+                    "history": history,
+                    "latest_request": turn.get("request"),
+                    "latest_response": turn.get("response"),
+                    "latest_raw_response": turn.get("raw_response"),
+                    "active_issue": None,
+                    "updated_at": now,
+                }
+            )
+            connection.execute(
+                """
+                UPDATE tasks SET snapshot_json = ?, current_node = 'analysis_parallel',
+                                 updated_at = ?, version = version + 1
+                 WHERE task_id = ?
+                """,
+                (_dumps(snapshot), now, task_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO task_events (task_id, event_type, payload_json, created_at)
+                VALUES (?, 'target.turn_committed', ?, ?)
+                """,
+                (
+                    task_id,
+                    _dumps(
+                        {
+                            "delivery_id": delivery.get("delivery_id"),
+                            "round_key": round_key,
+                        }
+                    ),
+                    now,
+                ),
+            )
+            return snapshot
 
     def list_snapshots(
         self,
@@ -183,6 +422,29 @@ class TaskAgentStore:
                 RECOVERABLE_STATUSES,
             ).fetchall()
         return [str(row["task_id"]) for row in rows]
+
+    def list_terminal_branch_cleanup_candidates(self) -> list[dict[str, Any]]:
+        """Return every durable child-runner tombstone still needing cleanup."""
+
+        terminal = ("succeeded", "stopped_safety", "stopped_manual", "failed")
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT task_id FROM tasks
+                WHERE status IN ({",".join("?" for _ in terminal)})
+                ORDER BY updated_at ASC
+                """,
+                terminal,
+            ).fetchall()
+        candidates: list[dict[str, Any]] = []
+        for row in rows:
+            snapshot = self.get_snapshot(str(row["task_id"]))
+            if not snapshot.get("branch_context"):
+                continue
+            if snapshot.get("branch_runner_deleted"):
+                continue
+            candidates.append(snapshot)
+        return candidates
 
     def request_pause(self, task_id: str) -> None:
         self._set_control(task_id, pause=True, status="pausing")
@@ -342,9 +604,14 @@ class TaskAgentStore:
             }:
                 return False
             reviews[round_key] = {
+                "schema_version": CURRENT_AI_WATCH_SCHEMA_VERSION,
                 "round_key": round_key,
                 "round": int(round_number),
                 "status": "pending",
+                "attempts": 0,
+                "max_attempts": 3,
+                "next_attempt_at": now,
+                "retryable": True,
                 "user_input": user_input,
                 "assistant_output": assistant_output,
                 "queued_at": now,
@@ -422,7 +689,16 @@ class TaskAgentStore:
                     review.update(
                         {
                             "status": "analyzing",
+                            "attempts": int(review.get("attempts") or 0) + 1,
+                            "max_attempts": max(
+                                1,
+                                min(
+                                    10,
+                                    int(review.get("max_attempts") or 3),
+                                ),
+                            ),
                             "started_at": now,
+                            "next_attempt_at": None,
                             "summary": "AI Watch model is reviewing this turn.",
                             "error": None,
                         }
@@ -456,6 +732,94 @@ class TaskAgentStore:
                 )
         return claimed
 
+    def retry_ai_watch_review(
+        self,
+        task_id: str,
+        *,
+        round_key: str,
+        delay_seconds: float,
+        failure_kind: str,
+        internal_error: str,
+    ) -> dict[str, Any]:
+        now_value = datetime.now(timezone.utc)
+        now = now_value.isoformat()
+        bounded_delay = max(0.0, min(3_600.0, float(delay_seconds)))
+        next_attempt_at = (
+            now_value + timedelta(seconds=bounded_delay)
+        ).isoformat()
+        with self._write_lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT snapshot_json FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            snapshot = json.loads(str(row["snapshot_json"]))
+            reviews = dict(snapshot.get("ai_watch_reviews") or {})
+            review = dict(reviews.get(round_key) or {})
+            if not review:
+                raise KeyError(f"{task_id}:{round_key}")
+            if str(review.get("status") or "") == "cancelled":
+                return migrate_task_snapshot(snapshot)
+            attempt = int(review.get("attempts") or 0)
+            maximum = max(
+                1,
+                min(10, int(review.get("max_attempts") or 3)),
+            )
+            review.update(
+                {
+                    "status": "pending",
+                    "next_attempt_at": next_attempt_at,
+                    "retryable": True,
+                    "started_at": None,
+                    "completed_at": None,
+                    "summary": (
+                        "AI Watch is temporarily unavailable and will retry "
+                        f"automatically ({attempt}/{maximum})."
+                    ),
+                    "error": None,
+                    "last_failure_kind": failure_kind,
+                }
+            )
+            reviews[round_key] = review
+            snapshot["ai_watch_reviews"] = reviews
+            snapshot["committed_turns"] = _set_turn_ai_watch_status(
+                snapshot.get("committed_turns") or [],
+                round_key=round_key,
+                status="pending",
+            )
+            connection.execute(
+                """
+                UPDATE tasks SET snapshot_json = ?, updated_at = ?,
+                                 version = version + 1
+                 WHERE task_id = ?
+                """,
+                (_dumps(snapshot), now, task_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO task_events
+                    (task_id, event_type, payload_json, created_at)
+                VALUES (?, 'ai_watch.retry_scheduled', ?, ?)
+                """,
+                (
+                    task_id,
+                    _dumps(
+                        {
+                            "round_key": round_key,
+                            "attempt": attempt,
+                            "max_attempts": maximum,
+                            "delay_seconds": bounded_delay,
+                            "next_attempt_at": next_attempt_at,
+                            "failure_kind": failure_kind,
+                            "internal_error": internal_error[:500],
+                        }
+                    ),
+                    now,
+                ),
+            )
+        return self.get_snapshot(task_id)
+
     def complete_ai_watch_review(
         self,
         task_id: str,
@@ -480,9 +844,13 @@ class TaskAgentStore:
             review = dict(reviews.get(round_key) or {})
             if not review:
                 raise KeyError(f"{task_id}:{round_key}")
+            if str(review.get("status") or "") == "cancelled":
+                return migrate_task_snapshot(snapshot)
             review.update(
                 {
                     "status": status,
+                    "retryable": False,
+                    "next_attempt_at": None,
                     "completed_at": now,
                     "summary": (
                         str((output or {}).get("summary") or "")
@@ -542,6 +910,81 @@ class TaskAgentStore:
             )
         return self.get_snapshot(task_id)
 
+    def cancel_pending_ai_watch_reviews(
+        self,
+        task_id: str,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Idempotently remove terminal tasks from the reviewing UI state."""
+
+        now = _utc_now()
+        cancelled: list[str] = []
+        with self._write_lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT snapshot_json FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            snapshot = json.loads(str(row["snapshot_json"]))
+            reviews = dict(snapshot.get("ai_watch_reviews") or {})
+            turns = list(snapshot.get("committed_turns") or [])
+            for round_key, source in reviews.items():
+                review = dict(source or {})
+                if str(review.get("status") or "") not in {
+                    "pending",
+                    "analyzing",
+                }:
+                    continue
+                review.update(
+                    {
+                        "status": "cancelled",
+                        "retryable": False,
+                        "next_attempt_at": None,
+                        "completed_at": now,
+                        "summary": reason,
+                        "error": None,
+                    }
+                )
+                reviews[round_key] = review
+                turns = _set_turn_ai_watch_status(
+                    turns,
+                    round_key=str(round_key),
+                    status="cancelled",
+                )
+                cancelled.append(str(round_key))
+            if not cancelled:
+                return migrate_task_snapshot(snapshot)
+            snapshot["ai_watch_reviews"] = reviews
+            snapshot["committed_turns"] = turns
+            connection.execute(
+                """
+                UPDATE tasks SET snapshot_json = ?, updated_at = ?,
+                                 version = version + 1
+                 WHERE task_id = ?
+                """,
+                (_dumps(snapshot), now, task_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO task_events
+                    (task_id, event_type, payload_json, created_at)
+                VALUES (?, 'ai_watch.cancelled_terminal', ?, ?)
+                """,
+                (
+                    task_id,
+                    _dumps(
+                        {
+                            "round_keys": cancelled,
+                            "reason": reason,
+                        }
+                    ),
+                    now,
+                ),
+            )
+        return self.get_snapshot(task_id)
+
     def promote_ai_watch_success(
         self,
         task_id: str,
@@ -549,6 +992,7 @@ class TaskAgentStore:
         round_key: str,
         evaluator: dict[str, Any],
         verification: dict[str, Any],
+        scorer_ensemble: dict[str, Any],
     ) -> dict[str, Any]:
         """Atomically promote a model-reviewed turn without sending again."""
 
@@ -600,6 +1044,7 @@ class TaskAgentStore:
                     "sensitive_output": review.get("output"),
                     "ai_watch_result": review.get("output"),
                     "success_verification": verification,
+                    "scorer_ensemble": scorer_ensemble,
                     "committed_turns": turns,
                     "best_evidence": _merge_evidence_records(
                         snapshot.get("best_evidence") or [],
@@ -722,6 +1167,71 @@ class TaskAgentStore:
                 )
         return instructions
 
+    def queue_goal_update(self, task_id: str, goal: str) -> dict[str, Any]:
+        snapshot = self.get_snapshot(task_id)
+        if str(snapshot.get("status") or "") not in {
+            "queued",
+            "running",
+            "pausing",
+            "paused",
+        }:
+            raise ValueError("Only an active task can accept a goal update.")
+        normalized_goal = goal.strip()
+        if not normalized_goal:
+            raise ValueError("The updated goal cannot be empty.")
+        return self.append_event(
+            task_id,
+            "goal_update.queued",
+            {"goal": normalized_goal},
+        )
+
+    def peek_goal_update(self, task_id: str) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload_json FROM task_events
+                 WHERE task_id = ? AND event_type = 'goal_update.queued'
+                 ORDER BY id DESC LIMIT 1
+                """,
+                (task_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(str(row["payload_json"]))
+        except (json.JSONDecodeError, TypeError):
+            return None
+        goal = str(payload.get("goal") or "").strip()
+        return goal or None
+
+    def consume_goal_update(self, task_id: str) -> str | None:
+        with self._write_lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, payload_json FROM task_events
+                 WHERE task_id = ? AND event_type = 'goal_update.queued'
+                 ORDER BY id ASC
+                """,
+                (task_id,),
+            ).fetchall()
+            latest_goal: str | None = None
+            for row in rows:
+                try:
+                    payload = json.loads(str(row["payload_json"]))
+                except (json.JSONDecodeError, TypeError):
+                    payload = {}
+                goal = str(payload.get("goal") or "").strip()
+                if goal:
+                    latest_goal = goal
+                connection.execute(
+                    """
+                    UPDATE task_events SET event_type = 'goal_update.applied'
+                     WHERE id = ?
+                    """,
+                    (int(row["id"]),),
+                )
+        return latest_goal
+
     def list_traces(self, task_id: str, limit: int = 1_000) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
@@ -750,6 +1260,647 @@ class TaskAgentStore:
             if str(branch.get("parent_task_id") or "") == parent_task_id:
                 children.append(snapshot)
         return children
+
+    def family_root_task_id(self, task_id: str) -> str:
+        current = task_id
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            try:
+                snapshot = self.get_snapshot(current)
+            except KeyError:
+                return current
+            parent = str(
+                (snapshot.get("branch_context") or {}).get("parent_task_id")
+                or ""
+            ).strip()
+            if not parent:
+                return current
+            current = parent
+        return task_id
+
+    def list_family_snapshots(self, task_id: str) -> list[dict[str, Any]]:
+        root_task_id = self.family_root_task_id(task_id)
+        snapshots = self.list_snapshots(limit=10_000)
+        by_parent: dict[str, list[dict[str, Any]]] = {}
+        root: dict[str, Any] | None = None
+        for snapshot in snapshots:
+            snapshot_id = str(snapshot.get("task_id") or "")
+            if snapshot_id == root_task_id:
+                root = snapshot
+            parent_id = str(
+                (snapshot.get("branch_context") or {}).get("parent_task_id")
+                or ""
+            )
+            if parent_id:
+                by_parent.setdefault(parent_id, []).append(snapshot)
+        if root is None:
+            try:
+                root = self.get_snapshot(root_task_id)
+            except KeyError:
+                return []
+        family = [root]
+        cursor = [root_task_id]
+        seen = {root_task_id}
+        while cursor:
+            parent_id = cursor.pop(0)
+            for child in by_parent.get(parent_id, []):
+                child_id = str(child.get("task_id") or "")
+                if not child_id or child_id in seen:
+                    continue
+                seen.add(child_id)
+                family.append(child)
+                cursor.append(child_id)
+        return family
+
+    def list_family_turns(self, task_id: str) -> list[dict[str, Any]]:
+        turns: list[dict[str, Any]] = []
+        for snapshot in self.list_family_snapshots(task_id):
+            origin_task_id = str(snapshot.get("task_id") or "")
+            for source in snapshot.get("committed_turns") or []:
+                if not isinstance(source, dict):
+                    continue
+                turns.append(
+                    {
+                        **source,
+                        "origin_task_id": origin_task_id,
+                    }
+                )
+        return sorted(
+            turns,
+            key=lambda item: (
+                str(item.get("created_at") or item.get("committed_at") or ""),
+                str(item.get("origin_task_id") or ""),
+                int(item.get("round") or 0),
+            ),
+        )
+
+    def reserve_family_outbound_message(
+        self,
+        task_id: str,
+        *,
+        message: str,
+        near_duplicate_threshold: float,
+        controlled_replay_limit: int = 0,
+        reservation_key: str = "",
+    ) -> dict[str, Any]:
+        """Atomically reserve a family message before any network delivery."""
+
+        root_task_id = self.family_root_task_id(task_id)
+        normalized = re.sub(r"\s+", " ", message.casefold()).strip()
+        message_sha256 = hashlib.sha256(message.encode("utf-8")).hexdigest()
+        reservation_key = (
+            reservation_key.strip()
+            or hashlib.sha256(
+                f"{task_id}:{message_sha256}".encode("utf-8")
+            ).hexdigest()
+        )[:200]
+        if not normalized:
+            return {"reserved": True, "message_sha256": message_sha256}
+        threshold = max(
+            0.7,
+            min(1.0, float(near_duplicate_threshold)),
+        )
+        with self._write_lock, self._connect() as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM tasks WHERE task_id = ?",
+                (root_task_id,),
+            ).fetchone()
+            if exists is None:
+                return {
+                    "reserved": True,
+                    "message_sha256": message_sha256,
+                    "root_task_id": root_task_id,
+                }
+            existing_reservation = connection.execute(
+                """
+                SELECT reservation_id FROM family_outbound_messages
+                 WHERE root_task_id = ? AND reservation_key = ?
+                 ORDER BY reserved_at ASC LIMIT 1
+                """,
+                (root_task_id, reservation_key),
+            ).fetchone()
+            if existing_reservation is not None:
+                return {
+                    "reserved": True,
+                    "reservation_id": str(
+                        existing_reservation["reservation_id"]
+                    ),
+                    "message_sha256": message_sha256,
+                    "root_task_id": root_task_id,
+                    "idempotent_replay": True,
+                }
+            rows = connection.execute(
+                """
+                SELECT source_task_id, normalized_message, message_sha256,
+                       reserved_at
+                  FROM family_outbound_messages
+                 WHERE root_task_id = ?
+                 ORDER BY reserved_at ASC
+                """,
+                (root_task_id,),
+            ).fetchall()
+            matches: list[tuple[sqlite3.Row, float]] = []
+            for row in rows:
+                prior = str(row["normalized_message"] or "")
+                similarity = (
+                    1.0
+                    if prior == normalized
+                    else (
+                        SequenceMatcher(None, prior, normalized).ratio()
+                        if min(len(prior), len(normalized)) >= 24
+                        else 0.0
+                    )
+                )
+                if similarity >= threshold:
+                    matches.append((row, similarity))
+            exact_matches = [
+                value for value in matches if value[1] == 1.0
+            ]
+            if matches and not (
+                len(matches) == len(exact_matches)
+                and len(exact_matches) <= controlled_replay_limit
+            ):
+                highest = max(value[1] for value in matches)
+                return {
+                    "reserved": False,
+                    "message_sha256": message_sha256,
+                    "root_task_id": root_task_id,
+                    "prior_match_count": len(matches),
+                    "controlled_replay_limit": controlled_replay_limit,
+                    "match_kind": (
+                        "exact" if highest == 1.0 else "near_duplicate"
+                    ),
+                    "highest_similarity": round(highest, 4),
+                    "matching_task_ids": list(
+                        dict.fromkeys(
+                            str(row["source_task_id"])
+                            for row, _ in matches
+                        )
+                    ),
+                }
+            reservation_id = hashlib.sha256(
+                f"{root_task_id}:{task_id}:{message_sha256}:{_utc_now()}".encode(
+                    "utf-8"
+                )
+            ).hexdigest()
+            now = _utc_now()
+            connection.execute(
+                """
+                INSERT INTO family_outbound_messages (
+                    reservation_id, root_task_id, source_task_id,
+                    reservation_key, normalized_message, message_sha256,
+                    status, reserved_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'RESERVED', ?, ?)
+                """,
+                (
+                    reservation_id,
+                    root_task_id,
+                    task_id,
+                    reservation_key,
+                    normalized,
+                    message_sha256,
+                    now,
+                    now,
+                ),
+            )
+        return {
+            "reserved": True,
+            "reservation_id": reservation_id,
+            "message_sha256": message_sha256,
+            "root_task_id": root_task_id,
+        }
+
+    def family_metrics(self, task_id: str) -> dict[str, Any]:
+        snapshots = self.list_family_snapshots(task_id)
+        root_task_id = self.family_root_task_id(task_id)
+        branch_reports = self.list_branch_reports(root_task_id)
+        starts = [
+            str(item.get("started_at") or item.get("created_at") or "")
+            for item in snapshots
+            if item.get("started_at") or item.get("created_at")
+        ]
+        started_at = min(starts) if starts else _utc_now()
+        try:
+            started = datetime.fromisoformat(started_at)
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            elapsed = max(
+                0.0,
+                (datetime.now(timezone.utc) - started).total_seconds(),
+            )
+        except ValueError:
+            elapsed = 0.0
+        model_call_counts = {
+            role: sum(
+                int(
+                    (item.get("model_call_counts") or {}).get(role)
+                    or 0
+                )
+                for item in snapshots
+            )
+            for role in ("planner", "executor", "evaluator")
+        }
+        baseline_probe_turns = sum(
+            1
+            for snapshot in snapshots
+            for turn in snapshot.get("committed_turns") or []
+            if isinstance(turn, dict)
+            and str(turn.get("generation_mode") or "")
+            == "baseline_scanner"
+        )
+        zero_gain_branches = sum(
+            float(item.get("evidence_gain") or 0) <= 0
+            for item in branch_reports
+        )
+        productive_branches = sum(
+            float(item.get("evidence_gain") or 0) > 0
+            for item in branch_reports
+        )
+        branch_count = len(branch_reports)
+        branch_signatures = [
+            str(item.get("candidate_signature") or "").strip()
+            for item in branch_reports
+            if str(item.get("candidate_signature") or "").strip()
+        ]
+        duplicate_branches = len(branch_signatures) - len(
+            set(branch_signatures)
+        )
+        branch_efficiencies = [
+            max(0.0, float(item.get("marginal_efficiency") or 0))
+            for item in branch_reports
+        ]
+        with self._connect() as connection:
+            harness = connection.execute(
+                """
+                SELECT evidence_stall_count
+                  FROM family_harness_state
+                 WHERE root_task_id = ?
+                """,
+                (root_task_id,),
+            ).fetchone()
+        return {
+            "root_task_id": root_task_id,
+            "task_count": len(snapshots),
+            "active_task_count": sum(
+                1
+                for item in snapshots
+                if str(item.get("status") or "") in ACTIVE_STATUSES
+            ),
+            "total_rounds": sum(
+                int(item.get("total_round") or 0) for item in snapshots
+            ),
+            "input_tokens": sum(
+                int(item.get("input_tokens") or 0) for item in snapshots
+            ),
+            "output_tokens": sum(
+                int(item.get("output_tokens") or 0) for item in snapshots
+            ),
+            "estimated_cost": sum(
+                float(item.get("estimated_cost") or 0) for item in snapshots
+            ),
+            "model_call_counts": model_call_counts,
+            "model_call_total": sum(model_call_counts.values()),
+            "baseline_probe_turns": baseline_probe_turns,
+            "branch_metrics": {
+                "reported_branches": branch_count,
+                "productive_branches": productive_branches,
+                "zero_gain_branches": zero_gain_branches,
+                "zero_gain_rate": round(
+                    zero_gain_branches / branch_count
+                    if branch_count
+                    else 0,
+                    6,
+                ),
+                "duplicate_branches": duplicate_branches,
+                "duplicate_rate": round(
+                    duplicate_branches / len(branch_signatures)
+                    if branch_signatures
+                    else 0,
+                    6,
+                ),
+                "mean_marginal_efficiency": round(
+                    sum(branch_efficiencies) / branch_count
+                    if branch_count
+                    else 0,
+                    6,
+                ),
+                "total_evidence_gain": round(
+                    sum(
+                        max(0.0, float(item.get("evidence_gain") or 0))
+                        for item in branch_reports
+                    ),
+                    6,
+                ),
+                "total_cost_units": round(
+                    sum(
+                        max(0.0, float(item.get("cost_units") or 0))
+                        for item in branch_reports
+                    ),
+                    6,
+                ),
+            },
+            "elapsed_seconds": round(elapsed, 3),
+            "evidence_stall_count": (
+                int(harness["evidence_stall_count"]) if harness else 0
+            ),
+        }
+
+    def list_evidence_ledger(
+        self,
+        task_id: str,
+        *,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        root_task_id = self.family_root_task_id(task_id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT entry_json FROM evidence_ledger
+                 WHERE root_task_id = ?
+                 ORDER BY updated_at ASC
+                 LIMIT ?
+                """,
+                (root_task_id, max(1, min(limit, 5_000))),
+            ).fetchall()
+        return [json.loads(str(row["entry_json"])) for row in rows]
+
+    def record_evidence_ledger(
+        self,
+        task_id: str,
+        *,
+        evidence: list[dict[str, Any]],
+        counter_evidence: list[Any] | None = None,
+        round_number: int = 0,
+        evaluation_kind: str = "router",
+    ) -> dict[str, Any]:
+        root_task_id = self.family_root_task_id(task_id)
+        evaluation_kind = (
+            re.sub(r"[^a-z0-9_.-]+", "-", evaluation_kind.casefold()).strip("-")
+            or "router"
+        )[:80]
+        with self._connect() as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM tasks WHERE task_id = ?",
+                (root_task_id,),
+            ).fetchone()
+        if exists is None:
+            eligible = sum(
+                1
+                for item in evidence
+                if bool(
+                    (item.get("provenance") or {}).get(
+                        "eligible_for_progress"
+                    )
+                )
+            )
+            return {
+                "root_task_id": root_task_id,
+                "new_eligible_claims": eligible,
+                "family_evidence_stall_count": 0 if eligible else 1,
+                "updated_count": 0,
+                "entries": [],
+            }
+        now = _utc_now()
+        new_eligible_claims = 0
+        family_evidence_stall_count = 0
+        updated_entries: list[dict[str, Any]] = []
+        with self._write_lock, self._connect() as connection:
+            prior_evaluation = connection.execute(
+                """
+                SELECT 1 FROM family_evidence_evaluations
+                 WHERE root_task_id = ? AND source_task_id = ?
+                   AND round_number = ? AND evaluation_kind = ?
+                """,
+                (
+                    root_task_id,
+                    task_id,
+                    max(0, int(round_number or 0)),
+                    evaluation_kind,
+                ),
+            ).fetchone()
+            for item in evidence:
+                if not isinstance(item, dict):
+                    continue
+                claim = str(
+                    item.get("response_excerpt")
+                    or item.get("observation")
+                    or ""
+                ).strip()
+                if not claim:
+                    continue
+                normalized = re.sub(r"\s+", " ", claim.casefold()).strip()
+                claim_hash = hashlib.sha256(
+                    normalized.encode("utf-8")
+                ).hexdigest()
+                provenance = dict(item.get("provenance") or {})
+                if bool(provenance.get("eligible_for_success")):
+                    status = "confirmed"
+                elif bool(provenance.get("eligible_for_progress")):
+                    status = "suspect"
+                else:
+                    status = "rejected"
+                row = connection.execute(
+                    """
+                    SELECT entry_json, status FROM evidence_ledger
+                     WHERE root_task_id = ? AND claim_hash = ?
+                    """,
+                    (root_task_id, claim_hash),
+                ).fetchone()
+                source = {
+                    "source_task_id": task_id,
+                    "round": max(0, int(round_number or 0)),
+                    "evidence_id": str(item.get("evidence_id") or ""),
+                    "request_excerpt": item.get("request_excerpt"),
+                    "response_excerpt": item.get("response_excerpt"),
+                    "recorded_at": now,
+                }
+                if row is None:
+                    entry = {
+                        "schema_version": 1,
+                        "entry_id": f"evidence-{claim_hash}",
+                        "root_task_id": root_task_id,
+                        "claim_hash": claim_hash,
+                        "claim": claim[:6_000],
+                        "supports": str(item.get("supports") or "")[:2_000],
+                        "status": status,
+                        "strength": str(item.get("strength") or "weak"),
+                        "provenance": provenance,
+                        "sources": [source],
+                        "contradictions": [
+                            str(value)[:2_000]
+                            for value in counter_evidence or []
+                            if str(value).strip()
+                        ][:50],
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                    if status in {"confirmed", "suspect"}:
+                        new_eligible_claims += 1
+                    connection.execute(
+                        """
+                        INSERT INTO evidence_ledger (
+                            root_task_id, claim_hash, status, entry_json,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            root_task_id,
+                            claim_hash,
+                            status,
+                            _dumps(entry),
+                            now,
+                            now,
+                        ),
+                    )
+                else:
+                    entry = json.loads(str(row["entry_json"]))
+                    prior_status = str(row["status"])
+                    ranks = {"rejected": 0, "suspect": 1, "confirmed": 2}
+                    resolved_status = (
+                        status
+                        if ranks.get(status, 0) > ranks.get(prior_status, 0)
+                        else prior_status
+                    )
+                    sources = list(entry.get("sources") or [])
+                    source_key = (
+                        source["source_task_id"],
+                        source["round"],
+                        source["evidence_id"],
+                    )
+                    if not any(
+                        (
+                            value.get("source_task_id"),
+                            int(value.get("round") or 0),
+                            value.get("evidence_id"),
+                        )
+                        == source_key
+                        for value in sources
+                        if isinstance(value, dict)
+                    ):
+                        sources.append(source)
+                    if (
+                        ranks.get(resolved_status, 0)
+                        > ranks.get(prior_status, 0)
+                        and resolved_status in {"suspect", "confirmed"}
+                    ):
+                        new_eligible_claims += 1
+                    entry = {
+                        **entry,
+                        "status": resolved_status,
+                        "strength": (
+                            item.get("strength")
+                            if resolved_status == status
+                            else entry.get("strength")
+                        ),
+                        "provenance": (
+                            provenance
+                            if resolved_status == status
+                            else entry.get("provenance")
+                        ),
+                        "sources": sources[-100:],
+                        "updated_at": now,
+                    }
+                    connection.execute(
+                        """
+                        UPDATE evidence_ledger
+                           SET status = ?, entry_json = ?, updated_at = ?
+                         WHERE root_task_id = ? AND claim_hash = ?
+                        """,
+                        (
+                            resolved_status,
+                            _dumps(entry),
+                            now,
+                            root_task_id,
+                            claim_hash,
+                        ),
+                    )
+                updated_entries.append(entry)
+            harness = connection.execute(
+                """
+                SELECT evidence_stall_count
+                  FROM family_harness_state
+                 WHERE root_task_id = ?
+                """,
+                (root_task_id,),
+            ).fetchone()
+            prior_stall = (
+                int(harness["evidence_stall_count"]) if harness else 0
+            )
+            family_evidence_stall_count = (
+                0
+                if new_eligible_claims > 0
+                else (
+                    prior_stall
+                    if prior_evaluation is not None
+                    else prior_stall + 1
+                )
+            )
+            connection.execute(
+                """
+                INSERT INTO family_harness_state (
+                    root_task_id, evidence_stall_count, updated_at
+                ) VALUES (?, ?, ?)
+                ON CONFLICT(root_task_id) DO UPDATE SET
+                    evidence_stall_count = excluded.evidence_stall_count,
+                    updated_at = excluded.updated_at
+                """,
+                (root_task_id, family_evidence_stall_count, now),
+            )
+            connection.execute(
+                """
+                INSERT INTO family_evidence_evaluations (
+                    root_task_id, source_task_id, round_number,
+                    evaluation_kind, evaluated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(
+                    root_task_id, source_task_id, round_number,
+                    evaluation_kind
+                ) DO UPDATE SET evaluated_at = excluded.evaluated_at
+                """,
+                (
+                    root_task_id,
+                    task_id,
+                    max(0, int(round_number or 0)),
+                    evaluation_kind,
+                    now,
+                ),
+            )
+            if prior_evaluation is None or updated_entries:
+                connection.execute(
+                    """
+                    INSERT INTO task_events (
+                        task_id, event_type, payload_json, created_at
+                    ) VALUES (?, 'evidence.ledger_updated', ?, ?)
+                    """,
+                    (
+                        root_task_id,
+                        _dumps(
+                            {
+                                "source_task_id": task_id,
+                                "round": round_number,
+                                "evaluation_kind": evaluation_kind,
+                                "updated_count": len(updated_entries),
+                                "new_eligible_claims": new_eligible_claims,
+                                "family_evidence_stall_count": (
+                                    family_evidence_stall_count
+                                ),
+                                "idempotent_replay": (
+                                    prior_evaluation is not None
+                                ),
+                            }
+                        ),
+                        now,
+                    ),
+                )
+        return {
+            "root_task_id": root_task_id,
+            "new_eligible_claims": new_eligible_claims,
+            "family_evidence_stall_count": family_evidence_stall_count,
+            "updated_count": len(updated_entries),
+            "entries": updated_entries,
+            "idempotent_replay": prior_evaluation is not None,
+        }
 
     def record_branch_report(self, snapshot: dict[str, Any]) -> dict[str, Any] | None:
         branch = snapshot.get("branch_context") or {}
@@ -791,7 +1942,73 @@ class TaskAgentStore:
             if str(item).strip()
         ][-30:]
         now = _utc_now()
+        eligible_evidence = [
+            item
+            for item in snapshot.get("evidence") or []
+            if isinstance(item, dict)
+            and bool(
+                (item.get("provenance") or {}).get(
+                    "eligible_for_progress"
+                )
+            )
+        ]
+        coverage = verification.get("coverage") or {}
+        coverage_ratio = coverage.get("ratio")
+        if not isinstance(coverage_ratio, (int, float)):
+            requirement_total = len(
+                (
+                    (
+                        snapshot.get("attack_spec")
+                        or {}
+                    ).get("objective")
+                    or {}
+                ).get("proof_spec", {}).get("requirements", [])
+            )
+            coverage_ratio = min(
+                1.0,
+                len(eligible_evidence) / max(1, requirement_total),
+            )
+        rounds = int(snapshot.get("total_round") or 0)
+        input_tokens = int(snapshot.get("input_tokens") or 0)
+        output_tokens = int(snapshot.get("output_tokens") or 0)
+        estimated_cost = float(snapshot.get("estimated_cost") or 0)
+        try:
+            started_at = datetime.fromisoformat(
+                str(snapshot.get("started_at") or snapshot.get("created_at"))
+            )
+            updated_at = datetime.fromisoformat(
+                str(snapshot.get("updated_at") or now)
+            )
+            duration_seconds = max(
+                0.0,
+                (updated_at - started_at).total_seconds(),
+            )
+        except (TypeError, ValueError):
+            duration_seconds = 0.0
+        cost_units = max(
+            0.01,
+            rounds
+            + input_tokens / 100_000
+            + output_tokens / 20_000
+            + estimated_cost * 100
+            + duration_seconds / 300,
+        )
+        parent_control = (
+            "stopped"
+            if str(snapshot.get("stop_reason") or "").lower().startswith(
+                "parent "
+            )
+            else (
+                "followup"
+                if any(
+                    str(item).startswith("Parent follow-up:")
+                    for item in snapshot.get("steering_messages") or []
+                )
+                else "none"
+            )
+        )
         report = {
+            "schema_version": CURRENT_BRANCH_REPORT_SCHEMA_VERSION,
             "report_id": f"branch-report-{child_task_id}",
             "parent_task_id": parent_task_id,
             "child_task_id": child_task_id,
@@ -830,6 +2047,28 @@ class TaskAgentStore:
             "verification_status": str(
                 verification.get("status") or "pending"
             ),
+            "rounds": rounds,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "estimated_cost": estimated_cost,
+            "model_call_counts": {
+                str(role): max(0, int(count or 0))
+                for role, count in (
+                    snapshot.get("model_call_counts") or {}
+                ).items()
+            },
+            "duration_seconds": duration_seconds,
+            "eligible_evidence_count": len(eligible_evidence),
+            "evidence_gain": round(
+                max(0.0, min(1.0, float(coverage_ratio))),
+                6,
+            ),
+            "cost_units": round(cost_units, 6),
+            "marginal_efficiency": round(
+                max(0.0, float(coverage_ratio)) / cost_units,
+                6,
+            ),
+            "parent_control": parent_control,
             "created_at": str(snapshot.get("created_at") or now),
             "updated_at": now,
         }
@@ -1198,6 +2437,539 @@ class TaskAgentStore:
             ],
         }
 
+    def save_run_manifest(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        """Persist a draft manifest or freeze the first finalized generation record."""
+
+        task_id = str(manifest.get("task_id") or "")
+        if not task_id:
+            raise ValueError("Run Manifest requires a task_id.")
+        now = _utc_now()
+        with self._write_lock, self._connect() as connection:
+            existing = connection.execute(
+                """
+                SELECT manifest_json, finalized FROM run_manifests
+                 WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+            if existing is not None and bool(existing["finalized"]):
+                stored = json.loads(str(existing["manifest_json"]))
+                if str(stored.get("generation_sha256") or "") != str(
+                    manifest.get("generation_sha256") or ""
+                ):
+                    raise TaskStoreError(
+                        "The finalized Run Manifest is immutable and does not "
+                        "match the supplied generation record."
+                    )
+                return stored
+            connection.execute(
+                """
+                INSERT INTO run_manifests (
+                    manifest_id, task_id, generation_sha256, manifest_sha256,
+                    finalized, manifest_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(task_id) DO UPDATE SET
+                    manifest_id = excluded.manifest_id,
+                    generation_sha256 = excluded.generation_sha256,
+                    manifest_sha256 = excluded.manifest_sha256,
+                    finalized = excluded.finalized,
+                    manifest_json = excluded.manifest_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    str(manifest["manifest_id"]),
+                    task_id,
+                    str(manifest.get("generation_sha256") or ""),
+                    str(manifest.get("manifest_sha256") or ""),
+                    1 if manifest.get("finalized") else 0,
+                    _dumps(manifest),
+                    now,
+                    now,
+                ),
+            )
+        return dict(manifest)
+
+    def get_run_manifest(
+        self,
+        *,
+        task_id: str | None = None,
+        manifest_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not task_id and not manifest_id:
+            raise ValueError("task_id or manifest_id is required.")
+        column = "task_id" if task_id else "manifest_id"
+        value = task_id or manifest_id
+        with self._connect() as connection:
+            row = connection.execute(
+                f"SELECT manifest_json FROM run_manifests WHERE {column} = ?",
+                (value,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(value)
+        return json.loads(str(row["manifest_json"]))
+
+    def save_regrade(self, result: dict[str, Any]) -> dict[str, Any]:
+        now = _utc_now()
+        regrade_id = str(result.get("regrade_id") or f"regrade-{uuid.uuid4()}")
+        stored = {**result, "regrade_id": regrade_id}
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO task_regrades (
+                    regrade_id, manifest_id, manifest_sha256, result_json,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    regrade_id,
+                    str(stored.get("manifest_id") or ""),
+                    str(stored.get("manifest_sha256") or ""),
+                    _dumps(stored),
+                    now,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT result_json FROM task_regrades WHERE regrade_id = ?
+                """,
+                (regrade_id,),
+            ).fetchone()
+        return json.loads(str(row["result_json"])) if row else stored
+
+    def list_regrades(self, manifest_id: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT result_json FROM task_regrades
+                 WHERE manifest_id = ? ORDER BY created_at DESC
+                """,
+                (manifest_id,),
+            ).fetchall()
+        return [json.loads(str(row["result_json"])) for row in rows]
+
+    def record_human_review(
+        self,
+        *,
+        task_id: str,
+        ensemble_id: str,
+        review: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        review_id = f"review-{uuid.uuid4()}"
+        record = {
+            "review_id": review_id,
+            "task_id": task_id,
+            "ensemble_id": ensemble_id,
+            **review,
+            "created_at": now,
+        }
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO scorer_human_reviews (
+                    review_id, task_id, ensemble_id, decision, reviewer,
+                    review_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    review_id,
+                    task_id,
+                    ensemble_id,
+                    str(review.get("decision") or ""),
+                    str(review.get("reviewer") or "human"),
+                    _dumps(record),
+                    now,
+                ),
+            )
+        return record
+
+    def ensure_default_campaign(
+        self,
+        *,
+        session_id: str,
+        target_key: str,
+        name: str | None = None,
+    ) -> dict[str, Any]:
+        identity = hashlib.sha256(
+            f"{session_id}\0{target_key}".encode("utf-8")
+        ).hexdigest()
+        campaign_id = f"campaign-{identity[:24]}"
+        now = _utc_now()
+        record = {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "name": (name or "Attack Agent campaign")[:240],
+            "description": "Automatically groups Attack Agent runs for this target.",
+            "target_key": target_key[:2_000],
+            "owner": "",
+            "status": "active",
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO attack_campaigns (
+                    campaign_id, name, description, target_key, owner, status,
+                    campaign_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    campaign_id,
+                    record["name"],
+                    record["description"],
+                    record["target_key"],
+                    record["owner"],
+                    record["status"],
+                    _dumps(record),
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT campaign_json FROM attack_campaigns
+                 WHERE campaign_id = ?
+                """,
+                (campaign_id,),
+            ).fetchone()
+        return json.loads(str(row["campaign_json"])) if row else record
+
+    def create_campaign(self, campaign: dict[str, Any]) -> dict[str, Any]:
+        now = _utc_now()
+        campaign_id = str(
+            campaign.get("campaign_id") or f"campaign-{uuid.uuid4()}"
+        )
+        record = {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "name": str(campaign.get("name") or "Attack Agent campaign")[:240],
+            "description": str(campaign.get("description") or "")[:4_000],
+            "target_key": str(campaign.get("target_key") or "")[:2_000],
+            "owner": str(campaign.get("owner") or "")[:160],
+            "status": str(campaign.get("status") or "active"),
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO attack_campaigns (
+                    campaign_id, name, description, target_key, owner, status,
+                    campaign_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    campaign_id,
+                    record["name"],
+                    record["description"],
+                    record["target_key"],
+                    record["owner"],
+                    record["status"],
+                    _dumps(record),
+                    now,
+                    now,
+                ),
+            )
+        return record
+
+    def get_campaign(self, campaign_id: str) -> dict[str, Any]:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT campaign_json FROM attack_campaigns
+                 WHERE campaign_id = ?
+                """,
+                (campaign_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(campaign_id)
+        return json.loads(str(row["campaign_json"]))
+
+    def list_campaigns(
+        self,
+        *,
+        target_key: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        where = "WHERE target_key = ?" if target_key else ""
+        parameters: list[Any] = [target_key] if target_key else []
+        parameters.append(max(1, min(limit, 500)))
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT campaign_json FROM attack_campaigns {where}
+                 ORDER BY updated_at DESC LIMIT ?
+                """,
+                parameters,
+            ).fetchall()
+        return [json.loads(str(row["campaign_json"])) for row in rows]
+
+    def update_campaign(
+        self,
+        campaign_id: str,
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        current = self.get_campaign(campaign_id)
+        allowed = {"name", "description", "owner", "status"}
+        record = {
+            **current,
+            **{
+                key: value
+                for key, value in updates.items()
+                if key in allowed and value is not None
+            },
+            "updated_at": _utc_now(),
+        }
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE attack_campaigns SET
+                    name = ?, description = ?, owner = ?, status = ?,
+                    campaign_json = ?, updated_at = ?
+                 WHERE campaign_id = ?
+                """,
+                (
+                    record["name"],
+                    record["description"],
+                    record["owner"],
+                    record["status"],
+                    _dumps(record),
+                    record["updated_at"],
+                    campaign_id,
+                ),
+            )
+        return record
+
+    def attach_campaign_run(
+        self,
+        *,
+        campaign_id: str,
+        task_id: str,
+        manifest_id: str = "",
+    ) -> None:
+        self.get_campaign(campaign_id)
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO attack_campaign_runs (
+                    campaign_id, task_id, manifest_id, created_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(campaign_id, task_id) DO UPDATE SET
+                    manifest_id = excluded.manifest_id
+                """,
+                (campaign_id, task_id, manifest_id, _utc_now()),
+            )
+
+    def upsert_finding(self, finding: dict[str, Any]) -> dict[str, Any]:
+        finding_id = str(finding.get("finding_id") or "")
+        if not finding_id:
+            raise ValueError("Finding requires finding_id.")
+        now = _utc_now()
+        stored = {**finding, "updated_at": now}
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO attack_findings (
+                    finding_id, campaign_id, source_task_id,
+                    source_manifest_id, source_manifest_sha256,
+                    vulnerability_id, category, severity, status, owner,
+                    fix_version, finding_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(finding_id) DO UPDATE SET
+                    severity = excluded.severity,
+                    status = excluded.status,
+                    owner = excluded.owner,
+                    fix_version = excluded.fix_version,
+                    finding_json = excluded.finding_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    finding_id,
+                    str(stored.get("campaign_id") or ""),
+                    str(stored.get("source_task_id") or ""),
+                    str(stored.get("source_manifest_id") or ""),
+                    str(stored.get("source_manifest_sha256") or ""),
+                    str(stored.get("vulnerability_id") or ""),
+                    str(stored.get("category") or ""),
+                    str(stored.get("severity") or "medium"),
+                    str(stored.get("status") or "open"),
+                    str(stored.get("owner") or ""),
+                    str(stored.get("fix_version") or ""),
+                    _dumps(stored),
+                    str(stored.get("created_at") or now),
+                    now,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT finding_json FROM attack_findings
+                 WHERE finding_id = ?
+                """,
+                (finding_id,),
+            ).fetchone()
+        return json.loads(str(row["finding_json"])) if row else stored
+
+    def get_finding(self, finding_id: str) -> dict[str, Any]:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT finding_json FROM attack_findings WHERE finding_id = ?
+                """,
+                (finding_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(finding_id)
+        return json.loads(str(row["finding_json"]))
+
+    def list_findings(
+        self,
+        *,
+        campaign_id: str | None = None,
+        task_id: str | None = None,
+        status: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        for column, value in (
+            ("campaign_id", campaign_id),
+            ("source_task_id", task_id),
+            ("status", status),
+        ):
+            if value:
+                clauses.append(f"{column} = ?")
+                parameters.append(value)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        parameters.append(max(1, min(limit, 1_000)))
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT finding_json FROM attack_findings {where}
+                 ORDER BY updated_at DESC LIMIT ?
+                """,
+                parameters,
+            ).fetchall()
+        return [json.loads(str(row["finding_json"])) for row in rows]
+
+    def update_finding(
+        self,
+        finding_id: str,
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        current = self.get_finding(finding_id)
+        allowed = {"severity", "status", "owner", "fix_version", "summary"}
+        record = {
+            **current,
+            **{
+                key: value
+                for key, value in updates.items()
+                if key in allowed and value is not None
+            },
+            "updated_at": _utc_now(),
+        }
+        return self.upsert_finding(record)
+
+    def create_regression_case(
+        self,
+        finding: dict[str, Any],
+        *,
+        name: str | None = None,
+        expected_outcome: str = "blocked",
+    ) -> dict[str, Any]:
+        finding_id = str(finding.get("finding_id") or "")
+        identity = hashlib.sha256(
+            f"{finding_id}\0{expected_outcome}".encode("utf-8")
+        ).hexdigest()
+        case_id = f"regression-{identity[:24]}"
+        now = _utc_now()
+        reproduction = dict(finding.get("reproduction") or {})
+        record = {
+            "schema_version": 1,
+            "regression_case_id": case_id,
+            "finding_id": finding_id,
+            "campaign_id": str(finding.get("campaign_id") or ""),
+            "name": (
+                name
+                or f"Regression: {finding.get('title') or finding_id}"
+            )[:240],
+            "status": "ready",
+            "expected_outcome": expected_outcome,
+            "source_manifest_id": str(
+                finding.get("source_manifest_id") or ""
+            ),
+            "source_manifest_sha256": str(
+                finding.get("source_manifest_sha256") or ""
+            ),
+            "goal": reproduction.get("goal"),
+            "request": reproduction.get("request"),
+            "expected_signal": reproduction.get("expected_signal"),
+            "scorer_contract": {
+                "minimum_final_verdict": "verified",
+                "required_evidence_types": (
+                    finding.get("scorer_ensemble") or {}
+                ).get("independent_evidence_types")
+                or [],
+                "vulnerability_id": finding.get("vulnerability_id"),
+            },
+            "last_result": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._write_lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO attack_regression_cases (
+                    regression_case_id, finding_id, campaign_id, status,
+                    case_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    case_id,
+                    finding_id,
+                    record["campaign_id"],
+                    record["status"],
+                    _dumps(record),
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT case_json FROM attack_regression_cases
+                 WHERE regression_case_id = ?
+                """,
+                (case_id,),
+            ).fetchone()
+        return json.loads(str(row["case_json"])) if row else record
+
+    def list_regression_cases(
+        self,
+        *,
+        campaign_id: str | None = None,
+        finding_id: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if campaign_id:
+            clauses.append("campaign_id = ?")
+            parameters.append(campaign_id)
+        if finding_id:
+            clauses.append("finding_id = ?")
+            parameters.append(finding_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        parameters.append(max(1, min(limit, 1_000)))
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT case_json FROM attack_regression_cases {where}
+                 ORDER BY updated_at DESC LIMIT ?
+                """,
+                parameters,
+            ).fetchall()
+        return [json.loads(str(row["case_json"])) for row in rows]
+
     def _set_control(
         self,
         task_id: str,
@@ -1316,6 +3088,58 @@ class TaskAgentStore:
                 );
                 CREATE INDEX IF NOT EXISTS ix_branch_reports_parent
                     ON branch_reports(parent_task_id, updated_at ASC);
+                CREATE TABLE IF NOT EXISTS evidence_ledger (
+                    root_task_id TEXT NOT NULL,
+                    claim_hash TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    entry_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(root_task_id, claim_hash),
+                    FOREIGN KEY(root_task_id) REFERENCES tasks(task_id)
+                        ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS ix_evidence_ledger_root_status
+                    ON evidence_ledger(root_task_id, status, updated_at ASC);
+                CREATE TABLE IF NOT EXISTS family_evidence_evaluations (
+                    root_task_id TEXT NOT NULL,
+                    source_task_id TEXT NOT NULL,
+                    round_number INTEGER NOT NULL,
+                    evaluation_kind TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    PRIMARY KEY(
+                        root_task_id, source_task_id, round_number,
+                        evaluation_kind
+                    ),
+                    FOREIGN KEY(root_task_id) REFERENCES tasks(task_id)
+                        ON DELETE CASCADE,
+                    FOREIGN KEY(source_task_id) REFERENCES tasks(task_id)
+                        ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS family_harness_state (
+                    root_task_id TEXT PRIMARY KEY,
+                    evidence_stall_count INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(root_task_id) REFERENCES tasks(task_id)
+                        ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS family_outbound_messages (
+                    reservation_id TEXT PRIMARY KEY,
+                    root_task_id TEXT NOT NULL,
+                    source_task_id TEXT NOT NULL,
+                    reservation_key TEXT NOT NULL,
+                    normalized_message TEXT NOT NULL,
+                    message_sha256 TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    reserved_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(root_task_id) REFERENCES tasks(task_id)
+                        ON DELETE CASCADE,
+                    FOREIGN KEY(source_task_id) REFERENCES tasks(task_id)
+                        ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS ix_family_outbound_root
+                    ON family_outbound_messages(root_task_id, reserved_at ASC);
                 CREATE TABLE IF NOT EXISTS task_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     task_id TEXT NOT NULL,
@@ -1326,6 +3150,89 @@ class TaskAgentStore:
                 );
                 CREATE INDEX IF NOT EXISTS ix_task_events_task
                     ON task_events(task_id, id ASC);
+                CREATE TABLE IF NOT EXISTS run_manifests (
+                    manifest_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL UNIQUE,
+                    generation_sha256 TEXT NOT NULL,
+                    manifest_sha256 TEXT NOT NULL,
+                    finalized INTEGER NOT NULL DEFAULT 0,
+                    manifest_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_run_manifests_generation
+                    ON run_manifests(generation_sha256);
+                CREATE TABLE IF NOT EXISTS task_regrades (
+                    regrade_id TEXT PRIMARY KEY,
+                    manifest_id TEXT NOT NULL,
+                    manifest_sha256 TEXT NOT NULL,
+                    result_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_task_regrades_manifest
+                    ON task_regrades(manifest_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS scorer_human_reviews (
+                    review_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    ensemble_id TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    reviewer TEXT NOT NULL,
+                    review_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_scorer_reviews_task
+                    ON scorer_human_reviews(task_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS attack_campaigns (
+                    campaign_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    target_key TEXT NOT NULL DEFAULT '',
+                    owner TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    campaign_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_attack_campaigns_target
+                    ON attack_campaigns(target_key, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS attack_campaign_runs (
+                    campaign_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    manifest_id TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(campaign_id, task_id)
+                );
+                CREATE TABLE IF NOT EXISTS attack_findings (
+                    finding_id TEXT PRIMARY KEY,
+                    campaign_id TEXT NOT NULL,
+                    source_task_id TEXT NOT NULL,
+                    source_manifest_id TEXT NOT NULL,
+                    source_manifest_sha256 TEXT NOT NULL,
+                    vulnerability_id TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    owner TEXT NOT NULL DEFAULT '',
+                    fix_version TEXT NOT NULL DEFAULT '',
+                    finding_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_attack_findings_campaign
+                    ON attack_findings(campaign_id, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS ix_attack_findings_task
+                    ON attack_findings(source_task_id, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS attack_regression_cases (
+                    regression_case_id TEXT PRIMARY KEY,
+                    finding_id TEXT NOT NULL,
+                    campaign_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    case_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_regression_cases_campaign
+                    ON attack_regression_cases(campaign_id, updated_at DESC);
                 """
             )
             for name, definition in (
@@ -1342,6 +3249,20 @@ class TaskAgentStore:
                     name,
                     definition,
                 )
+            _ensure_column(
+                connection,
+                "family_outbound_messages",
+                "reservation_key",
+                "TEXT NOT NULL DEFAULT ''",
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_family_outbound_reservation
+                    ON family_outbound_messages(
+                        root_task_id, reservation_key
+                    )
+                """
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
@@ -1402,7 +3323,24 @@ def _set_turn_ai_watch_status(
 def _ai_watch_review_is_claimable(review: dict[str, Any]) -> bool:
     status = str(review.get("status") or "")
     if status == "pending":
-        return True
+        return _ai_watch_retry_time_reached(review)
+    if status == "error":
+        attempts = int(review.get("attempts") or 0)
+        maximum = max(
+            1,
+            min(10, int(review.get("max_attempts") or 3)),
+        )
+        retryable = bool(review.get("retryable")) or (
+            "retryable" not in review
+            and _legacy_ai_watch_error_is_transient(
+                str(review.get("error") or "")
+            )
+        )
+        return (
+            retryable
+            and attempts < maximum
+            and _ai_watch_retry_time_reached(review)
+        )
     if status != "analyzing":
         return False
     try:
@@ -1412,6 +3350,41 @@ def _ai_watch_review_is_claimable(review: dict[str, Any]) -> bool:
     except ValueError:
         return True
     return (datetime.now(timezone.utc) - started).total_seconds() >= 180
+
+
+def _ai_watch_retry_time_reached(review: dict[str, Any]) -> bool:
+    value = str(review.get("next_attempt_at") or "")
+    if not value:
+        return True
+    try:
+        retry_at = datetime.fromisoformat(value)
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True
+    return datetime.now(timezone.utc) >= retry_at
+
+
+def _legacy_ai_watch_error_is_transient(error: str) -> bool:
+    detail = error.lower()
+    return any(
+        marker in detail
+        for marker in (
+            "timed out",
+            "timeout",
+            "rate limited",
+            "http 408",
+            "http 425",
+            "http 429",
+            "http 500",
+            "http 502",
+            "http 503",
+            "http 504",
+            "connection reset",
+            "temporarily unavailable",
+            "unable to reach the active ai model",
+        )
+    )
 
 
 def _complete_turn_ai_watch_review(
@@ -1485,13 +3458,34 @@ def _complete_turn_ai_watch_review(
     return updated
 
 
-def _merge_async_ai_watch_state(
+def _merge_concurrent_snapshot_state(
     persisted: dict[str, Any],
     incoming: dict[str, Any],
 ) -> dict[str, Any]:
-    """Keep background review writes when a stale Graph snapshot is saved."""
+    """Keep durable side-effect writes when a stale Graph snapshot is saved."""
 
     merged = dict(incoming)
+    persisted_deliveries = dict(persisted.get("target_deliveries") or {})
+    incoming_deliveries = dict(incoming.get("target_deliveries") or {})
+    delivery_rank = {
+        "": 0,
+        "PREPARED": 1,
+        "SENDING": 2,
+        "NOT_DELIVERED": 3,
+        "AMBIGUOUS": 4,
+        "DELIVERED": 5,
+        "COMMITTED": 6,
+    }
+    for round_key, source in persisted_deliveries.items():
+        durable = dict(source or {})
+        current = dict(incoming_deliveries.get(round_key) or {})
+        if delivery_rank.get(str(durable.get("status") or ""), 0) >= (
+            delivery_rank.get(str(current.get("status") or ""), 0)
+        ):
+            incoming_deliveries[round_key] = durable
+    if incoming_deliveries:
+        merged["target_deliveries"] = incoming_deliveries
+
     persisted_reviews = dict(persisted.get("ai_watch_reviews") or {})
     incoming_reviews = dict(incoming.get("ai_watch_reviews") or {})
     review_rank = {
@@ -1516,6 +3510,10 @@ def _merge_async_ai_watch_state(
         for item in persisted.get("committed_turns") or []
         if item.get("round_key")
     }
+    incoming_turn_keys = {
+        str(item.get("round_key") or "")
+        for item in incoming.get("committed_turns") or []
+    }
     turns: list[dict[str, Any]] = []
     for source in incoming.get("committed_turns") or []:
         turn = dict(source)
@@ -1539,9 +3537,86 @@ def _merge_async_ai_watch_state(
                 async_records,
             )
         turns.append(turn)
+    for round_key, source in persisted_turns.items():
+        if round_key not in incoming_turn_keys:
+            turns.append(dict(source))
     if turns or "committed_turns" in incoming:
         merged["committed_turns"] = turns
+    if len(persisted.get("history") or []) > len(incoming.get("history") or []):
+        merged["history"] = list(persisted.get("history") or [])
+    if persisted.get("latest_response") and not incoming.get("latest_response"):
+        merged["latest_request"] = persisted.get("latest_request")
+        merged["latest_response"] = persisted.get("latest_response")
+        merged["latest_raw_response"] = persisted.get("latest_raw_response")
     return merged
+
+
+def migrate_task_snapshot(source: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade persisted JSON snapshots without discarding unknown fields."""
+
+    snapshot = dict(source)
+    version = int(snapshot.get("schema_version") or 1)
+    if version > CURRENT_SNAPSHOT_SCHEMA_VERSION:
+        raise TaskStoreError(
+            "Snapshot schema version "
+            f"{version} is newer than supported version "
+            f"{CURRENT_SNAPSHOT_SCHEMA_VERSION}."
+        )
+    if version < 2:
+        snapshot.setdefault("target_deliveries", {})
+        snapshot.setdefault("active_issue", None)
+        snapshot["schema_version"] = 2
+    snapshot.setdefault("target_deliveries", {})
+    snapshot.setdefault("active_issue", None)
+    snapshot.setdefault("goal_contract", None)
+    snapshot.setdefault("evidence_stall_count", 0)
+    snapshot.setdefault("family_metrics", {})
+    snapshot.setdefault("evidence_ledger", [])
+    snapshot.setdefault("branch_runner_deleted", False)
+    snapshot.setdefault("branch_cleanup", {})
+    snapshot.setdefault("scorer_ensemble", None)
+    snapshot.setdefault("campaign_id", None)
+    snapshot.setdefault("source_manifest_id", None)
+    snapshot.setdefault("fork_origin", None)
+    snapshot.setdefault("initial_history", None)
+    snapshot["committed_turns"] = [
+        {
+            "schema_version": int(item.get("schema_version") or 1),
+            **dict(item),
+        }
+        for item in snapshot.get("committed_turns") or []
+        if isinstance(item, dict)
+    ]
+    snapshot["ai_watch_reviews"] = {
+        str(round_key): {
+            "schema_version": int((review or {}).get("schema_version") or 1),
+            **dict(review or {}),
+        }
+        for round_key, review in dict(
+            snapshot.get("ai_watch_reviews") or {}
+        ).items()
+    }
+    snapshot["branch_reports"] = [
+        {
+            "schema_version": int(item.get("schema_version") or 1),
+            **dict(item),
+        }
+        for item in snapshot.get("branch_reports") or []
+        if isinstance(item, dict)
+    ]
+    snapshot["target_deliveries"] = {
+        str(round_key): {
+            "schema_version": int(
+                (delivery or {}).get("schema_version") or 1
+            ),
+            **dict(delivery or {}),
+        }
+        for round_key, delivery in dict(
+            snapshot.get("target_deliveries") or {}
+        ).items()
+    }
+    snapshot["schema_version"] = CURRENT_SNAPSHOT_SCHEMA_VERSION
+    return snapshot
 
 
 def _merge_observation_records(

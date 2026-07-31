@@ -41,6 +41,35 @@ export function shouldPollTask(snapshot: Pick<TaskAgentSnapshot, 'status'>) {
   return !terminalTaskAgentStatuses.has(snapshot.status)
 }
 
+export function hasPendingTaskAgentReviews(
+  snapshot: Pick<TaskAgentSnapshot, 'ai_watch_reviews'>,
+) {
+  return Object.values(snapshot.ai_watch_reviews || {}).some((review) =>
+    ['pending', 'analyzing'].includes(review.status),
+  )
+}
+
+export function isTaskAgentTerminalReady(
+  snapshot: Pick<TaskAgentSnapshot, 'status' | 'ai_watch_reviews'>,
+) {
+  return (
+    terminalTaskAgentStatuses.has(snapshot.status) &&
+    !hasPendingTaskAgentReviews(snapshot)
+  )
+}
+
+export function taskAgentTerminalFinalizationPhase(
+  parent: Pick<TaskAgentSnapshot, 'status' | 'ai_watch_reviews'>,
+  children: Array<Pick<TaskAgentSnapshot, 'status' | 'ai_watch_reviews'>> = [],
+) {
+  if (!terminalTaskAgentStatuses.has(parent.status)) return 'active'
+  if (hasPendingTaskAgentReviews(parent)) return 'waiting_for_parent_review'
+  if (children.some((child) => !isTaskAgentTerminalReady(child))) {
+    return 'waiting_for_child_archive'
+  }
+  return 'ready_for_summary'
+}
+
 export function isTaskAgentGoalActive(
   goal: string | null | undefined,
   status: TaskAgentUiStatus | null | undefined,
@@ -56,6 +85,18 @@ export function isTaskAgentGoalActive(
 
 export function shouldReleaseGoalComposer(snapshot: Pick<TaskAgentSnapshot, 'status'>) {
   return snapshot.status === 'succeeded'
+}
+
+export function visibleTaskAgentProgress(
+  reportedProgress: number | null | undefined,
+  status: TaskAgentUiStatus | null | undefined,
+  phaseProgress = 0,
+) {
+  const reported = Number.isFinite(Number(reportedProgress))
+    ? Number(reportedProgress)
+    : 0
+  const bounded = Math.max(0, Math.min(100, Math.max(reported, phaseProgress)))
+  return status === 'achieved' ? 100 : Math.min(99, bounded)
 }
 
 export function liveTaskAgentElapsedSeconds(

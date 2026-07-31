@@ -399,7 +399,7 @@ export default {
     "64513b47d460": "Delete failed",
     "64666508d39d": "Connector not found",
     "64acf7e2a759": "Agents",
-    "64b08d250372": "INTERACTION GOAL",
+    "64b08d250372": "ACTIVE GOAL",
     "65939a4f425f": "Total events",
     "65e0193633be": "RAG Source",
     "66c588054ef2": "Start with asset coverage. Risk analysis starts only after critical supplemental information is answered.",

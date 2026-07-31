@@ -1,0 +1,267 @@
+/*
+ * Rounded surface system
+ *
+ * This file intentionally changes shape only. Color, typography, spacing,
+ * shadows, layout and interaction behavior remain owned by the original
+ * purple visual system in style.css.
+ */
+
+:root {
+  --radius-app-frame: 28px;
+  --radius-navigation: 24px;
+  --radius-content-region: 22px;
+  --radius-panel: 20px;
+  --radius-card: 18px;
+  --radius-control: 14px;
+  --radius-compact: 11px;
+}
+
+/* Application frame: the reference treats navigation, top bar and content
+   as three related rounded surfaces instead of square strips. */
+.app-shell {
+  border-radius: var(--radius-app-frame) !important;
+}
+
+.side-nav,
+.side-nav.n-layout-sider,
+.side-nav .n-layout-sider-scroll-container,
+.side-scrollbar,
+.side-inner {
+  border-radius: var(--radius-navigation) !important;
+}
+
+.topbar,
+.content,
+.content.n-layout-content,
+.content-scrollbar,
+.page-frame {
+  border-radius: var(--radius-content-region) !important;
+}
+
+.content > .n-layout-scroll-container,
+.content-scrollbar > .n-scrollbar-container,
+.content-scrollbar .n-scrollbar-content {
+  border-radius: inherit !important;
+}
+
+/* Shared large surfaces. */
+.glass-panel,
+.n-card,
+.n-card.n-modal,
+.n-dialog,
+.n-popover,
+.n-dropdown-menu,
+.n-alert,
+.n-drawer-content-wrapper,
+.n-drawer-content,
+.n-data-table,
+.n-data-table-wrapper,
+.n-descriptions,
+.n-list,
+.n-empty,
+.n-spin-container,
+[class$="-panel"],
+[class*="-panel "],
+[class$="-surface"],
+[class*="-surface "] {
+  border-radius: var(--radius-panel) !important;
+}
+
+/* Product cards and bounded content regions. */
+.metric-card,
+.select-card,
+.settings-row-card,
+.endpoint-list-item,
+.cookbook-list-item,
+.recipe-row,
+.resource-picker-row,
+.history-row,
+.connector-type-card,
+.task-agent-skill-card,
+.task-agent-run-card,
+.workflow-agent,
+.workflow-step,
+.workflow-monitor,
+.workflow-router,
+.dashboard-overview,
+.dashboard-command-panel,
+.dashboard-inventory-panel,
+.dashboard-evaluation-flow,
+.dashboard-evaluation-flow article,
+.dashboard-stage,
+.dashboard-status-card,
+.dashboard-inventory-card,
+.dashboard-signal-grid article,
+.dashboard-cookbook-summary article,
+.agents-home-metrics > div,
+.agents-workbench-steps > span,
+.agents-home-hero,
+.agents-workbench-card,
+.agents-infra-card,
+.endpoint-detail-card,
+.cookbook-detail-card,
+.recipe-detail-card,
+.dataset-detail-card,
+.completion-card,
+.evaluator-requirements-card,
+.evaluator-picker-card,
+.ai-provider-card,
+.ai-config-panel,
+.tcp-forwarder-card,
+.connector-builder-card,
+.connector-form-card,
+.report-card,
+.run-card,
+[class$="-card"],
+[class*="-card "] {
+  border-radius: var(--radius-card) !important;
+}
+
+/* Nested sections remain round, but stay visibly subordinate to cards. */
+.detail-block,
+.selected-box,
+.recipe-form-section,
+.recipe-preview-panel,
+.resource-select-card,
+.resource-picker-detail,
+.ai-task-agent-runtime,
+.ai-security-note,
+.connector-directory-toolbar,
+.connector-directory-section,
+.workflow-board,
+.workflow-detail,
+.terminal-panel,
+.terminal-output,
+.report-section,
+.run-section,
+.dashboard-overview__meta,
+.dashboard-metric-strip,
+.dashboard-stage-copy,
+.inventory-row,
+.payload-page-summary,
+.payload-pipeline,
+.wizard-footer,
+.connector-directory-heading,
+.tcp-forwarder-script-preview > div,
+[class$="-section"],
+[class*="-section "],
+[class$="-toolbar"],
+[class*="-toolbar "] {
+  border-radius: var(--radius-control) !important;
+}
+
+/* Inputs, buttons and compact interactive rows use a consistent soft radius.
+   Existing round/circle variants keep their pill geometry below. */
+.n-button:not(.n-button--circle-type):not(.n-button--round),
+.n-input,
+.n-input-number,
+.n-base-selection,
+.n-base-selection-label,
+.n-radio-group,
+.n-radio-button,
+.n-checkbox-box,
+.n-pagination-item,
+.n-popconfirm,
+.n-date-panel,
+.n-time-picker,
+button:not(.n-button),
+input,
+select,
+textarea,
+code,
+.tcp-forwarder-run-command,
+[class$="-item"],
+[class*="-item "] {
+  border-radius: var(--radius-compact) !important;
+}
+
+.n-button--round,
+.n-button--circle-type,
+.n-tag,
+.n-switch,
+.n-slider-handle,
+.n-progress-graph-circle,
+[class$="-pill"],
+[class*="-pill "],
+[class$="-badge"],
+[class*="-badge "],
+[class$="-chip"],
+[class*="-chip "] {
+  border-radius: 999px !important;
+}
+
+/* A few split or table-like components need rounded outer corners while the
+   internal cells keep their connected shape. */
+.n-button-group,
+.theme-toggle,
+.category-row,
+.wizard-top,
+.task-goal-tab,
+.task-goal-details,
+.task-agent-codex-menu,
+.task-agent-codex-submenu,
+.resource-picker-shell,
+.cookbook-about-modal,
+.resource-picker-modal,
+.report-modal {
+  border-radius: var(--radius-control) !important;
+}
+
+.connector-directory-view-switch.n-button-group > .n-button,
+.connector-directory-view-switch.n-button-group > .n-button.n-button--primary-type,
+.connector-directory-view-switch.n-button-group > .n-button.n-button--default-type,
+.connector-directory-view-switch.n-button-group > .n-button .n-button__border,
+.connector-directory-view-switch.n-button-group > .n-button .n-button__state-border {
+  border-radius: 999px !important;
+  border-top-left-radius: 999px !important;
+  border-top-right-radius: 999px !important;
+  border-bottom-right-radius: 999px !important;
+  border-bottom-left-radius: 999px !important;
+}
+
+#app .connector-directory-view-switch.n-button-group > .n-button.n-button.n-button,
+#app .connector-directory-view-switch.n-button-group > .n-button.n-button.n-button .n-button__border,
+#app .connector-directory-view-switch.n-button-group > .n-button.n-button.n-button .n-button__state-border {
+  border-top-left-radius: 999px !important;
+  border-top-right-radius: 999px !important;
+  border-bottom-right-radius: 999px !important;
+  border-bottom-left-radius: 999px !important;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --radius-app-frame: 22px;
+    --radius-navigation: 20px;
+    --radius-content-region: 20px;
+    --radius-panel: 18px;
+    --radius-card: 16px;
+  }
+}
+
+@media (min-width: 1081px) {
+  .app-shell {
+    border-radius: 0 !important;
+  }
+
+  .side-nav,
+  .side-nav.n-layout-sider,
+  .side-nav .n-layout-sider-scroll-container,
+  .side-nav .n-layout-sider__border,
+  .side-scrollbar,
+  .side-inner,
+  .topbar,
+  .content,
+  .content.n-layout-content {
+    border-radius: 0 !important;
+  }
+
+  .content-scrollbar,
+  .content-scrollbar > .n-scrollbar-container,
+  .content-scrollbar .n-scrollbar-content {
+    border-radius: 30px !important;
+  }
+
+  .page-frame {
+    border-radius: 28px !important;
+  }
+}

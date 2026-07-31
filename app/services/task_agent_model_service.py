@@ -28,14 +28,33 @@ class TaskAgentModelError(RuntimeError):
     pass
 
 
+class RecoverableTaskAgentModelError(TaskAgentModelError):
+    """A transient control-model failure that is safe to retry from a checkpoint."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        role: str,
+        attempts: int,
+        failure_kind: str = "transient_transport",
+    ) -> None:
+        super().__init__(message)
+        self.role = role
+        self.attempts = attempts
+        self.failure_kind = failure_kind
+
+
 class TaskAgentModelService:
     def __init__(
         self,
         *,
         ai_client: ConnectorAIService | None = None,
         prompt_registry: PromptRegistry | None = None,
+        settings: dict[str, str] | None = None,
     ) -> None:
         self.ai_client = ai_client or ConnectorAIService(
+            settings=settings,
             request_timeout_seconds=75,
             max_tokens=3_000,
             max_connection_attempts=2,
@@ -172,8 +191,11 @@ class TaskAgentModelService:
         retries: int,
         raw_transform: Callable[[Any], Any] | None = None,
     ) -> OutputModel:
+        self._call_state.metrics = {}
         prompt = self.prompts.load(role)
         validation_feedback = ""
+        transport_feedback = ""
+        force_emergency_compaction = False
         attempts = max(1, retries + 1)
         for attempt in range(attempts):
             current_payload = payload
@@ -187,14 +209,26 @@ class TaskAgentModelService:
                         "contains zero or one item. Do not add commentary or keys."
                     ),
                 }
+            if transport_feedback:
+                current_payload = {
+                    **current_payload,
+                    "TRANSIENT_TRANSPORT_ERROR_FROM_PREVIOUS_ATTEMPT": (
+                        transport_feedback
+                    ),
+                    "transportRecoveryInstruction": (
+                        "The previous model request failed before a usable response "
+                        "was received. Complete the same task from the compacted "
+                        "context and return the required object once."
+                    ),
+                }
             fitted_payload = _fit_model_payload(
                 current_payload,
                 system_prompt=prompt.content,
-                emergency=False,
+                emergency=force_emergency_compaction,
             )
             original_chars = _json_length(current_payload) + len(prompt.content)
             fitted_chars = _json_length(fitted_payload) + len(prompt.content)
-            emergency_used = False
+            emergency_used = force_emergency_compaction
             current_user_prompt = json.dumps(
                 fitted_payload,
                 ensure_ascii=False,
@@ -207,6 +241,36 @@ class TaskAgentModelService:
                     payload=current_payload,
                 )
             except ConnectorAIError as error:
+                if _is_transient_model_transport_error(error):
+                    if (
+                        attempt < attempts - 1
+                        and not _should_pause_without_node_retry(error)
+                    ):
+                        transport_feedback = _compact_transport_error(error)
+                        validation_feedback = ""
+                        force_emergency_compaction = True
+                        continue
+                    raise self._recoverable_model_error(
+                        role=role,
+                        error=error,
+                        attempts=attempt + 1,
+                        original_chars=original_chars,
+                        fitted_chars=fitted_chars,
+                        emergency_compaction=emergency_used,
+                    ) from error
+                if _is_model_output_parse_error(error):
+                    transport_feedback = ""
+                    validation_feedback = (
+                        "The previous response was not a parseable JSON object. "
+                        "Return exactly one JSON object matching outputSchema, "
+                        "with every required field and no surrounding commentary."
+                    )
+                    if attempt < attempts - 1:
+                        continue
+                    raise TaskAgentModelError(
+                        f"{role} returned invalid structured output after "
+                        f"{attempts} attempt(s): {validation_feedback}"
+                    ) from error
                 if not _is_input_length_error(error):
                     raise TaskAgentModelError(
                         f"{role} model call failed: {error}"
@@ -232,6 +296,26 @@ class TaskAgentModelService:
                         payload=current_payload,
                     )
                 except ConnectorAIError as retry_error:
+                    if (
+                        _is_transient_model_transport_error(retry_error)
+                        and attempt < attempts - 1
+                        and not _should_pause_without_node_retry(retry_error)
+                    ):
+                        transport_feedback = _compact_transport_error(
+                            retry_error
+                        )
+                        validation_feedback = ""
+                        force_emergency_compaction = True
+                        continue
+                    if _is_transient_model_transport_error(retry_error):
+                        raise self._recoverable_model_error(
+                            role=role,
+                            error=retry_error,
+                            attempts=attempt + 1,
+                            original_chars=original_chars,
+                            fitted_chars=fitted_chars,
+                            emergency_compaction=True,
+                        ) from retry_error
                     raise TaskAgentModelError(
                         f"{role} model call failed after automatic context "
                         f"compaction: {retry_error}"
@@ -266,6 +350,7 @@ class TaskAgentModelService:
                 }
                 return result
             except ValidationError as error:
+                transport_feedback = ""
                 validation_feedback = _compact_validation_error(error)
                 if attempt == attempts - 1:
                     raise TaskAgentModelError(
@@ -273,6 +358,57 @@ class TaskAgentModelService:
                         f"{validation_feedback}"
                     ) from error
         raise TaskAgentModelError(f"{role} did not return output")
+
+    def _recoverable_model_error(
+        self,
+        *,
+        role: str,
+        error: Exception,
+        attempts: int,
+        original_chars: int,
+        fitted_chars: int,
+        emergency_compaction: bool,
+    ) -> RecoverableTaskAgentModelError:
+        transport = (
+            self.ai_client.consume_last_transport_metrics()
+            if hasattr(self.ai_client, "consume_last_transport_metrics")
+            else {}
+        )
+        compact_error = _compact_transport_error(error)
+        reported_failure_kind = str(
+            getattr(error, "failure_kind", None) or ""
+        )
+        failure_kind = (
+            reported_failure_kind
+            if reported_failure_kind
+            and reported_failure_kind != "provider_error"
+            else "transient_transport"
+        )
+        retry_after_seconds = getattr(error, "retry_after_seconds", None)
+        self._call_state.metrics = {
+            "role": role,
+            "attempt": attempts,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "original_chars": original_chars,
+            "fitted_chars": fitted_chars,
+            "compacted": fitted_chars < original_chars,
+            "emergency_compaction": emergency_compaction,
+            "budget_chars": MODEL_INPUT_CHAR_BUDGET,
+            "analysis_mode": "recoverable-transport-error",
+            "failure_kind": failure_kind,
+            "error_message": compact_error,
+            "retry_after_seconds": retry_after_seconds,
+            **transport,
+        }
+        return RecoverableTaskAgentModelError(
+            f"{role} model call failed after {attempts} attempt(s): "
+            f"{compact_error}",
+            role=role,
+            attempts=attempts,
+            failure_kind=failure_kind,
+        )
 
     def _chat_json(
         self,
@@ -317,6 +453,80 @@ def _is_input_length_error(error: Exception) -> bool:
             "input length",
         )
     )
+
+
+def _is_model_output_parse_error(error: Exception) -> bool:
+    detail = str(error).lower()
+    return any(
+        marker in detail
+        for marker in (
+            "did not return a valid connector configuration",
+            "returned an invalid connector configuration object",
+        )
+    )
+
+
+def _is_transient_model_transport_error(error: Exception) -> bool:
+    if isinstance(error, ConnectorAIError) and error.retryable:
+        return True
+    detail = str(error).lower()
+    if any(
+        marker in detail
+        for marker in (
+            "rejected its api key",
+            "invalid api key",
+            "authentication failed",
+            "unauthorized",
+            "forbidden",
+            "endpoint or model was not found",
+            "model not found",
+            "http 400",
+            "http 401",
+            "http 403",
+            "http 404",
+            "invalid parameter",
+            "range of input length",
+            "maximum context length",
+        )
+    ):
+        return False
+    return any(
+        marker in detail
+        for marker in (
+            "read operation timed out",
+            "timed out",
+            "timeout",
+            "unable to reach the active ai model",
+            "active ai model is busy",
+            "queue deadline",
+            "rate limited",
+            "http 408",
+            "http 425",
+            "http 429",
+            "http 500",
+            "http 502",
+            "http 503",
+            "http 504",
+            "connection refused",
+            "connection reset",
+            "network is unreachable",
+            "remote end closed connection",
+            "temporary failure",
+            "temporarily unavailable",
+        )
+    )
+
+
+def _should_pause_without_node_retry(error: Exception) -> bool:
+    return str(getattr(error, "failure_kind", "")) in {
+        "circuit_open",
+        "circuit_half_open",
+        "local_queue_timeout",
+    }
+
+
+def _compact_transport_error(error: Exception) -> str:
+    return _clip_text(re.sub(r"\s+", " ", str(error)).strip(), 500)
 
 
 def _fit_model_payload(

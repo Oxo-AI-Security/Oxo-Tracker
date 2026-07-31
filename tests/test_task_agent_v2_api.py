@@ -25,3 +25,22 @@ def test_workflow_and_skill_catalog_api():
     }
     assert all("body" not in item for item in skills.json())
     assert all(item["metadata"]["techniques"] for item in skills.json())
+
+
+def test_p1_run_asset_routes_are_exposed():
+    with TestClient(create_app()) as client:
+        document = client.get("/openapi.json").json()
+
+    paths = set(document["paths"])
+    assert {
+        "/api/v1/task-agents/tasks/{task_id}/manifest",
+        "/api/v1/task-agents/tasks/{task_id}/replay",
+        "/api/v1/task-agents/tasks/{task_id}/regrade",
+        "/api/v1/task-agents/tasks/{task_id}/fork",
+        "/api/v1/task-agents/tasks/{task_id}/scorer-review",
+        "/api/v1/task-agents/tasks/{task_id}/findings",
+        "/api/v1/task-agents/campaigns",
+        "/api/v1/task-agents/findings",
+        "/api/v1/task-agents/findings/{finding_id}/regression-cases",
+        "/api/v1/task-agents/regression-cases",
+    } <= paths

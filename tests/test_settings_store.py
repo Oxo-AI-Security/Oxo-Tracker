@@ -78,6 +78,36 @@ def test_only_one_provider_is_active_and_secret_is_never_public(tmp_path):
     assert store.get_provider_api_key("kimi") == "sk-local-secret"
 
 
+def test_run_scoped_provider_and_model_override_does_not_mutate_active_settings(
+    tmp_path,
+):
+    path = tmp_path / "app-settings.yaml"
+    store = SettingsStore(path, protect=protect, unprotect=unprotect)
+    store.update(
+        {
+            "ai": {
+                "activeProvider": "openai",
+                "provider": "openai",
+                "config": {
+                    "model": "gpt-5.6-sol",
+                    "baseUrl": "https://api.openai.com/v1",
+                    "apiKey": "sk-run-secret",
+                },
+            }
+        }
+    )
+
+    resolved = store.get_ai_settings("openai", model="gpt-5.6-terra")
+
+    assert resolved == {
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "base_url": "https://api.openai.com/v1",
+        "api_key": "sk-run-secret",
+    }
+    assert store.get()["ai"]["providers"]["openai"]["model"] == "gpt-5.6-sol"
+
+
 def test_blank_api_key_keeps_saved_credential(tmp_path):
     path = tmp_path / "app-settings.yaml"
     store = SettingsStore(path, protect=protect, unprotect=unprotect)

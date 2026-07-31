@@ -36,6 +36,20 @@ export const http = axios.create({
   timeout: 300000,
 })
 
+let desktopToken = ''
+
+export function configureApiRuntime(baseURL: string, token = '') {
+  http.defaults.baseURL = baseURL.replace(/\/$/, '')
+  desktopToken = token
+}
+
+http.interceptors.request.use((config) => {
+  if (desktopToken) {
+    config.headers.set('X-Oxo-Desktop-Token', desktopToken)
+  }
+  return config
+})
+
 http.interceptors.response.use(
   (response) => response,
   (error) => {

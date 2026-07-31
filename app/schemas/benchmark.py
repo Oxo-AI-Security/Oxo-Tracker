@@ -6,6 +6,9 @@ class BenchmarkRecipeRequest(BaseModel):
     endpoints: list[str] = Field(min_length=1)
     recipes: list[str] = Field(min_length=1)
     cookbooks: list[str] = []
+    evaluator_provider: str | None = None
+    evaluator_model: str | None = None
+    evaluator_endpoints: list[str] = Field(default_factory=list)
     cookbook_prompt_selection_percentages: dict[str, int] = Field(default_factory=dict)
     description: str = ""
     prompt_selection_percentage: int = Field(default=100, ge=1, le=100)

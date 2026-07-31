@@ -231,7 +231,11 @@
           </section>
         </div>
       </NTabPane>
-      <NTabPane name="parallel" tab="Parallel Search">
+      <NTabPane
+        v-if="false"
+        name="parallel"
+        tab="Parallel Search"
+      >
         <section class="parallel-search-shell">
           <header class="parallel-search-hero">
             <span class="parallel-search-icon">⑂</span>

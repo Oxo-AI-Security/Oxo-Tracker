@@ -10,7 +10,17 @@
     >
       <n-scrollbar class="side-scrollbar" trigger="none" :x-scrollable="false">
         <div class="side-inner">
-          <div class="brand">
+          <div
+            class="brand"
+            :class="{ 'brand--collapsed-action': collapsed }"
+            :role="collapsed ? 'button' : undefined"
+            :tabindex="collapsed ? 0 : undefined"
+            :aria-label="collapsed ? 'Expand navigation' : undefined"
+            :aria-expanded="collapsed ? 'false' : undefined"
+            @click="expandSidebarFromBrand"
+            @keydown.enter.prevent="expandSidebarFromBrand"
+            @keydown.space.prevent="expandSidebarFromBrand"
+          >
             <div class="brand__mark">
               <n-icon size="24"><SparklesOutline /></n-icon>
             </div>
@@ -20,11 +30,10 @@
             </div>
           </div>
 
-          <n-button quaternary circle class="collapse-button" @click="collapsed = !collapsed">
+          <n-button v-if="!collapsed" quaternary circle class="collapse-button" @click="collapsed = true">
             <template #icon>
               <n-icon>
-                <ChevronBackOutline v-if="!collapsed" />
-                <MenuOutline v-else />
+                <ChevronBackOutline />
               </n-icon>
             </template>
           </n-button>
@@ -104,7 +113,6 @@ import {
   FlashOutline,
   ChevronBackOutline,
   LibraryOutline,
-  MenuOutline,
   RefreshOutline,
   RocketOutline,
   SparklesOutline,
@@ -121,6 +129,12 @@ const store = useMoonshotStore()
 const settings = useSettingsStore()
 const { t } = useI18n()
 const collapsed = ref(false)
+
+function expandSidebarFromBrand() {
+  if (collapsed.value) {
+    collapsed.value = false
+  }
+}
 
 const navItems = computed(() => [
   { path: '/', label: t('nav.dashboard'), icon: AnalyticsOutline },

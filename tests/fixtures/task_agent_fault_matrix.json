@@ -1,0 +1,56 @@
+[
+  {
+    "component": "planner",
+    "fault": "transient model timeout",
+    "expected": "retry or deterministic recovery plan",
+    "covered_by": "test_planner_timeout_selects_remaining_goal_technique_instead_of_failing"
+  },
+  {
+    "component": "executor",
+    "fault": "model timeout after node retries",
+    "expected": "checkpoint before delivery and recoverable pause",
+    "covered_by": "test_executor_timeout_pauses_before_delivery_and_resume_sends_once"
+  },
+  {
+    "component": "target",
+    "fault": "connection ends without authoritative receipt",
+    "expected": "AMBIGUOUS and no automatic resend",
+    "covered_by": "test_1000_ambiguous_recoveries_never_duplicate_target_send"
+  },
+  {
+    "component": "target",
+    "fault": "process recovery while SENDING",
+    "expected": "receipt lookup commits delivered response without resend",
+    "covered_by": "test_receipt_recovery_commits_without_resend"
+  },
+  {
+    "component": "evaluator",
+    "fault": "transient model failure",
+    "expected": "deterministic fallback without false success",
+    "covered_by": "test_evaluator_timeout_preserves_turn_and_replans_instead_of_failing"
+  },
+  {
+    "component": "ai_watch",
+    "fault": "transient background model failure",
+    "expected": "bounded background retry without failing Attack Agent",
+    "covered_by": "test_runtime_requeues_transient_ai_watch_failure_without_user_error"
+  },
+  {
+    "component": "storage",
+    "fault": "SQLite writer lock",
+    "expected": "bounded wait and successful durable write after lock release",
+    "covered_by": "test_sqlite_lock_is_retried_by_busy_timeout"
+  },
+  {
+    "component": "storage",
+    "fault": "stale graph checkpoint overwrites side-effect state",
+    "expected": "delivery and committed turn survive the stale save",
+    "covered_by": "test_stale_graph_save_preserves_atomic_delivery_commit"
+  },
+  {
+    "component": "branch",
+    "fault": "terminal child runner cleanup",
+    "expected": "backend records the report and idempotently deletes the child runner",
+    "covered_by": "test_backend_finalizes_terminal_branch_and_runner"
+  }
+]

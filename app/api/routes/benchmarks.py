@@ -11,8 +11,11 @@ router = APIRouter(prefix="/benchmarks", tags=["Benchmarks"])
 @router.post("/recipes", response_model=BenchmarkRunResponse)
 async def run_recipe_benchmark(request: BenchmarkRecipeRequest, background_tasks: BackgroundTasks) -> dict:
     service = BenchmarkService()
-    job = service.create_recipe_job(request)
-    background_tasks.add_task(service.execute_recipe_job, job["id"])
+    try:
+        job = service.create_recipe_job(request)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    background_tasks.add_task(service.execute_recipe_job_background, job["id"])
     return {"runner_id": job["id"], "status": job["status"]}
 
 
@@ -31,15 +34,23 @@ def get_benchmark_job(
 ) -> dict:
     store = JobStore()
     try:
+        job = store.get(job_id)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Job not found") from error
+
+    try:
         return store.enrich_job(
-            store.get(job_id),
+            job,
             interactions_page=interactions_page,
             interactions_page_size=interactions_page_size,
             interaction_filter=interaction_filter,
             cookbook_filter=cookbook_filter,
         )
-    except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail="Job not found") from error
+    except FileNotFoundError:
+        # The job itself exists, but a runner artifact may still be moving into
+        # place. Return the saved summary so the run-details page can continue
+        # showing live status instead of incorrectly reporting a missing job.
+        return store.compact_job(job)
 
 
 @router.post("/jobs/{job_id}/pause")
@@ -65,7 +76,7 @@ async def resume_benchmark_job(job_id: str, background_tasks: BackgroundTasks) -
         if job.get("status") != "paused":
             return store.enrich_job(job)
         resumed = store.mark_resumed(job_id)
-        background_tasks.add_task(BenchmarkService().execute_recipe_job, job_id)
+        background_tasks.add_task(BenchmarkService().execute_recipe_job_background, job_id)
         return store.enrich_job(resumed)
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail="Job not found") from error

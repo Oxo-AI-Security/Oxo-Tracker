@@ -18,8 +18,10 @@ from app.services.task_agent_store import TaskAgentStore
 class _RecordingTarget:
     def __init__(self) -> None:
         self.messages: list[str] = []
+        self.calls: list[dict] = []
 
     def send(self, **kwargs):
+        self.calls.append(kwargs)
         self.messages.append(kwargs["message"])
         return "target response", {"response": "target response"}, kwargs["message"]
 
@@ -94,14 +96,63 @@ def _graph(tmp_path: Path, target: _RecordingTarget | None = None) -> TaskAgentG
     )
 
 
+def _run_target(graph: TaskAgentGraph, state: dict) -> dict:
+    graph.store.create_task(
+        {
+            **state,
+            "schema_version": 2,
+            "status": "running",
+            "current_node": "target",
+            "updated_at": state["created_at"],
+            "target_deliveries": {},
+            "active_issue": None,
+        }
+    )
+    return graph._target(state)
+
+
 def test_executor_message_is_sent_directly_without_pre_send_filter(tmp_path: Path):
     target = _RecordingTarget()
     graph = _graph(tmp_path, target)
 
-    result = graph._target(_state())
+    result = _run_target(graph, _state())
 
     assert target.messages == ["Send this exact Skill-generated message."]
+    assert target.calls[0]["interaction_mode"] == "task_agent"
     assert result["latest_response"] == "target response"
+    delivery = result["committed_turns"][0]["delivery"]
+    assert delivery["interaction_mode"] == "task_agent"
+    assert delivery["manual_controls_applied"] is False
+    assert (
+        delivery["executor_message_sha256"]
+        == delivery["final_sent_message_sha256"]
+    )
+
+
+def test_legacy_manual_fields_cannot_change_task_agent_delivery(tmp_path: Path):
+    target = _RecordingTarget()
+    graph = _graph(tmp_path, target)
+    state = {
+        **_state(),
+        "payload_name": "dangerous-template",
+        "attack_module": "violent-durian",
+        "context_strategy": "last-five-prompts",
+    }
+
+    result = _run_target(graph, state)
+
+    assert target.messages == ["Send this exact Skill-generated message."]
+    assert target.calls == [
+        {
+            "runner_id": "runner",
+            "message": "Send this exact Skill-generated message.",
+            "delivery_id": result["committed_turns"][0]["delivery"]["delivery_id"],
+            "interaction_mode": "task_agent",
+        }
+    ]
+    assert result["committed_turns"][0]["prepared_request"] == (
+        "Send this exact Skill-generated message."
+    )
 
 
 def test_runner_protocol_envelope_is_not_treated_as_assistant_text():
@@ -126,18 +177,116 @@ def test_target_failure_is_not_retried_as_duplicate_delivery(tmp_path: Path):
     target = _MissingResponseTarget()
     graph = _graph(tmp_path, target)
 
-    result = graph._target(_state())
+    result = _run_target(graph, _state())
 
     assert target.calls == 1
     assert result["target_failed"] is True
     assert "without an assistant response" in result["target_error"]
 
 
+def test_third_identical_fresh_session_payload_pauses_before_delivery(
+    tmp_path: Path,
+    monkeypatch,
+):
+    class _Paused(RuntimeError):
+        pass
+
+    target = _RecordingTarget()
+    graph = _graph(tmp_path, target)
+    state = {
+        **_state(),
+        "status": "running",
+        "current_node": "target",
+        "updated_at": _state()["created_at"],
+        "total_round": 2,
+        "active_techniques": [
+            {
+                "skill_id": "system-prompt-disclosure-assessment",
+                "role": "PRIMARY",
+                "technique": "fresh-session-validation",
+            }
+        ],
+        "committed_turns": [
+            {
+                "round_key": "round-1",
+                "round": 1,
+                "request": "Send this exact Skill-generated message.",
+                "response": "same response",
+            },
+            {
+                "round_key": "round-2",
+                "round": 2,
+                "request": "Send this exact Skill-generated message.",
+                "response": "same response",
+            },
+        ],
+        "target_deliveries": {},
+        "active_issue": None,
+    }
+    graph.store.create_task(state)
+
+    def _pause(_payload):
+        raise _Paused()
+
+    monkeypatch.setattr(
+        "app.services.task_agent_graph.interrupt",
+        _pause,
+    )
+
+    with pytest.raises(_Paused):
+        graph._target(state)
+
+    paused = graph.store.get_snapshot(state["task_id"])
+    assert paused["status"] == "paused"
+    assert paused["active_issue"]["code"] == "duplicate_payload_blocked"
+    assert paused["context_health"]["target_message_sent"] is False
+    assert paused["context_health"]["prior_match_count"] == 2
+    assert target.calls == []
+    assert graph.store.list_events(state["task_id"])[-1]["event_type"] == (
+        "target.duplicate_payload_blocked"
+    )
+
+
+def test_fresh_session_validation_allows_exactly_one_controlled_replay(
+    tmp_path: Path,
+):
+    target = _RecordingTarget()
+    graph = _graph(tmp_path, target)
+    state = {
+        **_state(),
+        "status": "running",
+        "current_node": "target",
+        "updated_at": _state()["created_at"],
+        "total_round": 1,
+        "active_techniques": [
+            {
+                "skill_id": "system-prompt-disclosure-assessment",
+                "role": "PRIMARY",
+                "technique": "fresh-session-validation",
+            }
+        ],
+        "committed_turns": [
+            {
+                "round_key": "round-1",
+                "round": 1,
+                "request": "Send this exact Skill-generated message.",
+                "response": "same response",
+            }
+        ],
+        "target_deliveries": {},
+        "active_issue": None,
+    }
+    graph.store.create_task(state)
+
+    result = graph._target(state)
+
+    assert len(target.calls) == 1
+    assert result["total_round"] == 2
+    assert len(result["committed_turns"]) == 2
+
+
 def test_target_gateway_rejects_empty_runner_protocol_envelope(monkeypatch):
     class _Service:
-        def prepare_redteam_prompt(self, message, **kwargs):
-            return {"prepared_prompt": message}
-
         async def send_redteam_prompt(self, *args, **kwargs):
             return {
                 "current_runner_id": "runner",
@@ -163,6 +312,44 @@ def test_target_gateway_rejects_empty_runner_protocol_envelope(monkeypatch):
         match="response mapping produced an empty predicted_result",
     ):
         TargetGateway().send(runner_id="runner", message="hello")
+
+
+def test_target_gateway_forces_explicit_prepared_prompt(monkeypatch):
+    captured = {}
+
+    class _Service:
+        async def send_redteam_prompt(
+            self,
+            runner_id,
+            user_prompt,
+            prepared_prompt="",
+        ):
+            captured.update(
+                {
+                    "runner_id": runner_id,
+                    "user_prompt": user_prompt,
+                    "prepared_prompt": prepared_prompt,
+                }
+            )
+            return {"predicted_result": "target response"}
+
+    monkeypatch.setattr(
+        "app.services.task_agent_graph.MoonshotApiService",
+        _Service,
+    )
+
+    response, _raw, prepared = TargetGateway().send(
+        runner_id="runner",
+        message="executor message",
+    )
+
+    assert response == "target response"
+    assert prepared == "executor message"
+    assert captured == {
+        "runner_id": "runner",
+        "user_prompt": "executor message",
+        "prepared_prompt": "executor message",
+    }
 
 
 def test_ai_watch_is_queued_without_blocking_and_model_result_is_observational(

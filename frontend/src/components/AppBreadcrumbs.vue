@@ -21,14 +21,11 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import { ChevronForwardOutline } from '@vicons/ionicons5'
-
-interface BreadcrumbDefinition {
-  label: string
-  labelKey?: string
-  to?: string
-  param?: string
-  prefix?: string
-}
+import {
+  matchesAppBreadcrumbOverride,
+  useAppBreadcrumbOverride,
+  type AppBreadcrumbDefinition,
+} from '../composables/appBreadcrumbs'
 
 interface BreadcrumbItem {
   label: string
@@ -37,6 +34,7 @@ interface BreadcrumbItem {
 
 const route = useRoute()
 const { t } = useI18n()
+const breadcrumbOverride = useAppBreadcrumbOverride()
 
 function humanize(value: string) {
   return decodeURIComponent(value)
@@ -45,7 +43,9 @@ function humanize(value: string) {
 }
 
 const breadcrumbs = computed<BreadcrumbItem[]>(() => {
-  const definitions = (route.meta.breadcrumbs || []) as BreadcrumbDefinition[]
+  const definitions = matchesAppBreadcrumbOverride(breadcrumbOverride.value, route.path)
+    ? breadcrumbOverride.value!.breadcrumbs
+    : (route.meta.breadcrumbs || []) as AppBreadcrumbDefinition[]
   const items = definitions.map((definition) => {
     const parameter = definition.param ? route.params[definition.param] : undefined
     const rawParameter = Array.isArray(parameter) ? parameter[0] : parameter

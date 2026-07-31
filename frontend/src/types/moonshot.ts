@@ -80,6 +80,9 @@ export interface BenchmarkRecipeRequest {
   endpoints: string[]
   recipes: string[]
   cookbooks: string[]
+  evaluator_provider?: string
+  evaluator_model?: string
+  evaluator_endpoints?: string[]
   cookbook_prompt_selection_percentages?: Record<string, number>
   description: string
   prompt_selection_percentage: number

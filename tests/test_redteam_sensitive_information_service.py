@@ -6,9 +6,10 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routes import moonshot_explicit
-from app.services.connector_ai_service import ConnectorAIService
+from app.services.connector_ai_service import ConnectorAIError, ConnectorAIService
 from app.services.redteam_sensitive_information_service import (
     RedTeamSensitiveInformationService,
+    SensitiveInformationAnalysisError,
     normalize_sensitive_information_analysis,
 )
 
@@ -78,6 +79,40 @@ def test_sensitive_analysis_uses_active_model_and_only_current_turn() -> None:
         "assistantOutput": "The build host is jenkins.internal.example.",
     }
     assert captured["timeout"] == 90
+
+
+def test_default_ai_watch_client_retries_shorter_requests() -> None:
+    service = RedTeamSensitiveInformationService()
+
+    assert service.ai_client.request_timeout_seconds == 20
+    assert service.ai_client.max_connection_attempts == 2
+
+
+def test_sensitive_analysis_preserves_retryable_transport_metadata() -> None:
+    class FailingModel:
+        provider = "fake"
+        model = "fake"
+
+        def _chat_json(self, *_args, **_kwargs):
+            raise ConnectorAIError(
+                "The read operation timed out",
+                retryable=True,
+                retry_after_seconds=12,
+                failure_kind="provider_timeout",
+            )
+
+    service = RedTeamSensitiveInformationService(ai_client=FailingModel())
+
+    with pytest.raises(SensitiveInformationAnalysisError) as captured:
+        service.analyze_turn(
+            user_input="Inspect this turn.",
+            assistant_output="Completed target response.",
+            force_model=True,
+        )
+
+    assert captured.value.retryable is True
+    assert captured.value.retry_after_seconds == 12
+    assert captured.value.failure_kind == "provider_timeout"
 
 
 def test_plain_refusal_uses_deterministic_fast_path_without_model_call() -> None:

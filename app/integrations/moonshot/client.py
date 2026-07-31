@@ -11,30 +11,36 @@ from moonshot.api import (
     api_set_environment_variables,
 )
 
-from app.core.config import PROJECT_ROOT, get_moonshot_env
+from app.core.config import get_moonshot_env
+from app.core.paths import APP_HOME
 
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
 CONFIGURABLE_CONNECTOR_ASSET = ASSET_DIR / "configurable-app-connector.py"
+PRIVACY_EVALUATOR_ASSET = ASSET_DIR / "mlcprv-annotator.py"
 
 
 def ensure_project_moonshot_assets() -> None:
     moonshot_env = get_moonshot_env()
-    connector_dir = moonshot_env.get("CONNECTORS")
-    if not connector_dir:
-        return
+    managed_assets = (
+        ("CONNECTORS", CONFIGURABLE_CONNECTOR_ASSET),
+        ("METRICS", PRIVACY_EVALUATOR_ASSET),
+    )
+    for environment_key, asset in managed_assets:
+        configured_dir = moonshot_env.get(environment_key)
+        if not configured_dir or not asset.exists():
+            continue
 
-    target_dir = Path(connector_dir)
-    if not target_dir.is_absolute():
-        target_dir = PROJECT_ROOT / target_dir
+        target_dir = Path(configured_dir)
+        if not target_dir.is_absolute():
+            target_dir = APP_HOME / target_dir
+        if not target_dir.exists():
+            continue
 
-    if not target_dir.exists() or not CONFIGURABLE_CONNECTOR_ASSET.exists():
-        return
-
-    target = target_dir / CONFIGURABLE_CONNECTOR_ASSET.name
-    asset_content = CONFIGURABLE_CONNECTOR_ASSET.read_text(encoding="utf-8")
-    if not target.exists() or target.read_text(encoding="utf-8") != asset_content:
-        shutil.copyfile(CONFIGURABLE_CONNECTOR_ASSET, target)
+        target = target_dir / asset.name
+        asset_content = asset.read_text(encoding="utf-8")
+        if not target.exists() or target.read_text(encoding="utf-8") != asset_content:
+            shutil.copyfile(asset, target)
 
 
 @lru_cache

@@ -2,7 +2,7 @@ import json
 import threading
 import time
 from io import BytesIO
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -11,6 +11,7 @@ from app.services.connector_ai_service import (
     ConnectorAIError,
     ConnectorAIService,
     _PriorityModelScheduler,
+    _ProviderCircuitBreaker,
     normalize_connector_draft,
     normalize_response_mapping,
 )
@@ -164,8 +165,9 @@ def test_ai_connection_refusal_is_retried_without_losing_request() -> None:
     assert len(calls) == 3
 
 
-def test_ai_read_timeout_is_not_retried_three_times() -> None:
+def test_ai_read_timeout_uses_bounded_provider_backoff() -> None:
     calls = []
+    delays = []
 
     def open_request(request, timeout):
         calls.append((request.full_url, timeout))
@@ -179,14 +181,108 @@ def test_ai_read_timeout_is_not_retried_three_times() -> None:
             "api_key": "settings-secret",
         },
         request_open=open_request,
+        sleep_fn=delays.append,
+        random_fn=lambda: 0.0,
     )
 
-    with pytest.raises(ConnectorAIError, match="after 1 attempt"):
+    with pytest.raises(ConnectorAIError, match="after 3 attempt"):
         service.generate_draft(
             "POST https://example.test/chat with a JSON message field"
         )
 
-    assert len(calls) == 1
+    assert len(calls) == 3
+    assert delays == [0.5, 1.0]
+    metrics = service.consume_last_transport_metrics()
+    assert metrics["request_attempts"] == 3
+    assert metrics["provider_retry_delay_ms"] == 1500.0
+    assert metrics["circuit_state"] == "open"
+
+
+def test_provider_honors_retry_after_for_429_then_recovers() -> None:
+    calls = []
+    delays = []
+    model_payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "name": "Recovered",
+                            "transport": "http",
+                            "uri": "https://example.test/chat",
+                            "request": {
+                                "method": "POST",
+                                "bodyType": "json",
+                                "bodyTemplate": '{"message":"{{ prompt }}"}',
+                            },
+                            "missingInformation": [],
+                        }
+                    )
+                }
+            }
+        ]
+    }
+
+    def open_request(request, timeout):
+        calls.append((request.full_url, timeout))
+        if len(calls) == 1:
+            raise HTTPError(
+                request.full_url,
+                429,
+                "rate limited",
+                {"Retry-After": "2"},
+                BytesIO(b'{"error":"slow down"}'),
+            )
+        return _Response(model_payload)
+
+    service = ConnectorAIService(
+        settings={
+            "provider": "qwen",
+            "model": "qwen-retry-after-test",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "api_key": "settings-secret",
+        },
+        request_open=open_request,
+        max_connection_attempts=2,
+        sleep_fn=delays.append,
+        random_fn=lambda: 0.0,
+    )
+
+    result = service.generate_draft(
+        "POST https://example.test/chat with a JSON message field"
+    )
+
+    assert result["config"]["name"] == "Recovered"
+    assert len(calls) == 2
+    assert delays == [2.0]
+    metrics = service.consume_last_transport_metrics()
+    assert metrics["request_attempts"] == 2
+    assert metrics["circuit_state"] == "closed"
+
+
+def test_provider_circuit_allows_only_one_half_open_probe() -> None:
+    clock = [0.0]
+    circuit = _ProviderCircuitBreaker(
+        failure_threshold=2,
+        recovery_seconds=10,
+        clock=lambda: clock[0],
+    )
+
+    assert circuit.before_request() == "closed"
+    assert circuit.record_failure() == "closed"
+    assert circuit.record_failure() == "open"
+    with pytest.raises(ConnectorAIError) as opened:
+        circuit.before_request()
+    assert opened.value.failure_kind == "circuit_open"
+
+    clock[0] = 10.0
+    assert circuit.before_request() == "half_open"
+    with pytest.raises(ConnectorAIError) as probing:
+        circuit.before_request()
+    assert probing.value.failure_kind == "circuit_half_open"
+
+    assert circuit.record_success() == "closed"
+    assert circuit.before_request() == "closed"
 
 
 def test_priority_scheduler_serves_primary_before_queued_background_work() -> None:

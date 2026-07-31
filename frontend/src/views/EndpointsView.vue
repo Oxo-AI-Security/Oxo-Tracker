@@ -202,9 +202,12 @@
         >
           <div class="red-session-card-head">
             <span><n-icon><ChatboxEllipsesOutline /></n-icon></span>
-            <strong>{{ session.displayName || session.name }}</strong>
+            <div>
+              <small>{{ $t('auto.04c1f6b36965') }}</small>
+              <strong :title="session.displayName || session.name">{{ session.displayName || session.name }}</strong>
+            </div>
           </div>
-          <p>{{ session.description || $t('auto.f354c94fcf63') }}</p>
+          <p class="red-session-description">{{ session.description || $t('auto.f354c94fcf63') }}</p>
           <div
             v-if="runningChat"
             class="red-session-agent-status"
@@ -223,15 +226,39 @@
             <i aria-hidden="true"><span :style="{ width: `${runningProgress}%` }"></span></i>
           </div>
           <dl>
-            <div><dt>{{ $t('auto.92ec6350888f') }}</dt><dd>{{ session.endpointName }}</dd></div>
-            <div><dt>{{ $t('auto.c30415eacc6a') }}</dt><dd>{{ labelOrNone(session.payloadId) }}</dd></div>
-            <div><dt>{{ $t('auto.1b81f28b5afb') }}</dt><dd>{{ labelOrNone(session.attackModule) }}</dd></div>
+            <div>
+              <dt><n-icon><CubeOutline /></n-icon>{{ $t('auto.92ec6350888f') }}</dt>
+              <dd :title="session.endpointName">{{ session.endpointName }}</dd>
+            </div>
+            <div>
+              <dt><n-icon><DocumentTextOutline /></n-icon>{{ $t('auto.c30415eacc6a') }}</dt>
+              <dd :title="labelOrNone(session.payloadId)">{{ labelOrNone(session.payloadId) }}</dd>
+            </div>
+            <div>
+              <dt><n-icon><ShieldCheckmarkOutline /></n-icon>{{ $t('auto.1b81f28b5afb') }}</dt>
+              <dd :title="labelOrNone(session.attackModule)">{{ labelOrNone(session.attackModule) }}</dd>
+            </div>
           </dl>
           <div class="red-session-actions">
-            <n-button secondary round size="small" :disabled="Boolean(runningChat)" @click="deleteSession(session.id)">
+            <n-button
+              class="red-session-delete-button"
+              quaternary
+              round
+              size="small"
+              :disabled="Boolean(runningChat)"
+              @click="deleteSession(session.id)"
+            >
+              <template #icon><n-icon><TrashOutline /></n-icon></template>
               {{ $t('common.delete') }}
             </n-button>
-            <n-button :type="runningChat ? 'error' : 'primary'" round size="small" @click="openChat(session)">
+            <n-button
+              class="red-session-open-button"
+              :type="runningChat ? 'error' : 'primary'"
+              round
+              size="small"
+              @click="openChat(session)"
+            >
+              <template #icon><n-icon><ChatboxEllipsesOutline /></n-icon></template>
               {{ runningChat ? $t('auto.e1d839835205') : $t('auto.0556f9fadd7e') }}
             </n-button>
           </div>
@@ -421,7 +448,6 @@
           <n-button secondary round @click="toggleBaselineChat">
             {{ activeChat.compareEnabled ? $t('auto.a63ae36c1ea8') : 'Compare' }}
           </n-button>
-          <n-button secondary round @click="mode = 'sessions'">{{ $t('auto.e11e37a9253b') }}</n-button>
           <n-button circle quaternary @click="mode = 'sessions'">
             <template #icon><n-icon><CloseOutline /></n-icon></template>
           </n-button>
@@ -438,10 +464,9 @@
                   <template #icon><n-icon><AddOutline /></n-icon></template>
                   New
                 </n-button>
-                <n-button quaternary size="tiny" @click="clearActiveChat">{{ $t('auto.719ea396ad92') }}</n-button>
               </div>
             </div>
-            <n-scrollbar class="red-history-scrollbar">
+            <div class="red-history-list">
               <div
                 v-for="chat in chatHistoryThreads"
                 :key="chat.id"
@@ -452,6 +477,7 @@
                   :class="{
                     active: chat.id === activeChat.id,
                     'has-branches': childChatsFor(chat.id).length,
+                    'contains-active-branch': childChatsFor(chat.id).some((branch) => branch.id === activeChat?.id),
                   }"
                 >
                   <button
@@ -510,7 +536,7 @@
                   </button>
                 </div>
               </div>
-            </n-scrollbar>
+            </div>
           </section>
 
           <section class="red-config-pane">
@@ -591,7 +617,9 @@
                   >
                     <span class="red-chat-message-author">
                       <span>{{
-                        chat.presentation === 'task-agent-success'
+                        chat.presentation === 'task-agent-success' ||
+                        chat.presentation === 'task-agent-result' ||
+                        chat.presentation === 'task-agent-branch-archive'
                           ? 'Attack Agent'
                           : chat.role === 'user'
                             ? 'You'
@@ -605,13 +633,25 @@
                       <i></i><i></i><i></i>
                     </p>
                     <section
-                      v-else-if="chat.presentation === 'task-agent-success' && chat.taskAgentFeedback"
+                      v-else-if="
+                        (chat.presentation === 'task-agent-success' ||
+                          chat.presentation === 'task-agent-result') &&
+                        chat.taskAgentFeedback
+                      "
                       class="task-agent-success-message"
+                      :class="chat.taskAgentFeedback.outcome || 'success'"
                     >
                       <header>
-                        <span><n-icon><CheckmarkOutline /></n-icon></span>
+                        <span>
+                          <n-icon>
+                            <CheckmarkOutline
+                              v-if="(chat.taskAgentFeedback.outcome || 'success') === 'success'"
+                            />
+                            <WarningOutline v-else />
+                          </n-icon>
+                        </span>
                         <div>
-                          <small>OBJECTIVE REACHED</small>
+                          <small>{{ taskAgentFeedbackKicker(chat.taskAgentFeedback.outcome) }}</small>
                           <strong>{{ chat.taskAgentFeedback.goal }}</strong>
                           <i v-if="chat.taskAgentFeedback.sourceBranch">
                             来自子聊天 {{ chat.taskAgentFeedback.sourceBranch.branchIndex }}
@@ -620,16 +660,505 @@
                         <b>Round {{ chat.taskAgentFeedback.round }}</b>
                       </header>
                       <p>{{ chat.taskAgentFeedback.summary }}</p>
+                      <div
+                        v-if="
+                          chat.taskAgentFeedback.reason &&
+                          chat.taskAgentFeedback.reason !== chat.taskAgentFeedback.summary
+                        "
+                        class="task-agent-result-reason"
+                      >
+                        <strong>结束原因</strong>
+                        <span>{{ chat.taskAgentFeedback.reason }}</span>
+                      </div>
                       <ul v-if="chat.taskAgentFeedback.evidence.length">
                         <li v-for="item in chat.taskAgentFeedback.evidence.slice(0, 3)" :key="item">
                           {{ item }}
                         </li>
                       </ul>
+                      <section
+                        v-if="chat.taskAgentFeedback.ensemble"
+                        class="task-agent-asset-summary"
+                        :class="chat.taskAgentFeedback.ensemble.final_verdict"
+                      >
+                        <div class="task-agent-asset-verdict">
+                          <span>
+                            <small>SCORER ENSEMBLE</small>
+                            <strong>{{
+                              taskScorerVerdictLabel(
+                                chat.taskAgentFeedback.ensemble.final_verdict,
+                              )
+                            }}</strong>
+                          </span>
+                          <b>
+                            {{
+                              Math.round(
+                                chat.taskAgentFeedback.ensemble.confidence * 100,
+                              )
+                            }}%
+                          </b>
+                        </div>
+                        <p>{{ chat.taskAgentFeedback.ensemble.reason }}</p>
+                        <div class="task-agent-asset-evidence">
+                          <span
+                            v-for="kind in chat.taskAgentFeedback.ensemble
+                              .independent_evidence_types"
+                            :key="kind"
+                          >
+                            {{ taskScorerTypeLabel(kind) }}
+                          </span>
+                          <i v-if="chat.taskAgentFeedback.ensemble.conflict !== 'none'">
+                            {{ chat.taskAgentFeedback.ensemble.conflict }} conflict
+                          </i>
+                          <i
+                            v-if="chat.taskAgentFeedback.findingId"
+                            class="finding"
+                          >
+                            Finding
+                            {{
+                              chat.taskAgentFeedback.findingSeverity?.toUpperCase()
+                            }}
+                          </i>
+                        </div>
+                        <div class="task-agent-asset-action-intro">
+                          <span>
+                            <strong>Result tools</strong>
+                            <small>Review evidence, inspect saved tests, or continue this run.</small>
+                          </span>
+                          <i>Recheck / replay: 0 target calls</i>
+                        </div>
+                        <div class="task-agent-asset-actions">
+                          <button
+                            type="button"
+                            class="task-agent-score-action"
+                            :class="{
+                              busy: taskAgentAssetActionBusy(
+                                chat.taskAgentFeedback,
+                                'regrade',
+                              ),
+                            }"
+                            :disabled="Boolean(taskAgentAssetBusy)"
+                            :aria-busy="
+                              taskAgentAssetActionBusy(
+                                chat.taskAgentFeedback,
+                                'regrade',
+                              )
+                            "
+                            title="Recalculate the final verdict and confidence from the saved final evidence. This does not contact the target."
+                            aria-label="Re-score the final result using saved final evidence. No target calls."
+                            @click="
+                              regradeTaskAgentResult(
+                                chat.taskAgentFeedback,
+                              )
+                            "
+                          >
+                            <span class="task-agent-score-action-icon">
+                              <n-icon>
+                                <SyncOutline
+                                  v-if="
+                                    taskAgentAssetActionBusy(
+                                      chat.taskAgentFeedback,
+                                      'regrade',
+                                    )
+                                  "
+                                  class="task-agent-action-spinner"
+                                />
+                                <SearchOutline v-else />
+                              </n-icon>
+                            </span>
+                            <span class="task-agent-score-action-copy">
+                              <strong>{{
+                                taskAgentAssetActionBusy(
+                                  chat.taskAgentFeedback,
+                                  'regrade',
+                                )
+                                  ? 'Re-scoring final result…'
+                                  : 'Re-score final result'
+                              }}</strong>
+                              <small>Final evidence only · 0 target calls</small>
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            class="task-agent-score-action"
+                            :class="{
+                              busy: taskAgentAssetActionBusy(
+                                chat.taskAgentFeedback,
+                                'replay',
+                              ),
+                            }"
+                            :disabled="Boolean(taskAgentAssetBusy)"
+                            :aria-busy="
+                              taskAgentAssetActionBusy(
+                                chat.taskAgentFeedback,
+                                'replay',
+                              )
+                            "
+                            :title="`Recalculate scoring for all ${chat.taskAgentFeedback.round} stored rounds and rebuild the final score. This does not resend messages to the target.`"
+                            :aria-label="`Re-score all ${chat.taskAgentFeedback.round} stored rounds. No target calls.`"
+                            @click="replayTaskAgentResult(chat.taskAgentFeedback)"
+                          >
+                            <span class="task-agent-score-action-icon">
+                              <n-icon>
+                                <SyncOutline
+                                  v-if="
+                                    taskAgentAssetActionBusy(
+                                      chat.taskAgentFeedback,
+                                      'replay',
+                                    )
+                                  "
+                                  class="task-agent-action-spinner"
+                                />
+                                <PlayOutline v-else />
+                              </n-icon>
+                            </span>
+                            <span class="task-agent-score-action-copy">
+                              <strong>{{
+                                taskAgentAssetActionBusy(
+                                  chat.taskAgentFeedback,
+                                  'replay',
+                                )
+                                  ? `Re-scoring ${chat.taskAgentFeedback.round} rounds…`
+                                  : `Re-score all ${chat.taskAgentFeedback.round} rounds`
+                              }}</strong>
+                              <small>Rebuild score timeline · 0 target calls</small>
+                            </span>
+                          </button>
+                          <button
+                            v-if="!chat.taskAgentFeedback.findingId"
+                            type="button"
+                            :disabled="Boolean(taskAgentAssetBusy)"
+                            title="Save the verified evidence snapshot as an independent finding."
+                            aria-label="Save this evidence snapshot as a finding."
+                            @click="
+                              saveTaskAgentFinding(
+                                chat.taskAgentFeedback,
+                              )
+                            "
+                          >
+                            <n-icon>
+                              <SyncOutline
+                                v-if="
+                                  taskAgentAssetActionBusy(
+                                    chat.taskAgentFeedback,
+                                    'finding',
+                                  )
+                                "
+                                class="task-agent-action-spinner"
+                              />
+                              <DocumentTextOutline v-else />
+                            </n-icon>
+                            {{
+                              taskAgentAssetActionBusy(
+                                chat.taskAgentFeedback,
+                                'finding',
+                              )
+                                ? 'Saving…'
+                                : 'Save finding'
+                            }}
+                          </button>
+                          <button
+                            v-else-if="!chat.taskAgentFeedback.regressionCaseId"
+                            type="button"
+                            :disabled="Boolean(taskAgentAssetBusy)"
+                            title="Save this finding as a reusable regression case. It is stored now and runs only when a regression suite invokes it."
+                            aria-label="Save this finding as a regression case. This does not run the case now."
+                            @click="
+                              createTaskAgentRegression(
+                                chat.taskAgentFeedback,
+                              )
+                            "
+                          >
+                            <n-icon>
+                              <SyncOutline
+                                v-if="
+                                  taskAgentAssetActionBusy(
+                                    chat.taskAgentFeedback,
+                                    'regression',
+                                  )
+                                "
+                                class="task-agent-action-spinner"
+                              />
+                              <DocumentTextOutline v-else />
+                            </n-icon>
+                            {{
+                              taskAgentAssetActionBusy(
+                                chat.taskAgentFeedback,
+                                'regression',
+                              )
+                                ? 'Saving…'
+                                : 'Save regression'
+                            }}
+                          </button>
+                          <button
+                            v-else
+                            type="button"
+                            class="task-agent-regression-saved"
+                            :disabled="Boolean(taskAgentAssetBusy)"
+                            :aria-expanded="
+                              Boolean(
+                                chat.taskAgentFeedback.regressionDetailsExpanded,
+                              )
+                            "
+                            title="Open the saved regression test definition. Saving a case does not execute it automatically."
+                            @click="
+                              toggleTaskAgentRegressionDetails(
+                                chat.taskAgentFeedback,
+                              )
+                            "
+                          >
+                            <n-icon><DocumentTextOutline /></n-icon>
+                            {{
+                              chat.taskAgentFeedback.regressionDetailsExpanded
+                                ? 'Hide saved case'
+                                : 'View saved case'
+                            }}
+                          </button>
+                          <button
+                            type="button"
+                            class="primary"
+                            :disabled="Boolean(taskAgentAssetBusy)"
+                            :title="`Start a new isolated Attack Agent run using history through Round ${chat.taskAgentFeedback.round}. The source run stays unchanged.`"
+                            :aria-label="`Fork a new run from Round ${chat.taskAgentFeedback.round}. This new run may contact the target.`"
+                            @click="
+                              forkTaskAgentResult(
+                                activeChat,
+                                chat.taskAgentFeedback,
+                              )
+                            "
+                          >
+                            <n-icon>
+                              <SyncOutline
+                                v-if="
+                                  taskAgentAssetActionBusy(
+                                    chat.taskAgentFeedback,
+                                    'fork',
+                                  )
+                                "
+                                class="task-agent-action-spinner"
+                              />
+                              <GitBranchOutline v-else />
+                            </n-icon>
+                            {{
+                              taskAgentAssetActionBusy(
+                                chat.taskAgentFeedback,
+                                'fork',
+                              )
+                                ? 'Starting fork…'
+                                : `Fork from R${chat.taskAgentFeedback.round}`
+                            }}
+                          </button>
+                          <template
+                            v-if="
+                              chat.taskAgentFeedback.ensemble
+                                .human_review_required
+                            "
+                          >
+                            <button
+                              type="button"
+                              :disabled="Boolean(taskAgentAssetBusy)"
+                              @click="
+                                reviewTaskAgentResult(
+                                  chat.taskAgentFeedback,
+                                  'confirm',
+                                )
+                              "
+                            >
+                              <n-icon><CheckmarkOutline /></n-icon>
+                              Confirm
+                            </button>
+                            <button
+                              type="button"
+                              :disabled="Boolean(taskAgentAssetBusy)"
+                              @click="
+                                reviewTaskAgentResult(
+                                  chat.taskAgentFeedback,
+                                  'reject',
+                                )
+                              "
+                            >
+                              <n-icon><WarningOutline /></n-icon>
+                              Reject
+                            </button>
+                          </template>
+                        </div>
+                        <section
+                          v-if="
+                            chat.taskAgentFeedback.regressionDetailsExpanded &&
+                            chat.taskAgentFeedback.regressionCase
+                          "
+                          class="task-agent-regression-details"
+                        >
+                          <header>
+                            <span>
+                              <small>SAVED REGRESSION CASE</small>
+                              <strong>{{
+                                chat.taskAgentFeedback.regressionCase.name
+                              }}</strong>
+                            </span>
+                            <i>{{
+                              chat.taskAgentFeedback.regressionCase.status.toUpperCase()
+                            }}</i>
+                          </header>
+                          <p>
+                            This is a reusable test definition created from the
+                            fixed evidence snapshot. It is saved, but it is not
+                            executed automatically yet.
+                          </p>
+                          <dl>
+                            <div>
+                              <dt>Expected result</dt>
+                              <dd>{{
+                                humanizeId(
+                                  chat.taskAgentFeedback.regressionCase
+                                    .expected_outcome,
+                                )
+                              }}</dd>
+                            </div>
+                            <div>
+                              <dt>Goal</dt>
+                              <dd>{{
+                                chat.taskAgentFeedback.regressionCase.goal ||
+                                'Not recorded'
+                              }}</dd>
+                            </div>
+                            <div>
+                              <dt>Reusable request</dt>
+                              <dd>{{
+                                chat.taskAgentFeedback.regressionCase.request ||
+                                'Not recorded'
+                              }}</dd>
+                            </div>
+                            <div>
+                              <dt>Pass signal</dt>
+                              <dd>{{
+                                chat.taskAgentFeedback.regressionCase
+                                  .expected_signal || 'Not recorded'
+                              }}</dd>
+                            </div>
+                          </dl>
+                          <footer>
+                            <span>{{
+                              chat.taskAgentFeedback.regressionCase
+                                .regression_case_id
+                            }}</span>
+                            <i>Source evidence remains immutable</i>
+                          </footer>
+                        </section>
+                        <div
+                          v-if="chat.taskAgentFeedback.assetActivity"
+                          class="task-agent-asset-activity"
+                          :class="chat.taskAgentFeedback.assetActivity.status"
+                          :role="
+                            chat.taskAgentFeedback.assetActivity.status === 'error'
+                              ? 'alert'
+                              : 'status'
+                          "
+                          aria-live="polite"
+                        >
+                          <span class="task-agent-asset-activity-icon">
+                            <n-icon>
+                              <SyncOutline
+                                v-if="
+                                  chat.taskAgentFeedback.assetActivity.status ===
+                                  'working'
+                                "
+                                class="task-agent-action-spinner"
+                              />
+                              <CheckmarkOutline
+                                v-else-if="
+                                  chat.taskAgentFeedback.assetActivity.status ===
+                                  'success'
+                                "
+                              />
+                              <WarningOutline v-else />
+                            </n-icon>
+                          </span>
+                          <span class="task-agent-asset-activity-copy">
+                            <strong>{{ chat.taskAgentFeedback.assetActivity.title }}</strong>
+                            <small>{{ chat.taskAgentFeedback.assetActivity.detail }}</small>
+                          </span>
+                          <time>{{
+                            formatTaskAgentRecordTime(
+                              chat.taskAgentFeedback.assetActivity.updatedAt,
+                            )
+                          }}</time>
+                        </div>
+                      </section>
                       <footer>
-                        <span>Saved to this chat session</span>
+                        <span>
+                          {{
+                            chat.taskAgentFeedback.mergedBranchCount
+                              ? `${chat.taskAgentFeedback.mergedBranchCount} 个子聊天已归档 · 最终总结`
+                              : '最终总结已保存到主聊天'
+                          }}
+                        </span>
                         <time>{{ formatTaskAgentRecordTime(chat.taskAgentFeedback.completedAt) }}</time>
                       </footer>
                     </section>
+                    <details
+                      v-else-if="
+                        chat.presentation === 'task-agent-branch-archive' &&
+                        chat.taskAgentBranchArchive
+                      "
+                      class="task-agent-branch-archive"
+                    >
+                      <summary>
+                        <span class="task-agent-branch-archive-mark">
+                          <n-icon><GitBranchOutline /></n-icon>
+                        </span>
+                        <span class="task-agent-branch-archive-copy">
+                          <small>CHILD CHAT COMPLETED</small>
+                          <strong>
+                            Specialist {{ chat.taskAgentBranchArchive.branchIndex }}
+                          </strong>
+                          <i>{{ chat.taskAgentBranchArchive.focus || 'Independent exploration' }}</i>
+                        </span>
+                        <span
+                          class="task-agent-branch-archive-status"
+                          :class="chat.taskAgentBranchArchive.status"
+                        >
+                          {{ taskAgentStatusText(chat.taskAgentBranchArchive.status) }}
+                        </span>
+                        <span class="task-agent-branch-archive-count">
+                          {{ chat.taskAgentBranchArchive.turns.length }} turns
+                        </span>
+                        <n-icon class="task-agent-branch-archive-chevron">
+                          <ChevronDownOutline />
+                        </n-icon>
+                      </summary>
+                      <div class="task-agent-branch-transcript">
+                        <header>
+                          <span>
+                            {{ chat.taskAgentBranchArchive.method || 'Independent strategy' }}
+                          </span>
+                          <time>
+                            {{ formatTaskAgentRecordTime(chat.taskAgentBranchArchive.completedAt) }}
+                          </time>
+                        </header>
+                        <article
+                          v-for="turn in chat.taskAgentBranchArchive.turns"
+                          :key="turn.id"
+                          class="task-agent-branch-turn"
+                        >
+                          <div class="task-agent-branch-turn-heading">
+                            <strong>Round {{ turn.round }}</strong>
+                            <time>{{ formatTaskAgentRecordTime(turn.createdAt) }}</time>
+                          </div>
+                          <section class="request">
+                            <span>You</span>
+                            <p>{{ turn.request }}</p>
+                          </section>
+                          <section class="response">
+                            <span>{{ activeSession.endpointName }}</span>
+                            <div v-html="renderMarkdown(turn.response)"></div>
+                          </section>
+                        </article>
+                        <footer v-if="chat.taskAgentBranchArchive.summary">
+                          <strong>Branch outcome</strong>
+                          <span>{{ chat.taskAgentBranchArchive.summary }}</span>
+                        </footer>
+                      </div>
+                    </details>
                     <div v-else-if="chat.role === 'assistant'" class="red-assistant-response">
                       <div class="red-assistant-bubble">
                         <div class="red-assistant-markdown" v-html="renderMarkdown(displayAssistantContent(chat.content))"></div>
@@ -736,44 +1265,153 @@
             </section>
           </div>
 
-          <section v-if="taskAgentGoalPresent" class="task-goal-card" :class="`status-${activeChat.taskAgentStatus}`">
-            <div class="task-goal-mark">
-              <n-icon><SparklesOutline /></n-icon>
-            </div>
+          <section
+            v-if="taskAgentGoalPresent"
+            class="task-goal-card"
+            :class="[
+              `status-${activeChat.taskAgentStatus}`,
+              {
+                'task-goal-card--expanded':
+                  taskAgentDetailsExpanded || childChatsFor(activeChat.id).length,
+              },
+            ]"
+          >
             <div class="task-goal-content">
-              <div class="task-goal-kicker">
-                <span>{{ $t('auto.64b08d250372') }}</span>
-                <span class="task-goal-state"><i></i>{{ taskAgentStatusLabel }}</span>
-              </div>
-              <strong>{{ activeChat.taskGoal }}</strong>
-              <div class="task-goal-brief">
-                <span>{{ $t('auto.ec7b59833520') }} {{ activeChat.taskAgentRound || 0 }}</span>
-                <span>{{ taskAgentStatusDetail }}</span>
+              <div class="task-goal-topline">
+                <div class="task-goal-primary">
+                  <button
+                    v-if="!taskAgentGoalEditing"
+                    type="button"
+                    class="task-goal-toggle"
+                    :aria-expanded="taskAgentDetailsExpanded"
+                    :title="taskAgentDetailsExpanded ? $t('auto.0bdb223a2105') : $t('auto.5586a13e5f06')"
+                    @click="toggleTaskAgentGoalDetails"
+                  >
+                    <span class="task-goal-mark">
+                      <n-icon><LocateOutline /></n-icon>
+                    </span>
+                    <span class="task-goal-label">{{ $t('auto.64b08d250372') }}</span>
+                    <strong :title="activeChat.taskGoal">{{ activeChat.taskGoal }}</strong>
+                  </button>
+                  <template v-else>
+                    <span class="task-goal-mark">
+                      <n-icon><LocateOutline /></n-icon>
+                    </span>
+                    <span class="task-goal-label">{{ $t('auto.64b08d250372') }}</span>
+                  <input
+                    ref="taskAgentGoalEditInputRef"
+                    v-model="taskAgentGoalDraft"
+                    class="task-goal-edit-input"
+                    maxlength="4000"
+                    :aria-label="$t('auto.64b08d250372')"
+                    @click.stop
+                    @keydown.enter.prevent="saveTaskAgentGoalEdit"
+                    @keydown.esc.prevent="cancelTaskAgentGoalEdit"
+                  />
+                  </template>
+                </div>
+                <div class="task-goal-tools">
+                  <span
+                    v-if="activeChat.taskAgentElapsedSeconds != null"
+                    class="task-goal-elapsed"
+                  >
+                    {{ displayedTaskAgentSeconds(activeChat) }}s
+                  </span>
+                  <button
+                    class="task-goal-icon-action"
+                    type="button"
+                    :title="taskAgentGoalEditing ? 'Save goal' : 'Edit goal'"
+                    :aria-label="taskAgentGoalEditing ? 'Save goal' : 'Edit goal'"
+                    @click.stop="taskAgentGoalEditing ? saveTaskAgentGoalEdit() : beginTaskAgentGoalEdit()"
+                  >
+                    <n-icon>
+                      <CheckmarkOutline v-if="taskAgentGoalEditing" />
+                      <CreateOutline v-else />
+                    </n-icon>
+                  </button>
+                  <button
+                    v-if="activeChat.taskAgentStatus === 'paused'"
+                    class="task-goal-resume-action"
+                    type="button"
+                    :title="$t('auto.b3bd0b5a7049')"
+                    :aria-label="$t('auto.b3bd0b5a7049')"
+                    @click.stop="resumeActiveTaskAgent"
+                  >
+                    <n-icon><PlayOutline /></n-icon>
+                    <span>Continue</span>
+                  </button>
+                  <button
+                    v-else-if="taskAgentBusy"
+                    class="task-goal-icon-action"
+                    type="button"
+                    :title="$t('auto.781961bc81c2')"
+                    :aria-label="$t('auto.781961bc81c2')"
+                    @click.stop="pauseActiveTaskAgent"
+                  >
+                    <n-icon><PauseOutline /></n-icon>
+                  </button>
+                  <button
+                    class="task-goal-delete"
+                    type="button"
+                    :title="$t('auto.a0db9360215a')"
+                    :aria-label="$t('auto.a0db9360215a')"
+                    @click.stop="taskAgentRemovalModalOpen = true"
+                  >
+                    <n-icon><TrashOutline /></n-icon>
+                  </button>
+                </div>
               </div>
               <div class="task-goal-progress" aria-hidden="true">
-                <i :style="{ width: `${activeChat.taskAgentEvaluation?.progress || taskAgentWorkingProgress}%` }"></i>
+                <i :style="{ width: `${taskAgentWorkingProgress}%` }"></i>
               </div>
               <section
                 v-if="childChatsFor(activeChat.id).length"
                 class="task-goal-agents"
+                :class="{ open: expandedParallelAgentPanels.has(activeChat.id) }"
                 aria-label="Parallel Attack Agents"
               >
-                <header>
-                  <span>PARALLEL AGENTS</span>
-                  <b>
-                    1 coordinator + {{ childChatsFor(activeChat.id).length }} specialists
-                  </b>
-                </header>
-                <div class="task-goal-agent-lanes">
+                <button
+                  type="button"
+                  class="task-goal-agents-summary"
+                  :aria-expanded="expandedParallelAgentPanels.has(activeChat.id)"
+                  @click="toggleParallelAgentPanel(activeChat.id)"
+                >
+                  <span class="task-goal-agent-stack" aria-hidden="true">
+                    <i class="coordinator"><n-icon><SparklesOutline /></n-icon></i>
+                    <i
+                      v-for="branch in childChatsFor(activeChat.id).slice(0, 4)"
+                      :key="branch.id"
+                      :class="branch.taskAgentStatus"
+                    >
+                      {{ branch.branchIndex || 1 }}
+                    </i>
+                  </span>
+                  <span class="task-goal-agents-copy">
+                    <strong>Agent team</strong>
+                    <small>1 coordinator · {{ childChatsFor(activeChat.id).length }} specialists</small>
+                  </span>
+                  <span class="task-goal-agents-count" :class="activeChat.taskAgentStatus">
+                    <i></i>{{ childChatsFor(activeChat.id).length + 1 }} agents
+                  </span>
+                  <n-icon class="task-goal-agents-chevron"><ChevronDownOutline /></n-icon>
+                </button>
+                <div
+                  v-if="expandedParallelAgentPanels.has(activeChat.id)"
+                  class="task-goal-agent-list"
+                >
                   <article class="task-goal-agent coordinator">
                     <span class="task-goal-agent-avatar">
                       <n-icon><SparklesOutline /></n-icon>
                     </span>
-                    <span>
+                    <span class="task-goal-agent-copy">
                       <strong>Main coordinator</strong>
-                      <small>{{ activeChat.taskAgentNode || 'orchestrating' }}</small>
+                      <small>Directing the team · {{ activeChat.taskAgentNode || 'orchestrating' }}</small>
                     </span>
-                    <i :class="activeChat.taskAgentStatus">
+                    <i
+                      class="task-goal-agent-status"
+                      :class="activeChat.taskAgentStatus"
+                      :aria-label="`Coordinator status: ${taskAgentStatusText(activeChat.taskAgentStatus)}`"
+                    >
                       {{ taskAgentStatusText(activeChat.taskAgentStatus) }}
                     </i>
                   </article>
@@ -782,32 +1420,71 @@
                     :key="branch.id"
                     type="button"
                     class="task-goal-agent specialist"
+                    :class="{ active: branch.id === activeChat.id }"
                     :title="branch.branchFocus || branch.title"
                     @click="openChatThread(branch.id)"
                   >
                     <span class="task-goal-agent-avatar">
                       {{ String(branch.branchIndex || 1).padStart(2, '0') }}
                     </span>
-                    <span>
+                    <span class="task-goal-agent-copy">
                       <strong>Specialist {{ branch.branchIndex || 1 }}</strong>
                       <small>{{ branch.taskAgentMethod || branch.branchFocus || 'Exploring an independent route' }}</small>
                     </span>
-                    <i :class="branch.taskAgentStatus">
+                    <i
+                      class="task-goal-agent-status"
+                      :class="branch.taskAgentStatus"
+                      :aria-label="`Specialist ${branch.branchIndex || 1} status: ${taskAgentStatusText(branch.taskAgentStatus)}`"
+                    >
                       {{ taskAgentStatusText(branch.taskAgentStatus) }}
                     </i>
                   </button>
                 </div>
               </section>
               <div v-if="taskAgentDetailsExpanded" class="task-goal-details">
-                <div class="task-goal-meta">
-                  <span>{{ activeChat.taskAgentMaxRounds == null ? $t('auto.62a2840faf0b') : `Limit ${activeChat.taskAgentMaxRounds} rounds` }}</span>
-                  <span v-if="activeChat.taskAgentMethod">{{ $t('auto.88306943fea7') }} {{ activeChat.taskAgentMethod }}</span>
-                  <span v-if="activeChat.taskAgentSkill">Skill {{ activeChat.taskAgentSkill }}</span>
+                <div class="task-goal-detail-meta">
+                  <span class="task-goal-state"><i></i>{{ taskAgentStatusLabel }}</span>
+                  <span>{{ $t('auto.ec7b59833520') }} {{ activeChat.taskAgentRound || 0 }}</span>
                   <span>{{ activeChat.taskAgentModel || $t('auto.91a7e1c1fd99') }}</span>
-                  <span v-if="activeChat.taskAgentElapsedSeconds != null">{{ displayedTaskAgentSeconds(activeChat) }}s</span>
-                  <span v-if="activeChat.taskAgentInputTokens || activeChat.taskAgentOutputTokens">
-                    ~{{ (activeChat.taskAgentInputTokens || 0) + (activeChat.taskAgentOutputTokens || 0) }} {{ $t('auto.3391436a4e72') }} </span>
+                  <span
+                    v-if="activeChat.taskAgentInputTokens || activeChat.taskAgentOutputTokens"
+                  >
+                    ~{{ (activeChat.taskAgentInputTokens || 0) + (activeChat.taskAgentOutputTokens || 0) }}
+                    {{ $t('auto.3391436a4e72') }}
+                  </span>
+                  <span class="task-goal-detail-summary">{{ taskAgentStatusDetail }}</span>
+                  <button
+                    v-if="activeChat.taskAgentStatus === 'error'"
+                    class="task-goal-retry"
+                    type="button"
+                    :title="$t('auto.0d890a182510')"
+                    @click="retryFailedTaskAgentGoal"
+                  >
+                    {{ $t('auto.9f5cd8a2e880') }}
+                  </button>
                 </div>
+                <section
+                  v-if="activeChat.taskAgentScorerEnsemble"
+                  class="task-goal-scorer-panel"
+                  :class="activeChat.taskAgentScorerEnsemble.final_verdict"
+                >
+                  <span>
+                    <small>Scorer ensemble</small>
+                    <strong>{{
+                      taskScorerVerdictLabel(
+                        activeChat.taskAgentScorerEnsemble.final_verdict,
+                      )
+                    }}</strong>
+                  </span>
+                  <p>{{ activeChat.taskAgentScorerEnsemble.reason }}</p>
+                  <b>
+                    {{
+                      Math.round(
+                        activeChat.taskAgentScorerEnsemble.confidence * 100,
+                      )
+                    }}%
+                  </b>
+                </section>
                 <section class="task-goal-skills-panel">
                   <header class="task-goal-skills-heading">
                     <span>{{ $t('auto.e145df581fc4') }}</span>
@@ -854,29 +1531,6 @@
                     </p>
                   </div>
                   <div
-                    v-if="activeChat.taskAgentChangedVariable"
-                    class="task-goal-changed-variable"
-                  >
-                    <span>{{ $t('auto.89e402a9f92b') }}</span>
-                    <p>{{ activeChat.taskAgentChangedVariable }}</p>
-                  </div>
-                  <div
-                    v-if="activeChat.taskAgentStrategyGap || activeChat.taskAgentResponsePattern"
-                    class="task-goal-changed-variable"
-                  >
-                    <span>{{ $t('auto.684d04af9838') }}</span>
-                    <p>
-                      <template v-if="activeChat.taskAgentResponsePattern">
-                        {{ activeChat.taskAgentResponsePattern }}
-                      </template>
-                      <template v-if="activeChat.taskAgentStrategyGap">
-                        · {{ activeChat.taskAgentStrategyGap }}
-                      </template>
-                      <template v-if="activeChat.taskAgentStrategyCandidateCount">
-                        · {{ activeChat.taskAgentStrategyCandidateCount }} {{ $t('auto.0347152a4101') }} </template>
-                    </p>
-                  </div>
-                  <div
                     v-if="activeChat.taskAgentSkillsToContinue?.length || activeChat.taskAgentSkillsToDrop?.length"
                     class="task-goal-skill-recommendation"
                   >
@@ -887,58 +1541,9 @@
                   </div>
                 </section>
                 <div class="task-goal-runtime-actions">
-                  <n-button
-                    v-if="activeChat.taskAgentStatus !== 'paused' && taskAgentBusy"
-                    size="tiny"
-                    round
-                    secondary
-                    @click="pauseActiveTaskAgent"
-                  > {{ $t('auto.781961bc81c2') }} </n-button>
-                  <n-button
-                    v-if="activeChat.taskAgentStatus === 'paused'"
-                    size="tiny"
-                    round
-                    type="primary"
-                    @click="resumeActiveTaskAgent"
-                  > {{ $t('auto.b3bd0b5a7049') }} </n-button>
-                  <n-button
-                    v-if="taskAgentBusy || activeChat.taskAgentStatus === 'paused'"
-                    size="tiny"
-                    round
-                    type="error"
-                    secondary
-                    @click="taskAgentRemovalModalOpen = true"
-                  > {{ $t('auto.9e253470c876') }} </n-button>
                   <span v-if="activeChat.taskAgentNode">{{ $t('auto.2eac7522aa69') }} {{ activeChat.taskAgentNode }}</span>
                 </div>
               </div>
-            </div>
-            <div class="task-goal-tools">
-              <button
-                v-if="activeChat.taskAgentStatus === 'error'"
-                class="task-goal-expand"
-                type="button"
-                :title="$t('auto.0d890a182510')"
-                @click="retryFailedTaskAgentGoal"
-              > {{ $t('auto.9f5cd8a2e880') }} </button>
-              <button
-                class="task-goal-expand"
-                type="button"
-                :aria-expanded="taskAgentDetailsExpanded"
-                :title="taskAgentDetailsExpanded ? $t('auto.0bdb223a2105') : $t('auto.5586a13e5f06')"
-                @click="taskAgentDetailsExpanded = !taskAgentDetailsExpanded"
-              >
-                {{ taskAgentDetailsExpanded ? 'Less' : 'Details' }}
-              </button>
-              <button
-                class="task-goal-delete"
-                type="button"
-                :title="$t('auto.a0db9360215a')"
-                :aria-label="$t('auto.a0db9360215a')"
-                @click="taskAgentRemovalModalOpen = true"
-              >
-                <n-icon><TrashOutline /></n-icon>
-              </button>
             </div>
           </section>
 
@@ -964,7 +1569,8 @@
           <form
             class="red-chat-composer"
             :class="{
-              'task-agent-mode': taskAgentGoalEntryMode || taskAgentGoalActive,
+              'task-agent-mode': taskAgentGoalEntryMode || taskAgentGoalPresent,
+              'task-agent-goal-entry': taskAgentGoalEntryMode && !taskAgentGoalPresent,
               'task-agent-locked': taskAgentGoalActive,
             }"
             @submit.prevent="handleComposerSubmit"
@@ -983,7 +1589,12 @@
               @click="toggleTaskAgentGoalEntry"
             >
               <span class="task-agent-trigger-content">
-                <svg class="task-agent-trigger-robot" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <svg
+                  class="task-agent-trigger-robot"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
                   <path d="M12 3V5" />
                   <circle cx="12" cy="2.5" r="1" />
                   <rect x="5" y="6" width="14" height="12" rx="4" />
@@ -996,15 +1607,6 @@
                 <span class="task-agent-trigger-label">{{ $t('auto.fa41849901b4') }}</span>
               </span>
             </button>
-            <button
-              class="task-agent-settings-trigger"
-              type="button"
-              :aria-label="$t('auto.d1e1e743383c')"
-              :title="$t('auto.d1e1e743383c')"
-              @click="taskAgentSettingsOpen = true"
-            >
-              <n-icon><SettingsOutline /></n-icon>
-            </button>
             <textarea
               id="red-chat-input"
               v-model="chatPrompt"
@@ -1012,17 +1614,30 @@
               :placeholder="taskAgentComposerPlaceholder"
               @keydown="handleComposerKeydown"
             />
-            <div>
+            <div class="red-chat-composer-footer">
               <small>{{ taskAgentComposerHint }}</small>
-              <n-button
-                type="primary"
-                round
-                attr-type="submit"
-                :loading="chatSending || (!taskAgentGoalActive && taskAgentBusy)"
-                :disabled="!chatPrompt.trim()"
-              >
-                {{ taskAgentPrimaryActionLabel }}
-              </n-button>
+              <span class="red-chat-composer-actions">
+                <TaskAgentLaunchPopover
+                  v-if="taskAgentGoalEntryMode && !taskAgentGoalActive"
+                  v-model:show="taskAgentLaunchPopoverOpen"
+                  :locale="settingsStore.locale"
+                  :model-value="taskAgentControlModelValue"
+                  :model-options="taskAgentControlModelOptions"
+                  :exploration-intensity="taskAgentExplorationIntensity"
+                  @update:model-value="updateTaskAgentControlModel"
+                  @update:exploration-intensity="updateTaskAgentExplorationIntensity"
+                  @open-advanced="openTaskAgentAdvancedSettings"
+                />
+                <n-button
+                  type="primary"
+                  round
+                  attr-type="submit"
+                  :loading="chatSending || (!taskAgentGoalActive && taskAgentBusy)"
+                  :disabled="!chatPrompt.trim()"
+                >
+                  {{ taskAgentPrimaryActionLabel }}
+                </n-button>
+              </span>
             </div>
           </form>
         </main>
@@ -1067,7 +1682,7 @@
                 <small>{{ $t('auto.9bff8f9133be') }}</small>
                 <strong>{{ taskAgentWatchTitle }}</strong>
               </span>
-              <b>{{ activeChat.taskAgentEvaluation?.progress || 0 }}%</b>
+              <b>{{ taskAgentWorkingProgress }}%</b>
             </div>
             <p>{{ activeChat.taskAgentEvaluation?.summary || taskAgentStatusDetail }}</p>
             <ul v-if="activeChat.taskAgentEvaluation?.evidence?.length">
@@ -1075,27 +1690,16 @@
             </ul>
           </section>
 
-          <div class="sensitive-insights-summary">
-            <div>
-              <strong>{{ sensitiveFindingGroups.length }}</strong>
-              <span>{{ $t('auto.90b9c3ac0271') }}</span>
-            </div>
-            <div>
-              <strong>{{ highPriorityFindingCount }}</strong>
-              <span>{{ $t('auto.f1d791bd553d') }}</span>
-            </div>
-          </div>
-
           <div v-if="sessionSensitiveAnalysisError" class="sensitive-analysis-error">
             <n-icon><WarningOutline /></n-icon>
             <span>{{ sessionSensitiveAnalysisError }}</span>
           </div>
 
-          <n-scrollbar class="sensitive-findings-scrollbar">
-            <div
-              v-if="goalProgressRecordGroups.length || sensitiveFindingGroups.length"
-              class="sensitive-findings-list"
-            >
+          <n-scrollbar
+            v-if="goalProgressRecordGroups.length || sensitiveFindingGroups.length"
+            class="sensitive-findings-scrollbar"
+          >
+            <div class="sensitive-findings-list">
               <article
                 v-for="group in goalProgressRecordGroups"
                 :key="group.runId"
@@ -1149,7 +1753,6 @@
                 >
                   <div class="sensitive-finding-card-top">
                     <span class="sensitive-priority">{{ group.priority }}</span>
-                    <span>{{ group.layer }}</span>
                     <span>{{ sensitiveCategoryLabel(group.category) }}</span>
                     <span v-if="group.findings.length > 1">{{ group.findings.length }} {{ $t('auto.86761b63a7bd') }}</span>
                     <n-icon class="sensitive-finding-card-chevron"><ChevronDownOutline /></n-icon>
@@ -1170,17 +1773,12 @@
                 </div>
               </article>
             </div>
-            <div v-else class="sensitive-empty-state">
-              <span><n-icon><SparklesOutline /></n-icon></span>
-              <strong>{{ $t('auto.d7c3c73b5638') }}</strong>
-              <p>{{ $t('auto.b606d2c2e3ef') }}</p>
-            </div>
           </n-scrollbar>
-
-          <footer class="sensitive-insights-footer">
-            <span>{{ sessionSensitiveAnalysisProvider || $t('auto.eebb18b4fe84') }}</span>
-            <b>{{ sessionSensitiveAnalysisModel || $t('auto.3d96cf2a60c2') }}</b>
-          </footer>
+          <div v-else class="sensitive-empty-state">
+            <span><n-icon><SparklesOutline /></n-icon></span>
+            <strong>{{ $t('auto.d7c3c73b5638') }}</strong>
+            <p>{{ $t('auto.b606d2c2e3ef') }}</p>
+          </div>
         </aside>
       </div>
     </section>
@@ -1237,7 +1835,6 @@
             <div class="sensitive-evidence-record-body">
               <div class="sensitive-record-actions">
                 <section class="sensitive-evidence-metadata">
-                  <span><b>{{ $t('auto.4343635cf237') }}</b>{{ finding.layer }}</span>
                   <span><b>{{ $t('auto.82fa7d52c89d') }}</b>{{ confidenceLabel(finding.confidence) }}</span>
                   <span><b>{{ $t('auto.e39262defe80') }}</b>{{ conclusionLabel(finding.conclusionType) }}</span>
                 </section>
@@ -1374,11 +1971,6 @@
         </div>
       </template>
       <div class="sensitive-rules-body">
-        <div class="sensitive-rule-principles">
-          <span><b>{{ $t('auto.4651a34e4df9') }}</b>{{ $t('auto.161c47ce7858') }}</span>
-          <span><b>{{ $t('auto.7ea014de7bfb') }}</b>{{ $t('auto.b605bcf142ae') }}</span>
-          <span><b>{{ $t('auto.7d15dd1bec2e') }}</b>{{ $t('auto.8f445b59e595') }}</span>
-        </div>
         <div class="sensitive-rule-list">
           <article
             v-for="rule in sensitiveInformationRules"
@@ -1424,10 +2016,18 @@
           </article>
         </div>
         <footer class="sensitive-rules-footer">
-          <div><b>P0</b><span>{{ $t('auto.e0d0cb247bdd') }}</span></div>
-          <div><b>P1</b><span>{{ $t('auto.14caacb71919') }}</span></div>
-          <div><b>P2</b><span>{{ $t('auto.494a415b8078') }}</span></div>
-          <div><b>P3</b><span>{{ $t('auto.55e54c9bcdda') }}</span></div>
+          <div class="sensitive-priority-legend sensitive-priority-legend--p0">
+            <b>P0</b><span>{{ $t('auto.e0d0cb247bdd') }}</span>
+          </div>
+          <div class="sensitive-priority-legend sensitive-priority-legend--p1">
+            <b>P1</b><span>{{ $t('auto.14caacb71919') }}</span>
+          </div>
+          <div class="sensitive-priority-legend sensitive-priority-legend--p2">
+            <b>P2</b><span>{{ $t('auto.494a415b8078') }}</span>
+          </div>
+          <div class="sensitive-priority-legend sensitive-priority-legend--p3">
+            <b>P3</b><span>{{ $t('auto.55e54c9bcdda') }}</span>
+          </div>
         </footer>
       </div>
     </n-modal>
@@ -1537,12 +2137,10 @@
       :current-node="activeChat?.taskAgentNode"
       :current-route="activeChat?.taskAgentRoute"
       :max-active-skills="taskAgentMaxActiveSkills"
-      :max-child-chats="taskAgentMaxChildChats"
       :target-key="activeSession ? taskAgentTargetKey(activeSession) : ''"
       :runner-id="activeSession?.id || ''"
       :target-label="activeSession?.endpointName || ''"
       @update:max-active-skills="updateTaskAgentMaxActiveSkills"
-      @update:max-child-chats="updateTaskAgentMaxChildChats"
     />
 
     <GlassPanel v-if="mode === 'form-basic' || mode === 'form-advanced'" class="endpoint-form-panel">
@@ -1609,7 +2207,7 @@
 <script setup lang="ts">
 import { translateSource } from '../i18n'
 
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import {
@@ -1624,11 +2222,15 @@ import {
   CubeOutline,
   DocumentTextOutline,
   EyeOutline,
+  GitBranchOutline,
   HardwareChipOutline,
+  LocateOutline,
+  PauseOutline,
+  PlayOutline,
   SearchOutline,
-  SettingsOutline,
   ShieldCheckmarkOutline,
   SparklesOutline,
+  SyncOutline,
   TimeOutline,
   TrashOutline,
   WarningOutline,
@@ -1636,23 +2238,39 @@ import {
 import GlassPanel from '../components/GlassPanel.vue'
 import { moonshotApi } from '../api/moonshot'
 import {
+  applyTaskAgentExplorationPreset,
   defaultTaskAgentConfig,
+  taskAgentExplorationPresets,
   taskAgentsApi,
+  type TaskAgentExplorationIntensity,
   type TaskAgentCommittedTurn,
+  type TaskScorerEnsemble,
+  type AttackFinding,
+  type AttackRegressionCase,
   type TaskAgentSnapshot,
 } from '../api/taskAgents'
+import TaskAgentLaunchPopover from '../components/task-agent/TaskAgentLaunchPopover.vue'
 import TaskAgentSettingsModal from '../components/task-agent/TaskAgentSettingsModal.vue'
+import {
+  clearAppBreadcrumbs,
+  setAppBreadcrumbs,
+  type AppBreadcrumbDefinition,
+} from '../composables/appBreadcrumbs'
 import { CONFIGURABLE_CONNECTOR, connectorService } from '../services/connectorService'
 import { useMoonshotStore } from '../stores/moonshot'
+import { useSettingsStore } from '../stores/settings'
 import type { EndpointCreatePayload, EndpointRecord } from '../types/moonshot'
 import { renderMarkdown } from '../utils/markdown'
 import { isRefusalOnlySensitiveFinding } from '../utils/sensitiveInformation'
 import { isRunnerEnvelopeWithoutAssistantResponse } from '../utils/taskAgentResponse'
+import { estimateTaskAgentTargetTokens } from '../utils/taskAgentTokens'
 import {
+  hasPendingTaskAgentReviews,
   isTaskAgentGoalActive,
+  isTaskAgentTerminalReady,
   liveTaskAgentElapsedSeconds,
   mapBackendTaskStatus,
-  shouldReleaseGoalComposer,
+  visibleTaskAgentProgress,
 } from '../utils/taskAgentRuntime'
 
 defineOptions({ name: 'EndpointsView' })
@@ -1677,7 +2295,12 @@ interface RedTeamMessage {
   rawResponse?: string
   createdAt: string
   status?: 'pending' | 'typing' | 'done' | 'error'
-  presentation?: 'task-agent-enter' | 'task-agent-success' | 'task-agent-branch-merge'
+  presentation?:
+    | 'task-agent-enter'
+    | 'task-agent-success'
+    | 'task-agent-result'
+    | 'task-agent-branch-merge'
+    | 'task-agent-branch-archive'
   originBranch?: {
     taskId: string
     branchId: string
@@ -1692,12 +2315,54 @@ interface RedTeamMessage {
     round: number
     evidence: string[]
     completedAt: string
+    outcome?: 'success' | 'failed' | 'stopped'
+    reason?: string
+    mergedBranchCount?: number
     sourceBranch?: {
       branchId: string
       branchIndex: number
       focus: string
       label: string
     }
+    ensemble?: TaskScorerEnsemble | null
+    findingId?: string
+    findingSeverity?: AttackFinding['severity']
+    regressionCaseId?: string
+    regressionCase?: AttackRegressionCase
+    regressionDetailsExpanded?: boolean
+    assetActivity?: {
+      action:
+        | 'regrade'
+        | 'replay'
+        | 'finding'
+        | 'regression'
+        | 'fork'
+        | 'review'
+      status: 'working' | 'success' | 'error'
+      title: string
+      detail: string
+      updatedAt: string
+    }
+  }
+  taskAgentBranchArchive?: {
+    taskId: string
+    parentTaskId: string
+    branchId: string
+    branchIndex: number
+    focus: string
+    method: string
+    status: TaskAgentStatus
+    summary: string
+    startedAt: string
+    completedAt: string
+    turns: Array<{
+      id: string
+      round: number
+      request: string
+      response: string
+      rawResponse: string
+      createdAt: string
+    }>
   }
 }
 
@@ -1854,6 +2519,9 @@ interface RedTeamChatThread {
   taskAgentInputTokens?: number
   taskAgentOutputTokens?: number
   taskAgentLastOutcome?: '' | 'achieved' | 'stopped' | 'error'
+  taskAgentScorerEnsemble?: TaskScorerEnsemble | null
+  taskAgentCampaignId?: string
+  taskAgentSourceManifestId?: string
   parentChatId?: string
   temporaryBranch?: boolean
   branchIndex?: number
@@ -1902,7 +2570,9 @@ interface SentChatTurn {
 const RED_TEAM_SESSION_KEY = 'oxo-red-team-sessions'
 const TASK_AGENT_MAX_ACTIVE_SKILLS_KEY = 'oxo-task-agent-max-active-skills'
 const TASK_AGENT_MAX_CHILD_CHATS_KEY = 'oxo-task-agent-max-child-chats'
-const AI_WATCH_REVIEW_TIMEOUT_MS = 45_000
+const TASK_AGENT_CONTROL_MODEL_KEY = 'oxo-task-agent-control-model'
+const TASK_AGENT_EXPLORATION_KEY = 'oxo-task-agent-exploration-intensity'
+const AI_WATCH_REVIEW_TIMEOUT_MS = 75_000
 const PROMPT_TOKEN = '{{ prompt }}'
 const PROMPT_LABEL = 'Prompt'
 const TASK_AGENT_RUNNING_STATUSES = new Set<TaskAgentStatus>([
@@ -1919,10 +2589,17 @@ const TASK_AGENT_TERMINAL_BACKEND_STATUSES = new Set([
   'failed',
 ])
 const store = useMoonshotStore()
+const settingsStore = useSettingsStore()
 const message = useMessage()
 const route = useRoute()
 const router = useRouter()
-const mode = ref<EndpointMode>(route.query.view === 'endpoints' ? 'list' : 'menu')
+const mode = ref<EndpointMode>(
+  route.query.view === 'endpoints'
+    ? 'list'
+    : route.query.view === 'sessions'
+      ? 'sessions'
+      : 'menu',
+)
 const selectedEndpointId = ref('')
 const editingId = ref('')
 const submitting = ref(false)
@@ -1937,19 +2614,35 @@ const chatPrompt = ref('')
 const chatSending = ref(false)
 const previewModalOpen = ref(false)
 const taskAgentGoalEntryMode = ref(false)
+const taskAgentLaunchPopoverOpen = ref(false)
 const taskAgentRemovalModalOpen = ref(false)
 const taskAgentSettingsOpen = ref(false)
-const taskAgentMaxActiveSkills = ref(readTaskAgentMaxActiveSkills())
-const taskAgentMaxChildChats = ref(readTaskAgentMaxChildChats())
+const taskAgentControlModelValue = ref(
+  window.localStorage.getItem(TASK_AGENT_CONTROL_MODEL_KEY) || '',
+)
+const taskAgentExplorationIntensity = ref<TaskAgentExplorationIntensity>(
+  readTaskAgentExplorationIntensity(),
+)
+const taskAgentMaxActiveSkills = ref(
+  taskAgentExplorationPresets[taskAgentExplorationIntensity.value].max_active_skills,
+)
+const taskAgentMaxChildChats = ref(
+  taskAgentExplorationPresets[taskAgentExplorationIntensity.value].max_parallel_branches,
+)
 const taskAgentDetailsExpanded = ref(false)
+const taskAgentGoalEditing = ref(false)
+const taskAgentGoalDraft = ref('')
+const taskAgentGoalEditInputRef = ref<HTMLInputElement | null>(null)
 const taskAgentPollTimers = new Map<string, number>()
 const taskAgentClockMs = ref(Date.now())
 let taskAgentClockTimer: number | undefined
 const taskAgentInitializedSnapshots = new Set<string>()
 const taskAgentRevealTokens = new Map<string, string>()
-const taskAgentBranchSpawnLocks = new Set<string>()
 const taskAgentBranchCleanupLocks = new Set<string>()
+const taskAgentParentFinalizationLocks = new Set<string>()
+const taskAgentAssetBusy = ref('')
 const expandedTaskAgentBranches = ref<Set<string>>(new Set())
+const expandedParallelAgentPanels = ref<Set<string>>(new Set())
 const remoteSessionPromises = new WeakMap<RedTeamSession, Promise<string>>()
 const sessionPersistenceQueues = new Map<string, Promise<void>>()
 const activeSensitiveReviewIds = reactive(new Set<string>())
@@ -2137,6 +2830,101 @@ const activeSession = computed(() => redTeamSessions.value.find((session) => ses
 
 const activeChat = computed(() => activeSession.value?.chats.find((chat) => chat.id === activeChatId.value))
 
+const AGENTS_BREADCRUMB_OWNER = 'agents-workbench'
+const agentsHomeBreadcrumb: AppBreadcrumbDefinition = {
+  label: 'Agents',
+  labelKey: 'route.agents',
+  to: '/agents?view=menu',
+}
+const endpointsBreadcrumb: AppBreadcrumbDefinition = {
+  label: 'Endpoints',
+  labelKey: 'route.endpoints',
+  to: '/agents?view=endpoints',
+}
+const redTeamSessionsBreadcrumb: AppBreadcrumbDefinition = {
+  label: 'Red Team Sessions',
+  labelKey: 'route.redTeamSessions',
+  to: '/agents?view=sessions',
+}
+
+const agentsWorkbenchBreadcrumbs = computed<AppBreadcrumbDefinition[]>(() => {
+  if (mode.value === 'menu') {
+    return [{ ...agentsHomeBreadcrumb, to: undefined }]
+  }
+  if (mode.value === 'list') {
+    return [agentsHomeBreadcrumb, { ...endpointsBreadcrumb, to: undefined }]
+  }
+  if (mode.value === 'sessions') {
+    return [agentsHomeBreadcrumb, { ...redTeamSessionsBreadcrumb, to: undefined }]
+  }
+  if (mode.value === 'session-wizard') {
+    return [
+      agentsHomeBreadcrumb,
+      redTeamSessionsBreadcrumb,
+      { label: 'New Red Team Session', labelKey: 'route.newRedTeamSession' },
+    ]
+  }
+  if (mode.value === 'chat') {
+    const sessionLabel =
+      activeSession.value?.displayName
+      || activeSession.value?.name
+      || activeSession.value?.endpointName
+    return [
+      agentsHomeBreadcrumb,
+      redTeamSessionsBreadcrumb,
+      sessionLabel
+        ? { label: sessionLabel }
+        : { label: 'Chat Workspace', labelKey: 'route.chatWorkspace' },
+    ]
+  }
+  return [
+    agentsHomeBreadcrumb,
+    endpointsBreadcrumb,
+    {
+      label: editingId.value ? 'Edit endpoint' : 'New endpoint',
+      labelKey: editingId.value ? 'route.editEndpoint' : 'route.newEndpoint',
+    },
+  ]
+})
+
+watch(
+  agentsWorkbenchBreadcrumbs,
+  (breadcrumbs) => setAppBreadcrumbs(AGENTS_BREADCRUMB_OWNER, breadcrumbs, '/agents'),
+  { immediate: true },
+)
+
+watch(
+  () => route.query.view,
+  (view) => {
+    if (view === 'menu') mode.value = 'menu'
+    if (view === 'endpoints') mode.value = 'list'
+    if (view === 'sessions') mode.value = 'sessions'
+  },
+)
+
+watch(
+  [
+    () => route.query.endpointId,
+    () => route.query.edit,
+    () => store.endpoints,
+  ],
+  ([endpointQuery, editQuery]) => {
+    const requestedEndpointId = Array.isArray(endpointQuery) ? endpointQuery[0] : endpointQuery
+    if (!requestedEndpointId) return
+
+    const endpoint = store.endpoints.find(
+      (item) => endpointId(item) === requestedEndpointId,
+    )
+    if (!endpoint) return
+
+    selectedEndpointId.value = requestedEndpointId
+    if (editQuery === '1' && editingId.value !== requestedEndpointId) {
+      openEdit(endpoint)
+    }
+  },
+  { immediate: true },
+)
+
 function taskAgentTargetKey(session: RedTeamSession) {
   const endpoint = store.endpoints.find(
     (item) => endpointId(item) === session.endpointId,
@@ -2151,6 +2939,56 @@ const taskAgentGoalActive = computed(() =>
     activeChat.value?.taskAgentStatus,
   ),
 )
+
+watch(activeChatId, () => {
+  taskAgentGoalEditing.value = false
+  taskAgentGoalDraft.value = ''
+  taskAgentDetailsExpanded.value = false
+})
+
+const taskAgentControlModelOptions = computed(() => {
+  const settings = settingsStore.ai
+  if (!settings) return []
+  return Object.entries(settings.providers).flatMap(([providerId, provider]) => {
+    if (!provider.apiKeyConfigured) return []
+    const catalog = settings.catalog[providerId]
+    const models = Array.from(
+      new Set([provider.model, ...(catalog?.models || [])].filter(Boolean)),
+    )
+    return models.map((model) => ({
+      label: `${catalog?.label || providerId} · ${model}`,
+      value: `${providerId}::${model}`,
+    }))
+  })
+})
+
+const taskAgentControlProvider = computed(
+  () => taskAgentControlModelValue.value.split('::', 2)[0] || '',
+)
+const taskAgentControlModel = computed(
+  () => taskAgentControlModelValue.value.split('::').slice(1).join('::') || '',
+)
+
+watch(
+  taskAgentControlModelOptions,
+  (options) => {
+    if (options.some((option) => option.value === taskAgentControlModelValue.value)) return
+    const activeProvider = settingsStore.ai?.activeProvider || ''
+    const activeModel = settingsStore.ai?.providers[activeProvider]?.model || ''
+    const activeValue = `${activeProvider}::${activeModel}`
+    const fallback =
+      options.find((option) => option.value === activeValue)?.value
+      || options[0]?.value
+      || ''
+    taskAgentControlModelValue.value = String(fallback)
+  },
+  { immediate: true },
+)
+
+watch(taskAgentControlModelValue, (value) => {
+  if (value) window.localStorage.setItem(TASK_AGENT_CONTROL_MODEL_KEY, value)
+  else window.localStorage.removeItem(TASK_AGENT_CONTROL_MODEL_KEY)
+})
 
 const preparedPromptPreview = computed(() => {
   const session = activeSession.value
@@ -2254,17 +3092,6 @@ const sessionSensitiveAnalysisError = computed(() => {
     )[0]?.sensitiveAnalysisError || ''
 })
 
-const sessionSensitiveAnalysisProvider = computed(() => {
-  const chats = activeSession.value?.chats || []
-  return [...chats]
-    .filter((chat) => chat.sensitiveAnalysisProvider)
-    .sort((left, right) =>
-      String(right.sensitiveAnalysisUpdatedAt || right.updatedAt).localeCompare(
-        String(left.sensitiveAnalysisUpdatedAt || left.updatedAt),
-      ),
-    )[0]?.sensitiveAnalysisProvider || ''
-})
-
 const sessionSensitiveAnalysisModel = computed(() => {
   const chats = activeSession.value?.chats || []
   return [...chats]
@@ -2341,14 +3168,13 @@ const sensitiveFindingGroups = computed<SensitiveInformationFindingGroup[]>(() =
 })
 
 const goalProgressRecordGroups = computed<TaskAgentRunRecordGroup[]>(() => {
-  const records = (activeSession.value?.chats || [])
-    .flatMap((chat) =>
-      (chat.taskAgentTurnRecords || []).map((record) => ({
-        ...record,
-        chatId: record.chatId || chat.id,
-        chatTitle: record.chatTitle || chat.title,
-      })),
-    )
+  const chat = activeChat.value
+  if (!chat) return []
+  const records = (chat.taskAgentTurnRecords || []).map((record) => ({
+    ...record,
+    chatId: record.chatId || chat.id,
+    chatTitle: record.chatTitle || chat.title,
+  }))
   const grouped = new Map<string, TaskAgentTurnRecord[]>()
   for (const record of records) {
     grouped.set(record.runId, [...(grouped.get(record.runId) || []), record])
@@ -2389,16 +3215,9 @@ const selectedSensitiveGroup = computed(
   () => sensitiveFindingGroups.value.find((group) => group.category === selectedSensitiveCategory.value) || null,
 )
 
-const highPriorityFindingCount = computed(
-  () =>
-    sensitiveFindingGroups.value.filter(
-      (group) => group.priority === 'P0' || group.priority === 'P1',
-    ).length || 0,
-)
-
 const chatHistoryThreads = computed(() =>
   (activeSession.value?.chats || []).filter(
-    (chat) => !chat.temporaryBranch && hasChatMessages(chat),
+    (chat) => !chat.temporaryBranch,
   ),
 )
 
@@ -2421,6 +3240,13 @@ function toggleTaskAgentBranches(parentChatId: string) {
   if (next.has(parentChatId)) next.delete(parentChatId)
   else next.add(parentChatId)
   expandedTaskAgentBranches.value = next
+}
+
+function toggleParallelAgentPanel(parentChatId: string) {
+  const next = new Set(expandedParallelAgentPanels.value)
+  if (next.has(parentChatId)) next.delete(parentChatId)
+  else next.add(parentChatId)
+  expandedParallelAgentPanels.value = next
 }
 
 const redTeamSessionCards = computed(() =>
@@ -2458,6 +3284,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  clearAppBreadcrumbs(AGENTS_BREADCRUMB_OWNER)
   if (taskAgentClockTimer != null) {
     window.clearInterval(taskAgentClockTimer)
     taskAgentClockTimer = undefined
@@ -2790,24 +3617,37 @@ function openChatThread(chatId: string) {
   resetChatAutoFollow()
 }
 
+function cancelTaskAgentClientActivity(taskId: string) {
+  if (!taskId) return
+  const timer = taskAgentPollTimers.get(taskId)
+  if (timer) window.clearTimeout(timer)
+  taskAgentPollTimers.delete(taskId)
+  for (const messageId of taskAgentRevealTokens.keys()) {
+    if (messageId.startsWith(`${taskId}-`)) {
+      taskAgentRevealTokens.delete(messageId)
+    }
+  }
+}
+
+async function stopTaskAgentTaskIds(taskIds: string[], reason: string) {
+  const uniqueTaskIds = [...new Set(taskIds.filter(Boolean))]
+  uniqueTaskIds.forEach(cancelTaskAgentClientActivity)
+  return Promise.allSettled(
+    uniqueTaskIds.map((taskId) => taskAgentsApi.stopTask(taskId, reason)),
+  )
+}
+
 async function deleteSession(id: string) {
   const doomed = redTeamSessions.value.find((session) => session.id === id)
-  if (doomed) {
-    const parentChats = doomed.chats.filter((chat) => !chat.temporaryBranch)
-    await Promise.allSettled(
-      parentChats.map(async (chat) => {
-        if (
+  const taskIds =
+    doomed?.chats
+      .filter(
+        (chat) =>
           chat.taskAgentTaskId &&
-          TASK_AGENT_RUNNING_STATUSES.has(chat.taskAgentStatus || 'idle')
-        ) {
-          await taskAgentsApi
-            .stopTask(chat.taskAgentTaskId, 'Chat session was deleted.')
-            .catch(() => undefined)
-        }
-        await disposeAllTemporaryBranches(doomed, chat.id, true)
-      }),
-    )
-  }
+          TASK_AGENT_RUNNING_STATUSES.has(chat.taskAgentStatus || 'idle'),
+      )
+      .map((chat) => chat.taskAgentTaskId || '') || []
+  taskIds.forEach(cancelTaskAgentClientActivity)
   redTeamSessions.value = redTeamSessions.value.filter((session) => session.id !== id)
   if (activeSessionId.value === id) {
     const fallback = redTeamSessions.value[0]
@@ -2820,6 +3660,7 @@ async function deleteSession(id: string) {
     }
   }
   persistSessions()
+  await stopTaskAgentTaskIds(taskIds, 'Chat session was deleted.')
   try {
     await sessionPersistenceQueues.get(id)?.catch(() => undefined)
     await moonshotApi.deleteLocalRedTeamSession(id)
@@ -2832,15 +3673,6 @@ async function deleteSession(id: string) {
 async function deleteChatThread(chatId: string) {
   const session = activeSession.value
   if (!session) return
-  const chat = session.chats.find((item) => item.id === chatId)
-  if (
-    chat?.taskAgentTaskId &&
-    TASK_AGENT_RUNNING_STATUSES.has(chat.taskAgentStatus || 'idle')
-  ) {
-    await taskAgentsApi
-      .stopTask(chat.taskAgentTaskId, 'Chat session was deleted.')
-      .catch(() => undefined)
-  }
   const relatedIds = new Set([
     chatId,
     ...session.chats
@@ -2852,20 +3684,21 @@ async function deleteChatThread(chatId: string) {
     (total, item) => total + (item.sensitiveFindings?.length || 0),
     0,
   )
+  const taskIds = related
+    .filter(
+      (item) =>
+        item.taskAgentTaskId &&
+        TASK_AGENT_RUNNING_STATUSES.has(item.taskAgentStatus || 'idle'),
+    )
+    .map((item) => item.taskAgentTaskId || '')
+  taskIds.forEach(cancelTaskAgentClientActivity)
   archiveSensitiveFindingsFromChats(session, related)
-  if (chat && !chat.temporaryBranch) {
-    await disposeAllTemporaryBranches(session, chat.id, true)
-  }
-  await Promise.allSettled(
-    related
-      .filter((item) => item.temporaryBranch && chat?.temporaryBranch)
-      .map((item) => disposeTemporaryBranch(session, item, true)),
-  )
   session.chats = session.chats.filter((item) => !relatedIds.has(item.id))
   if (!session.chats.length) session.chats.push(createEmptyChatThread(session))
   if (relatedIds.has(activeChatId.value)) activeChatId.value = session.chats[0].id
   session.updatedAt = new Date().toISOString()
   persistSessions()
+  await stopTaskAgentTaskIds(taskIds, 'Chat session was deleted.')
   message.success(
     retainedFindingCount
       ? `聊天已删除，${retainedFindingCount} 条敏感信息记录已保留。`
@@ -2965,10 +3798,35 @@ async function steerActiveTaskAgent() {
 function toggleTaskAgentGoalEntry() {
   if (taskAgentBusy.value) return
   taskAgentGoalEntryMode.value = !taskAgentGoalEntryMode.value
+  taskAgentLaunchPopoverOpen.value = false
   chatPrompt.value = ''
-  if (taskAgentGoalEntryMode.value) {
-    message.info(translateSource('auto.756a05227743'))
-  }
+}
+
+function openTaskAgentAdvancedSettings() {
+  taskAgentLaunchPopoverOpen.value = false
+  taskAgentSettingsOpen.value = true
+}
+
+function updateTaskAgentControlModel(value: string) {
+  taskAgentControlModelValue.value = value
+}
+
+function updateTaskAgentExplorationIntensity(
+  value: TaskAgentExplorationIntensity,
+) {
+  taskAgentExplorationIntensity.value = value
+  const preset = taskAgentExplorationPresets[value]
+  taskAgentMaxActiveSkills.value = preset.max_active_skills
+  taskAgentMaxChildChats.value = preset.max_parallel_branches
+  window.localStorage.setItem(TASK_AGENT_EXPLORATION_KEY, value)
+  window.localStorage.setItem(
+    TASK_AGENT_MAX_ACTIVE_SKILLS_KEY,
+    String(preset.max_active_skills),
+  )
+  window.localStorage.setItem(
+    TASK_AGENT_MAX_CHILD_CHATS_KEY,
+    String(preset.max_parallel_branches),
+  )
 }
 
 async function startPersistentTaskAgentGoal() {
@@ -2976,6 +3834,11 @@ async function startPersistentTaskAgentGoal() {
   const chat = activeChat.value
   const goal = chatPrompt.value.trim()
   if (!session || !chat || !goal || taskAgentGoalActive.value) return
+  if (!taskAgentControlProvider.value || !taskAgentControlModel.value) {
+    taskAgentLaunchPopoverOpen.value = true
+    message.error('Configure an AI provider key in Settings before starting Attack Agent.')
+    return
+  }
 
   const now = new Date().toISOString()
   chat.taskGoal = goal
@@ -3002,11 +3865,15 @@ async function startPersistentTaskAgentGoal() {
   chat.taskAgentInputTokens = 0
   chat.taskAgentOutputTokens = 0
   chat.taskAgentLastOutcome = ''
+  chat.taskAgentScorerEnsemble = null
+  chat.taskAgentCampaignId = ''
+  chat.taskAgentSourceManifestId = ''
   chat.taskAgentBranchFocusHistory = []
   chat.taskAgentBranchGeneration = 0
   session.aiWatchEnabled = true
   session.updatedAt = now
   taskAgentGoalEntryMode.value = false
+  taskAgentLaunchPopoverOpen.value = false
   chatPrompt.value = ''
   persistSessions()
   message.success(translateSource('auto.9488cc4d42ab'))
@@ -3021,28 +3888,26 @@ async function startPersistentTaskAgentGoal() {
       target_key: taskAgentTargetKey(session),
       goal,
       endpoint_name: session.endpointName,
-      payload_name: session.payloadId || undefined,
-      attack_module: session.attackModule || undefined,
-      context_strategy: session.contextStrategy || undefined,
       history: taskAgentHistory(chat),
-      branch_template:
-        taskAgentMaxChildChats.value > 0
-          ? {
-              session_name: `${session.name} · Attack Agent`,
-              endpoint_ids: [session.endpointId],
-              runner_args: {
-                prompt_template: session.payloadId,
-                attack_module: session.attackModule,
-                context_strategy: moonshotContextStrategy(session.contextStrategy),
-                cs_num_of_prev_prompts:
-                  session.contextStrategy === 'last-5-prompts' ? 5 : 0,
-                metric: '',
-                system_prompt: '',
-              },
-            }
-          : undefined,
+      branch_template: {
+        session_name: `${session.name} · Attack Agent`,
+        endpoint_ids: [session.endpointId],
+        runner_args: {
+          prompt_template: '',
+          attack_module: '',
+          context_strategy: '',
+          cs_num_of_prev_prompts: 0,
+          metric: '',
+          system_prompt: '',
+        },
+      },
       config: {
-        ...defaultTaskAgentConfig(),
+        ...applyTaskAgentExplorationPreset(
+          defaultTaskAgentConfig(),
+          taskAgentExplorationIntensity.value,
+        ),
+        control_provider: taskAgentControlProvider.value,
+        control_model: taskAgentControlModel.value,
         max_active_skills: taskAgentMaxActiveSkills.value,
         max_parallel_branches: taskAgentMaxChildChats.value,
       },
@@ -3088,9 +3953,11 @@ function releaseTaskAgentAiWatch(
   if (!anotherTaskStillUsesWatch) session.aiWatchEnabled = false
 }
 
-function readTaskAgentMaxActiveSkills() {
-  const value = Number(window.localStorage.getItem(TASK_AGENT_MAX_ACTIVE_SKILLS_KEY))
-  return Number.isFinite(value) && value >= 1 && value <= 8 ? Math.round(value) : 3
+function readTaskAgentExplorationIntensity(): TaskAgentExplorationIntensity {
+  const stored = window.localStorage.getItem(TASK_AGENT_EXPLORATION_KEY)
+  return ['light', 'standard', 'deep', 'extreme'].includes(String(stored))
+    ? stored as TaskAgentExplorationIntensity
+    : 'deep'
 }
 
 function updateTaskAgentMaxActiveSkills(value: number) {
@@ -3098,23 +3965,6 @@ function updateTaskAgentMaxActiveSkills(value: number) {
   window.localStorage.setItem(
     TASK_AGENT_MAX_ACTIVE_SKILLS_KEY,
     String(taskAgentMaxActiveSkills.value),
-  )
-}
-
-function readTaskAgentMaxChildChats() {
-  const stored = window.localStorage.getItem(TASK_AGENT_MAX_CHILD_CHATS_KEY)
-  if (stored == null) return 3
-  const value = Number(stored)
-  return Number.isFinite(value) && value >= 0 && value <= 10
-    ? Math.round(value)
-    : 3
-}
-
-function updateTaskAgentMaxChildChats(value: number) {
-  taskAgentMaxChildChats.value = Math.min(10, Math.max(0, Math.round(value)))
-  window.localStorage.setItem(
-    TASK_AGENT_MAX_CHILD_CHATS_KEY,
-    String(taskAgentMaxChildChats.value),
   )
 }
 
@@ -3139,6 +3989,463 @@ function taskAgentStatusText(status: TaskAgentStatus | undefined) {
   return labels[status || 'idle']
 }
 
+function taskAgentFeedbackKicker(
+  outcome: 'success' | 'failed' | 'stopped' | undefined,
+) {
+  if (outcome === 'failed') return 'OBJECTIVE NOT REACHED'
+  if (outcome === 'stopped') return 'RUN STOPPED'
+  return 'OBJECTIVE REACHED'
+}
+
+type TaskAgentFeedback = NonNullable<RedTeamMessage['taskAgentFeedback']>
+type TaskAgentAssetAction = NonNullable<
+  TaskAgentFeedback['assetActivity']
+>['action']
+type TaskAgentAssetActivityStatus = NonNullable<
+  TaskAgentFeedback['assetActivity']
+>['status']
+
+function taskAgentAssetActionBusy(
+  feedback: TaskAgentFeedback,
+  action: TaskAgentAssetAction,
+) {
+  return taskAgentAssetBusy.value === `${feedback.taskId}:${action}`
+}
+
+function setTaskAgentAssetActivity(
+  feedback: TaskAgentFeedback,
+  action: TaskAgentAssetAction,
+  status: TaskAgentAssetActivityStatus,
+  title: string,
+  detail: string,
+) {
+  feedback.assetActivity = {
+    action,
+    status,
+    title,
+    detail,
+    updatedAt: new Date().toISOString(),
+  }
+  if (status !== 'working') persistSessions()
+  void scrollChatToBottom({ force: true })
+}
+
+function taskAgentAssetErrorDetail(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) return error.message
+  return fallback
+}
+
+async function keepTaskAgentLoadingVisible(
+  startedAt: number,
+  minimumDurationMs = 700,
+) {
+  const remaining = minimumDurationMs - (Date.now() - startedAt)
+  if (remaining > 0) {
+    await new Promise((resolve) => window.setTimeout(resolve, remaining))
+  }
+}
+
+function taskScorerVerdictLabel(
+  verdict: TaskScorerEnsemble['final_verdict'],
+) {
+  const labels: Record<TaskScorerEnsemble['final_verdict'], string> = {
+    pending: 'Pending evidence',
+    verified: 'Verified',
+    suspect: 'Suspect',
+    rejected: 'Not verified',
+    needs_review: 'Human review',
+  }
+  return labels[verdict]
+}
+
+function taskScorerTypeLabel(kind: string) {
+  const labels: Record<string, string> = {
+    proof_spec: 'ProofSpec',
+    target_rule: 'Rule detector',
+    vulnerability: 'Vulnerability scorer',
+    llm_judge: 'LLM judge',
+    ai_watch: 'AI Watch',
+    human: 'Human review',
+  }
+  return labels[kind] || humanizeId(kind)
+}
+
+async function regradeTaskAgentResult(feedback: TaskAgentFeedback) {
+  if (taskAgentAssetBusy.value) return
+  const startedAt = Date.now()
+  taskAgentAssetBusy.value = `${feedback.taskId}:regrade`
+  setTaskAgentAssetActivity(
+    feedback,
+    'regrade',
+    'working',
+    'Rechecking the final verdict…',
+    'Running the current scorer ensemble against saved evidence. The target will not be contacted.',
+  )
+  try {
+    const result = await taskAgentsApi.regradeRun(feedback.taskId)
+    await keepTaskAgentLoadingVisible(startedAt)
+    feedback.ensemble = result.ensemble
+    setTaskAgentAssetActivity(
+      feedback,
+      'regrade',
+      'success',
+      'Verdict rechecked',
+      `${taskScorerVerdictLabel(result.ensemble.final_verdict)} · ${Math.round(
+        result.ensemble.confidence * 100,
+      )}% confidence · ${result.target_call_count} target calls`,
+    )
+    message.success(
+      `Offline regrade complete · ${taskScorerVerdictLabel(
+        result.ensemble.final_verdict,
+      )} · 0 target calls`,
+    )
+  } catch (error) {
+    await keepTaskAgentLoadingVisible(startedAt)
+    setTaskAgentAssetActivity(
+      feedback,
+      'regrade',
+      'error',
+      'Verdict recheck failed',
+      taskAgentAssetErrorDetail(error, 'The saved evidence could not be re-scored.'),
+    )
+    message.error(
+      error instanceof Error ? error.message : 'Offline regrade failed.',
+    )
+  } finally {
+    taskAgentAssetBusy.value = ''
+  }
+}
+
+async function replayTaskAgentResult(feedback: TaskAgentFeedback) {
+  if (taskAgentAssetBusy.value) return
+  const startedAt = Date.now()
+  taskAgentAssetBusy.value = `${feedback.taskId}:replay`
+  setTaskAgentAssetActivity(
+    feedback,
+    'replay',
+    'working',
+    'Replaying saved rounds…',
+    'Sending stored round evidence through the scorer pipeline. The target will not be contacted.',
+  )
+  try {
+    const result = await taskAgentsApi.replayRun(feedback.taskId)
+    await keepTaskAgentLoadingVisible(startedAt)
+    if (result.final_ensemble) feedback.ensemble = result.final_ensemble
+    setTaskAgentAssetActivity(
+      feedback,
+      'replay',
+      'success',
+      'Scoring replay complete',
+      `${result.rounds.length} stored round${
+        result.rounds.length === 1 ? '' : 's'
+      } replayed · ${result.target_call_count} target calls`,
+    )
+    message.success(
+      `Replayed ${result.rounds.length} stored round${
+        result.rounds.length === 1 ? '' : 's'
+      } · 0 target calls`,
+    )
+  } catch (error) {
+    await keepTaskAgentLoadingVisible(startedAt)
+    setTaskAgentAssetActivity(
+      feedback,
+      'replay',
+      'error',
+      'Scoring replay failed',
+      taskAgentAssetErrorDetail(error, 'The stored rounds could not be replayed.'),
+    )
+    message.error(
+      error instanceof Error ? error.message : 'Offline replay failed.',
+    )
+  } finally {
+    taskAgentAssetBusy.value = ''
+  }
+}
+
+async function saveTaskAgentFinding(
+  feedback: TaskAgentFeedback,
+): Promise<AttackFinding | null> {
+  if (taskAgentAssetBusy.value) return null
+  taskAgentAssetBusy.value = `${feedback.taskId}:finding`
+  setTaskAgentAssetActivity(
+    feedback,
+    'finding',
+    'working',
+    'Saving finding…',
+    'Creating an independent record from this run’s fixed evidence snapshot.',
+  )
+  try {
+    const finding = await taskAgentsApi.createFinding(feedback.taskId)
+    feedback.findingId = finding.finding_id
+    feedback.findingSeverity = finding.severity
+    feedback.ensemble = finding.scorer_ensemble
+    setTaskAgentAssetActivity(
+      feedback,
+      'finding',
+      'success',
+      'Finding saved',
+      `${finding.severity.toUpperCase()} severity · ${finding.finding_id}`,
+    )
+    message.success(
+      `Finding saved independently · ${finding.severity.toUpperCase()}`,
+    )
+    return finding
+  } catch (error) {
+    setTaskAgentAssetActivity(
+      feedback,
+      'finding',
+      'error',
+      'Finding was not saved',
+      taskAgentAssetErrorDetail(error, 'The evidence snapshot could not be saved.'),
+    )
+    message.error(
+      error instanceof Error ? error.message : 'Unable to save Finding.',
+    )
+    return null
+  } finally {
+    taskAgentAssetBusy.value = ''
+  }
+}
+
+async function createTaskAgentRegression(feedback: TaskAgentFeedback) {
+  if (taskAgentAssetBusy.value) return
+  let findingId = feedback.findingId
+  if (!findingId) {
+    const finding = await saveTaskAgentFinding(feedback)
+    findingId = finding?.finding_id
+  }
+  if (!findingId || taskAgentAssetBusy.value) return
+  taskAgentAssetBusy.value = `${feedback.taskId}:regression`
+  setTaskAgentAssetActivity(
+    feedback,
+    'regression',
+    'working',
+    'Saving regression case…',
+    'Freezing this finding as a reusable case. Saving it does not run the case.',
+  )
+  try {
+    const regression = await taskAgentsApi.createRegressionCase(findingId)
+    feedback.regressionCaseId = regression.regression_case_id
+    feedback.regressionCase = regression
+    feedback.regressionDetailsExpanded = true
+    setTaskAgentAssetActivity(
+      feedback,
+      'regression',
+      'success',
+      'Regression case saved',
+      `${regression.regression_case_id} · Stored for a future regression suite; not run yet.`,
+    )
+    message.success('Regression Case created from the fixed evidence snapshot.')
+  } catch (error) {
+    setTaskAgentAssetActivity(
+      feedback,
+      'regression',
+      'error',
+      'Regression case was not saved',
+      taskAgentAssetErrorDetail(error, 'The finding could not be converted into a regression case.'),
+    )
+    message.error(
+      error instanceof Error
+        ? error.message
+        : 'Unable to create Regression Case.',
+    )
+  } finally {
+    taskAgentAssetBusy.value = ''
+  }
+}
+
+async function toggleTaskAgentRegressionDetails(feedback: TaskAgentFeedback) {
+  if (feedback.regressionDetailsExpanded) {
+    feedback.regressionDetailsExpanded = false
+    persistSessions()
+    return
+  }
+  if (feedback.regressionCase) {
+    feedback.regressionDetailsExpanded = true
+    persistSessions()
+    void scrollChatToBottom({ force: true })
+    return
+  }
+  if (
+    !feedback.findingId ||
+    !feedback.regressionCaseId ||
+    taskAgentAssetBusy.value
+  ) {
+    return
+  }
+  taskAgentAssetBusy.value = `${feedback.taskId}:regression`
+  setTaskAgentAssetActivity(
+    feedback,
+    'regression',
+    'working',
+    'Loading the saved regression case…',
+    'Retrieving the reusable test definition created from this finding.',
+  )
+  try {
+    const cases = await taskAgentsApi.listRegressionCases({
+      finding_id: feedback.findingId,
+      limit: 50,
+    })
+    const regression = cases.find(
+      (item) => item.regression_case_id === feedback.regressionCaseId,
+    )
+    if (!regression) {
+      throw new Error('The saved regression case could not be found.')
+    }
+    feedback.regressionCase = regression
+    feedback.regressionDetailsExpanded = true
+    setTaskAgentAssetActivity(
+      feedback,
+      'regression',
+      'success',
+      'Saved regression case opened',
+      `${regression.name} · Saved test definition only; it has not been executed.`,
+    )
+  } catch (error) {
+    setTaskAgentAssetActivity(
+      feedback,
+      'regression',
+      'error',
+      'Saved regression case could not be opened',
+      taskAgentAssetErrorDetail(
+        error,
+        'The stored test definition could not be retrieved.',
+      ),
+    )
+    message.error(
+      error instanceof Error
+        ? error.message
+        : 'Unable to load the saved Regression Case.',
+    )
+  } finally {
+    taskAgentAssetBusy.value = ''
+  }
+}
+
+async function reviewTaskAgentResult(
+  feedback: TaskAgentFeedback,
+  decision: 'confirm' | 'reject',
+) {
+  if (taskAgentAssetBusy.value) return
+  taskAgentAssetBusy.value = `${feedback.taskId}:review`
+  setTaskAgentAssetActivity(
+    feedback,
+    'review',
+    'working',
+    'Recording human review…',
+    `Saving the “${decision}” decision with the scorer evidence.`,
+  )
+  try {
+    const snapshot = await taskAgentsApi.reviewScorerEnsemble(
+      feedback.taskId,
+      {
+        decision,
+        reviewer: 'workspace-user',
+        note:
+          decision === 'confirm'
+            ? 'Confirmed from the final Attack Agent result card.'
+            : 'Rejected from the final Attack Agent result card.',
+      },
+    )
+    feedback.ensemble = snapshot.scorer_ensemble || feedback.ensemble
+    setTaskAgentAssetActivity(
+      feedback,
+      'review',
+      'success',
+      'Human review recorded',
+      decision === 'confirm'
+        ? 'The evidence claim was confirmed by workspace-user.'
+        : 'The evidence claim was rejected by workspace-user.',
+    )
+    message.success(`Human review recorded: ${decision}.`)
+  } catch (error) {
+    setTaskAgentAssetActivity(
+      feedback,
+      'review',
+      'error',
+      'Human review was not recorded',
+      taskAgentAssetErrorDetail(error, 'The review decision could not be saved.'),
+    )
+    message.error(
+      error instanceof Error ? error.message : 'Unable to record review.',
+    )
+  } finally {
+    taskAgentAssetBusy.value = ''
+  }
+}
+
+async function forkTaskAgentResult(
+  sourceChat: RedTeamChatThread,
+  feedback: TaskAgentFeedback,
+) {
+  const session = activeSession.value
+  if (!session || taskAgentAssetBusy.value) return
+  taskAgentAssetBusy.value = `${feedback.taskId}:fork`
+  setTaskAgentAssetActivity(
+    feedback,
+    'fork',
+    'working',
+    `Starting a fork from Round ${feedback.round}…`,
+    'Creating an isolated run with history through this round. The source run will remain unchanged.',
+  )
+  try {
+    const result = await taskAgentsApi.forkRun(feedback.taskId, {
+      round: feedback.round,
+      instruction: `Continue from round ${feedback.round} with a materially different high-information strategy.`,
+    })
+    const snapshot = result.task
+    const now = new Date().toISOString()
+    const forkChat = createEmptyChatThread(session, snapshot.created_at)
+    Object.assign(forkChat, {
+      id: snapshot.chat_id,
+      title: `${sourceChat.title} · Fork R${result.round}`,
+      taskGoal: snapshot.goal,
+      taskAgentTaskId: snapshot.task_id,
+      taskAgentStartedAt: snapshot.created_at,
+      temporaryBranch: false,
+      parentChatId: undefined,
+      messages: [
+        {
+          id: `${result.fork_id}-source`,
+          role: 'assistant',
+          content:
+            `Forked from immutable Run Manifest ${result.source_manifest_id} ` +
+            `after Round ${result.round}. The original run was not changed.`,
+          createdAt: now,
+          status: 'done',
+        },
+      ],
+    } satisfies Partial<RedTeamChatThread>)
+    session.chats.push(forkChat)
+    syncTaskAgentSnapshot(session, forkChat, snapshot)
+    setTaskAgentAssetActivity(
+      feedback,
+      'fork',
+      'success',
+      `Fork created from Round ${result.round}`,
+      `${snapshot.task_id} · New isolated run started; the source run is unchanged.`,
+    )
+    openChatThread(forkChat.id)
+    startTaskAgentPolling(session.id, forkChat.id, snapshot.task_id)
+    message.success(
+      `Fork started from Round ${result.round}; the source Run remains immutable.`,
+    )
+  } catch (error) {
+    setTaskAgentAssetActivity(
+      feedback,
+      'fork',
+      'error',
+      'Fork was not created',
+      taskAgentAssetErrorDetail(error, 'A new isolated run could not be started from this round.'),
+    )
+    message.error(
+      error instanceof Error ? error.message : 'Unable to fork this Run.',
+    )
+  } finally {
+    taskAgentAssetBusy.value = ''
+  }
+}
+
 function displayedTaskAgentSeconds(chat: RedTeamChatThread) {
   return liveTaskAgentElapsedSeconds(
     chat.taskAgentElapsedSeconds,
@@ -3158,7 +4465,11 @@ function taskAgentProgress(chat: RedTeamChatThread | null | undefined) {
     achieved: 100,
   }
   const phaseProgress = values[chat?.taskAgentStatus || 'idle'] || 0
-  return Math.max(Number(chat?.taskAgentEvaluation?.progress || 0), phaseProgress)
+  return visibleTaskAgentProgress(
+    chat?.taskAgentEvaluation?.progress,
+    chat?.taskAgentStatus,
+    phaseProgress,
+  )
 }
 
 function createTaskAgentRunId(chat: RedTeamChatThread, startedAt = new Date().toISOString()) {
@@ -3170,6 +4481,19 @@ function backendStatusToUi(snapshot: TaskAgentSnapshot): TaskAgentStatus {
 }
 
 function taskAgentSnapshotDetail(snapshot: TaskAgentSnapshot) {
+  if (snapshot.active_issue) {
+    const detail = snapshot.active_issue.detail?.trim()
+    return detail
+      ? `${snapshot.active_issue.summary} ${detail}`
+      : snapshot.active_issue.summary
+  }
+  if (
+    Number(snapshot.goal_progress || 0) >= 100 &&
+    snapshot.success_verification?.status !== 'verified' &&
+    snapshot.status !== 'succeeded'
+  ) {
+    return 'Direct evidence was found; deterministic success verification is still pending.'
+  }
   if (snapshot.status === 'failed' && snapshot.error) return snapshot.error
   if (snapshot.stop_reason) return snapshot.stop_reason
   if (snapshot.error) return snapshot.error
@@ -3283,6 +4607,21 @@ function appendBackgroundTurnMessages(
     if (!taskAgentRevealTokens.has(assistantId)) {
       const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`
       taskAgentRevealTokens.set(assistantId, token)
+      const userIndex = chat.messages.findIndex((item) => item.id === userId)
+      const pendingMessage: RedTeamMessage = {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        createdAt: turn.created_at,
+        status: 'pending',
+        presentation: 'task-agent-enter',
+        originBranch,
+      }
+      if (userIndex >= 0) {
+        chat.messages.splice(userIndex + 1, 0, pendingMessage)
+      } else {
+        chat.messages.push(pendingMessage)
+      }
       void revealBackgroundAssistantMessage(
         chat,
         assistantId,
@@ -3316,17 +4655,6 @@ async function revealBackgroundAssistantMessage(
   originBranch?: RedTeamMessage['originBranch'],
 ) {
   const isCurrent = () => taskAgentRevealTokens.get(messageId) === token
-  await new Promise((resolve) => window.setTimeout(resolve, 180))
-  if (!isCurrent()) return
-  chat.messages.push({
-    id: messageId,
-    role: 'assistant',
-    content: '',
-    createdAt,
-    status: 'pending',
-    presentation: 'task-agent-enter',
-    originBranch,
-  })
   if (activeChat.value?.id === chat.id) await scrollChatToBottom()
   await new Promise((resolve) => window.setTimeout(resolve, 220))
   if (!isCurrent()) return
@@ -3348,6 +4676,8 @@ async function revealBackgroundAssistantMessage(
       rawResponse,
       status: 'done',
       presentation: undefined,
+      createdAt,
+      originBranch,
     })
     taskAgentRevealTokens.delete(messageId)
     persistSessions()
@@ -3462,7 +4792,6 @@ function syncTaskAgentSnapshot(
   chat: RedTeamChatThread,
   snapshot: TaskAgentSnapshot,
 ) {
-  const wasTerminal = ['achieved', 'stopped', 'error'].includes(chat.taskAgentStatus || '')
   const snapshotSyncedAt = Date.now()
   const sameTask = chat.taskAgentTaskId === snapshot.task_id
   const localElapsed = sameTask
@@ -3515,12 +4844,13 @@ function syncTaskAgentSnapshot(
       ? Math.max(Number(snapshot.elapsed_seconds || 0), localElapsed)
       : Number(snapshot.elapsed_seconds || 0)
   chat.taskAgentElapsedSyncedAt = snapshotSyncedAt
-  chat.taskAgentInputTokens = snapshot.input_tokens
-  chat.taskAgentOutputTokens = snapshot.output_tokens
+  const targetTokenEstimate = estimateTaskAgentTargetTokens(snapshot.committed_turns)
+  chat.taskAgentInputTokens = targetTokenEstimate.inputTokens
+  chat.taskAgentOutputTokens = targetTokenEstimate.outputTokens
   chat.sensitiveAnalysisStatus = taskReviewActive ? 'analyzing' : 'complete'
   chat.sensitiveAnalysisSummary =
     latestReview?.summary || snapshot.sensitive_output?.summary || ''
-  chat.sensitiveAnalysisError = latestReview?.error || ''
+  chat.sensitiveAnalysisError = visibleAiWatchError(latestReview?.error)
   chat.sensitiveAnalysisProvider = snapshot.provider || ''
   chat.sensitiveAnalysisModel = snapshot.model || ''
   chat.sensitiveAnalysisUpdatedAt =
@@ -3536,6 +4866,7 @@ function syncTaskAgentSnapshot(
     recordBackgroundGoalProgress(chat, snapshot, turn)
     recordBackgroundSensitiveFindings(chat, snapshot, turn)
   }
+  chat.messages = normalizeTaskAgentMessageOrder(chat.messages)
   taskAgentInitializedSnapshots.add(snapshot.task_id)
   if (TASK_AGENT_TERMINAL_BACKEND_STATUSES.has(snapshot.status)) {
     chat.taskAgentCompletedAt ||= snapshot.updated_at
@@ -3545,52 +4876,41 @@ function syncTaskAgentSnapshot(
         : snapshot.status === 'failed'
           ? 'error'
           : 'stopped'
-    if (snapshot.status === 'succeeded') {
-      appendTaskAgentSuccessFeedback(chat, snapshot)
-    }
-    if (!wasTerminal) {
-      if (snapshot.status === 'succeeded') {
-        message.success(`${chat.title}: objective reached`)
-      } else if (snapshot.status === 'failed') {
-        message.error(`${chat.title}: ${snapshot.error || 'Attack Agent failed.'}`)
-      } else {
-        message.warning(`${chat.title}: ${snapshot.stop_reason || 'Attack Agent stopped.'}`)
-      }
-    }
   }
-  if (snapshot.status === 'failed' && !taskReviewActive) {
-    chat.taskAgentTaskId = ''
-    if (!wasTerminal && activeChat.value?.id === chat.id) {
-      chatPrompt.value = chat.taskGoal || snapshot.goal
-      taskAgentGoalEntryMode.value = true
-      taskAgentDetailsExpanded.value = true
-    }
-  }
-  if (!taskReviewActive && shouldReleaseGoalComposer(snapshot)) {
-    chat.taskGoal = ''
-    chat.taskAgentTaskId = ''
-    chat.taskAgentStatus = 'idle'
-    chat.taskAgentStatusDetail = ''
-    if (activeChat.value?.id === chat.id) {
-      chatPrompt.value = ''
-      taskAgentGoalEntryMode.value = false
-      taskAgentDetailsExpanded.value = false
-    }
-  }
+  chat.taskAgentScorerEnsemble = snapshot.scorer_ensemble || null
+  chat.taskAgentCampaignId = snapshot.campaign_id || ''
+  chat.taskAgentSourceManifestId = snapshot.source_manifest_id || ''
   chat.updatedAt = snapshot.updated_at
   session.updatedAt = snapshot.updated_at
   persistSessions()
   if (activeChat.value?.id === chat.id) void scrollChatToBottom()
 }
 
-function appendTaskAgentSuccessFeedback(
+function appendTaskAgentFinalFeedback(
   chat: RedTeamChatThread,
   snapshot: TaskAgentSnapshot,
+  finding?: AttackFinding,
 ) {
-  const feedbackId = `${snapshot.task_id}-success-feedback`
-  if (chat.messages.some((item) => item.id === feedbackId)) return
+  const legacyFeedbackId = `${snapshot.task_id}-success-feedback`
+  const feedbackId = `${snapshot.task_id}-final-feedback`
+  const existingFeedback = chat.messages.find(
+    (item) => item.id === feedbackId || item.id === legacyFeedbackId,
+  )
+  if (existingFeedback?.taskAgentFeedback) {
+    existingFeedback.id = feedbackId
+    existingFeedback.createdAt = snapshot.updated_at
+    existingFeedback.taskAgentFeedback.completedAt = snapshot.updated_at
+    existingFeedback.taskAgentFeedback.ensemble =
+      snapshot.scorer_ensemble || null
+    existingFeedback.taskAgentFeedback.findingId =
+      finding?.finding_id || existingFeedback.taskAgentFeedback.findingId
+    existingFeedback.taskAgentFeedback.findingSeverity =
+      finding?.severity || existingFeedback.taskAgentFeedback.findingSeverity
+    persistSessions()
+    return false
+  }
   const evaluator = snapshot.evaluator_output || {}
-  const evidence = Array.isArray(evaluator.evidence)
+  const evaluatorEvidence = Array.isArray(evaluator.evidence)
     ? evaluator.evidence
         .map((item) =>
           typeof item === 'string'
@@ -3599,10 +4919,36 @@ function appendTaskAgentSuccessFeedback(
         )
         .filter(Boolean)
     : []
+  const evidence = evaluatorEvidence.length
+    ? evaluatorEvidence
+    : (snapshot.best_evidence || [])
+        .map((item) => String(item.observation || ''))
+        .filter(Boolean)
+  const outcome =
+    snapshot.status === 'succeeded'
+      ? 'success'
+      : snapshot.status === 'failed'
+        ? 'failed'
+        : 'stopped'
+  const reason = String(
+    snapshot.error ||
+      snapshot.stop_reason ||
+      (snapshot.active_issue
+        ? `${snapshot.active_issue.summary}${
+            snapshot.active_issue.detail
+              ? ` ${snapshot.active_issue.detail}`
+              : ''
+          }`
+        : ''),
+  ).trim()
   const summary = String(
     evaluator.summary ||
       snapshot.stop_reason ||
-      'The target response satisfied the configured objective.',
+      (outcome === 'success'
+        ? 'The target response satisfied the configured objective.'
+        : outcome === 'failed'
+          ? 'The run ended without enough verified evidence to satisfy the objective.'
+          : 'The run stopped before the objective could be verified.'),
   )
   const sourceBranch = snapshot.branch_result
     ? {
@@ -3612,13 +4958,18 @@ function appendTaskAgentSuccessFeedback(
         label: `子聊天 ${snapshot.branch_result.branch_index || 1}`,
       }
     : undefined
+  const mergedBranchCount = chat.messages.filter(
+    (item) =>
+      item.presentation === 'task-agent-branch-archive' &&
+      item.taskAgentBranchArchive?.parentTaskId === snapshot.task_id,
+  ).length
   chat.messages.push({
     id: feedbackId,
     role: 'assistant',
     content: summary,
     createdAt: snapshot.updated_at,
     status: 'done',
-    presentation: 'task-agent-success',
+    presentation: 'task-agent-result',
     taskAgentFeedback: {
       taskId: snapshot.task_id,
       goal: snapshot.goal,
@@ -3626,9 +4977,16 @@ function appendTaskAgentSuccessFeedback(
       round: Math.max(1, snapshot.total_round),
       evidence,
       completedAt: snapshot.updated_at,
+      outcome,
+      reason,
+      mergedBranchCount,
       sourceBranch,
+      ensemble: snapshot.scorer_ensemble || null,
+      findingId: finding?.finding_id,
+      findingSeverity: finding?.severity,
     },
   })
+  return true
 }
 
 function findSessionAndChat(sessionId: string, chatId: string) {
@@ -3637,85 +4995,61 @@ function findSessionAndChat(sessionId: string, chatId: string) {
   return session && chat ? { session, chat } : null
 }
 
-interface ParallelBranchCandidate {
-  signature: string
-  focus: string
-  technique: string
-  score: number
-}
-
-function parallelBranchCandidates(
+function archiveTemporaryBranchInParent(
   parent: RedTeamChatThread,
   snapshot: TaskAgentSnapshot,
-): ParallelBranchCandidate[] {
-  const rawCandidates = Array.isArray(snapshot.planner_output?.strategy_candidates)
-    ? snapshot.planner_output.strategy_candidates
-    : []
-  const seen = new Set(parent.taskAgentBranchFocusHistory || [])
-  return rawCandidates
-    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
-    .map((item) => {
-      const candidateId = String(item.candidate_id || 'candidate')
-      const skill = String(item.skill_id || '')
-      const technique = String(item.technique_id || candidateId)
-      const hypothesis = String(item.hypothesis || '')
-      const adaptation = String(item.adaptation_from_history || '')
-      const expectedSignal = String(item.expected_signal || '')
-      const signature = [
-        skill,
-        technique,
-        hypothesis.toLowerCase().replace(/\s+/g, ' ').trim(),
-      ].join('|')
-      const score =
-        Number(item.goal_alignment || 0) * 0.38 +
-        Number(item.expected_information_gain || 0) * 0.28 +
-        Number(item.response_fit || 0) * 0.2 +
-        Number(item.novelty || 0) * 0.14
-      return {
-        signature,
-        technique,
-        score,
-        focus: [
-          `${candidateId}: ${skill || 'goal skill'} / ${technique}`,
-          hypothesis,
-          adaptation ? `Adapt from history: ${adaptation}` : '',
-          expectedSignal ? `Expected signal: ${expectedSignal}` : '',
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      }
-    })
-    .filter(
-      (item) =>
-        item.signature.length > 2 &&
-        !seen.has(item.signature),
+) {
+  const branch = snapshot.branch_context
+  if (!branch) return
+  const archiveId = `${snapshot.task_id}-branch-archive`
+  if (parent.messages.some((item) => item.id === archiveId)) return
+  const turns = (snapshot.committed_turns || []).map((turn) => {
+    const responseUnavailable = isRunnerEnvelopeWithoutAssistantResponse(
+      turn.response,
     )
-    .sort((left, right) => right.score - left.score)
-}
-
-function adaptiveParallelWidth(snapshot: TaskAgentSnapshot, candidateCount: number) {
-  if (!candidateCount || taskAgentMaxChildChats.value <= 0) return 0
+    return {
+      id: `${snapshot.task_id}-${turn.round_key}-archived`,
+      round: Number(turn.round || 0),
+      request: turn.prepared_request || turn.request,
+      response: responseUnavailable
+        ? 'Target returned no assistant response.'
+        : turn.response,
+      rawResponse:
+        responseUnavailable || turn.raw_response == null
+          ? ''
+          : typeof turn.raw_response === 'string'
+            ? turn.raw_response
+            : JSON.stringify(turn.raw_response, null, 2),
+      createdAt: turn.created_at,
+    }
+  })
   const evaluator = snapshot.evaluator_output || {}
-  const pattern = String(evaluator.response_pattern || '')
-  const novelty = Number(evaluator.novelty_score || 0)
-  const progress = Number(snapshot.best_goal_progress || snapshot.goal_progress || 0)
-  const stronglyStalled =
-    ['refusal', 'off-topic', 'error'].includes(pattern) ||
-    (snapshot.total_round >= 2 && novelty <= 10)
-  const recommended = stronglyStalled && progress < 60 ? 3 : progress < 85 ? 2 : 1
-  return Math.min(taskAgentMaxChildChats.value, candidateCount, recommended)
-}
-
-function nextBranchIndex(session: RedTeamSession, parentChatId: string) {
-  const used = new Set(
-    session.chats
-      .filter((item) => item.parentChatId === parentChatId)
-      .map((item) => Number(item.branchIndex || 0)),
-  )
-  for (let index = 1; index <= 10; index += 1) {
-    if (!used.has(index)) return index
-  }
-  return 10
+  parent.messages.push({
+    id: archiveId,
+    role: 'assistant',
+    content: String(
+      evaluator.summary ||
+        snapshot.stop_reason ||
+        `Specialist ${branch.branch_index || 1} completed its exploration.`,
+    ),
+    createdAt: snapshot.updated_at,
+    status: 'done',
+    presentation: 'task-agent-branch-archive',
+    taskAgentBranchArchive: {
+      taskId: snapshot.task_id,
+      parentTaskId: String(branch.parent_task_id || ''),
+      branchId: String(branch.branch_id || ''),
+      branchIndex: Number(branch.branch_index || 1),
+      focus: String(branch.focus || ''),
+      method: String(snapshot.current_method || snapshot.current_skill_id || ''),
+      status: backendStatusToUi(snapshot),
+      summary: String(evaluator.summary || snapshot.stop_reason || ''),
+      startedAt: snapshot.created_at,
+      completedAt: snapshot.updated_at,
+      turns,
+    },
+  })
+  parent.updatedAt = snapshot.updated_at
 }
 
 async function syncBackendManagedBranches(
@@ -3733,17 +5067,13 @@ async function syncBackendManagedBranches(
   for (const snapshot of branches) {
     const branch = snapshot.branch_context
     if (!branch) continue
-    const pendingAiWatch = Object.values(snapshot.ai_watch_reviews || {}).some(
-      (review) => ['pending', 'analyzing'].includes(review.status),
-    )
-    if (
-      TASK_AGENT_TERMINAL_BACKEND_STATUSES.has(snapshot.status) &&
-      !pendingAiWatch
-    ) {
-      const existingIndex = session.chats.findIndex(
+    if (isTaskAgentTerminalReady(snapshot)) {
+      const existing = session.chats.find(
         (item) => item.id === snapshot.chat_id,
       )
-      if (existingIndex >= 0) session.chats.splice(existingIndex, 1)
+      if (existing) syncTaskAgentSnapshot(session, existing, snapshot)
+      archiveTemporaryBranchInParent(parent, snapshot)
+      if (existing) await disposeTemporaryBranch(session, existing, false)
       continue
     }
     liveChatIds.add(snapshot.chat_id)
@@ -3776,155 +5106,6 @@ async function syncBackendManagedBranches(
   persistSessions()
 }
 
-async function maybeSpawnAdaptiveBranches(
-  session: RedTeamSession,
-  parent: RedTeamChatThread,
-  snapshot: TaskAgentSnapshot,
-) {
-  if (
-    snapshot.config.max_parallel_branches > 0 ||
-    parent.temporaryBranch ||
-    taskAgentMaxChildChats.value <= 0 ||
-    snapshot.total_round < 1 ||
-    !snapshot.evaluator_output ||
-    TASK_AGENT_TERMINAL_BACKEND_STATUSES.has(snapshot.status) ||
-    taskAgentBranchSpawnLocks.has(parent.id)
-  ) {
-    return
-  }
-  const activeChildren = childChatsFor(parent.id, session).filter((item) =>
-    TASK_AGENT_RUNNING_STATUSES.has(item.taskAgentStatus || 'idle'),
-  )
-  const availableSlots = Math.max(
-    0,
-    taskAgentMaxChildChats.value - activeChildren.length,
-  )
-  if (!availableSlots) return
-
-  const candidates = parallelBranchCandidates(parent, snapshot)
-  const width = Math.min(
-    availableSlots,
-    adaptiveParallelWidth(snapshot, candidates.length),
-  )
-  if (!width) return
-
-  taskAgentBranchSpawnLocks.add(parent.id)
-  const selected = candidates.slice(0, width)
-  parent.taskAgentBranchFocusHistory = [
-    ...(parent.taskAgentBranchFocusHistory || []),
-    ...selected.map((item) => item.signature),
-  ].slice(-80)
-  parent.taskAgentBranchGeneration =
-    Number(parent.taskAgentBranchGeneration || 0) + 1
-  persistSessions()
-  try {
-    await Promise.allSettled(
-      selected.map((candidate, offset) =>
-        createTemporaryBranch(
-          session,
-          parent,
-          snapshot,
-          candidate,
-          offset,
-          selected,
-        ),
-      ),
-    )
-    if (childChatsFor(parent.id, session).length) {
-      message.info(
-        `${parent.title}: 已启动 ${selected.length} 个隔离子聊天并行探索。`,
-      )
-    }
-  } finally {
-    taskAgentBranchSpawnLocks.delete(parent.id)
-  }
-}
-
-async function createTemporaryBranch(
-  session: RedTeamSession,
-  parent: RedTeamChatThread,
-  snapshot: TaskAgentSnapshot,
-  candidate: ParallelBranchCandidate,
-  offset: number,
-  selected: ParallelBranchCandidate[],
-) {
-  const now = new Date().toISOString()
-  const branchIndex = nextBranchIndex(session, parent.id)
-  const branchId = `branch-${parent.id}-${Date.now()}-${offset}-${Math.random().toString(16).slice(2, 7)}`
-  const child = createEmptyChatThread(session, now)
-  Object.assign(child, {
-    id: `chat-${branchId}`,
-    title: `临时子聊天 ${String(branchIndex).padStart(2, '0')} · ${candidate.technique}`,
-    parentChatId: parent.id,
-    temporaryBranch: true,
-    branchIndex,
-    branchFocus: candidate.focus,
-    branchOriginRound: snapshot.total_round,
-    taskGoal: snapshot.goal,
-    taskAgentStatus: 'planning',
-    taskAgentStatusDetail: '正在创建隔离的 Target runner…',
-    taskAgentStartedAt: now,
-    taskAgentRunId: createTaskAgentRunId(child, now),
-  } satisfies Partial<RedTeamChatThread>)
-  session.chats.push(child)
-  persistSessions()
-
-  try {
-    const remote = await moonshotApi.createRedTeamSession({
-      name: `${session.name} · ${child.title}`,
-      description: `Temporary parallel branch for ${parent.title}`,
-      endpoints: [session.endpointId],
-      runner_args: {
-        prompt_template: session.payloadId,
-        attack_module: session.attackModule,
-        context_strategy: moonshotContextStrategy(session.contextStrategy),
-        cs_num_of_prev_prompts:
-          session.contextStrategy === 'last-5-prompts' ? 5 : 0,
-        metric: '',
-        system_prompt: '',
-      },
-    })
-    child.branchRunnerId = remote.runner_id
-    const branchSnapshot = await taskAgentsApi.createTask({
-      session_id: session.id,
-      chat_id: child.id,
-      runner_id: remote.runner_id,
-      target_key: taskAgentTargetKey(session),
-      goal: snapshot.goal,
-      endpoint_name: session.endpointName,
-      payload_name: session.payloadId || undefined,
-      attack_module: session.attackModule || undefined,
-      context_strategy: session.contextStrategy || undefined,
-      history: taskAgentHistory(parent),
-      branch_context: {
-        parent_task_id: snapshot.task_id,
-        parent_chat_id: parent.id,
-        branch_id: branchId,
-        branch_index: branchIndex,
-        branch_count: selected.length,
-        focus: candidate.focus,
-        sibling_focuses: selected
-          .filter((item) => item.signature !== candidate.signature)
-          .map((item) => item.focus),
-        fork_round: snapshot.total_round,
-      },
-      config: {
-        ...defaultTaskAgentConfig(),
-        max_active_skills: taskAgentMaxActiveSkills.value,
-      },
-    })
-    child.taskAgentTaskId = branchSnapshot.task_id
-    syncTaskAgentSnapshot(session, child, branchSnapshot)
-    startTaskAgentPolling(session.id, child.id, branchSnapshot.task_id)
-  } catch (error) {
-    child.taskAgentStatus = 'error'
-    child.taskAgentStatusDetail =
-      error instanceof Error ? error.message : 'Unable to start this parallel branch.'
-    persistSessions()
-    await disposeTemporaryBranch(session, child, false)
-  }
-}
-
 async function disposeTemporaryBranch(
   session: RedTeamSession,
   child: RedTeamChatThread,
@@ -3933,23 +5114,16 @@ async function disposeTemporaryBranch(
   if (!child.temporaryBranch || taskAgentBranchCleanupLocks.has(child.id)) return
   taskAgentBranchCleanupLocks.add(child.id)
   try {
-    if (child.taskAgentTaskId) {
-      const timer = taskAgentPollTimers.get(child.taskAgentTaskId)
+    const taskId = child.taskAgentTaskId || ''
+    if (taskId) {
+      const timer = taskAgentPollTimers.get(taskId)
       if (timer) window.clearTimeout(timer)
-      taskAgentPollTimers.delete(child.taskAgentTaskId)
-      if (
-        stopTask &&
-        TASK_AGENT_RUNNING_STATUSES.has(child.taskAgentStatus || 'idle')
-      ) {
-        await taskAgentsApi
-          .stopTask(child.taskAgentTaskId, 'Parallel branch was pruned.')
-          .catch(() => undefined)
+      taskAgentPollTimers.delete(taskId)
+      for (const messageId of taskAgentRevealTokens.keys()) {
+        if (messageId.startsWith(`${taskId}-`)) {
+          taskAgentRevealTokens.delete(messageId)
+        }
       }
-    }
-    if (child.branchRunnerId) {
-      await moonshotApi
-        .deleteRedTeamSession(child.branchRunnerId)
-        .catch(() => undefined)
     }
     session.chats = session.chats.filter((item) => item.id !== child.id)
     if (activeChatId.value === child.id) {
@@ -3957,27 +5131,18 @@ async function disposeTemporaryBranch(
     }
     session.updatedAt = new Date().toISOString()
     persistSessions()
+    if (
+      taskId &&
+      stopTask &&
+      TASK_AGENT_RUNNING_STATUSES.has(child.taskAgentStatus || 'idle')
+    ) {
+      await taskAgentsApi
+        .stopTask(taskId, 'Parallel branch was pruned.')
+        .catch(() => undefined)
+    }
   } finally {
     taskAgentBranchCleanupLocks.delete(child.id)
   }
-}
-
-async function disposeAllTemporaryBranches(
-  session: RedTeamSession,
-  parentChatId: string,
-  stopTasks = true,
-) {
-  const children = session.chats.filter(
-    (item) => item.temporaryBranch && item.parentChatId === parentChatId,
-  )
-  await Promise.allSettled(
-    children.map((child) =>
-      disposeTemporaryBranch(session, child, stopTasks),
-    ),
-  )
-  const next = new Set(expandedTaskAgentBranches.value)
-  next.delete(parentChatId)
-  expandedTaskAgentBranches.value = next
 }
 
 async function handleTerminalTemporaryBranch(
@@ -3986,44 +5151,173 @@ async function handleTerminalTemporaryBranch(
   snapshot: TaskAgentSnapshot,
 ) {
   const parent = session.chats.find((item) => item.id === child.parentChatId)
-  if (!parent) {
-    await disposeTemporaryBranch(session, child, false)
-    return
+  if (parent) archiveTemporaryBranchInParent(parent, snapshot)
+  await disposeTemporaryBranch(session, child, false)
+}
+
+async function archiveAndDisposeAllTemporaryBranches(
+  session: RedTeamSession,
+  parent: RedTeamChatThread,
+  parentSnapshot: TaskAgentSnapshot,
+) {
+  const localChildren = session.chats.filter(
+    (item) => item.temporaryBranch && item.parentChatId === parent.id,
+  )
+  const backendBranches = await taskAgentsApi
+    .listTasks({ session_id: session.id })
+    .then((tasks) =>
+      tasks.filter(
+        (item) =>
+          item.branch_context?.parent_task_id === parentSnapshot.task_id,
+      ),
+    )
+    .catch(() => [] as TaskAgentSnapshot[])
+  const branchTaskIds = new Set(
+    backendBranches.map((item) => item.task_id),
+  )
+  localChildren.forEach((child) => {
+    if (child.taskAgentTaskId) branchTaskIds.add(child.taskAgentTaskId)
+  })
+  const seedSnapshots = new Map(
+    backendBranches.map((item) => [item.task_id, item]),
+  )
+  const isReady = (snapshot: TaskAgentSnapshot | null) =>
+    Boolean(snapshot && isTaskAgentTerminalReady(snapshot))
+  const settledSnapshots = await Promise.all(
+    [...branchTaskIds].map(async (branchTaskId) => {
+      let latest = seedSnapshots.get(branchTaskId) || null
+      if (!isReady(latest)) {
+        await taskAgentsApi
+          .stopTask(
+            branchTaskId,
+            'Parent task reached a terminal state; finalizing child archive.',
+          )
+          .catch(() => undefined)
+      }
+      for (let attempt = 0; attempt < 30 && !isReady(latest); attempt += 1) {
+        latest = await taskAgentsApi.getTask(branchTaskId).catch(() => latest)
+        if (!isReady(latest)) {
+          await new Promise((resolve) => window.setTimeout(resolve, 400))
+        }
+      }
+      return latest
+    }),
+  )
+  const readySnapshots = settledSnapshots.filter(
+    (item): item is TaskAgentSnapshot =>
+      isReady(item) && Boolean(item?.branch_context),
+  )
+  readySnapshots
+    .sort(
+      (left, right) =>
+        Number(left.branch_context?.branch_index || 0) -
+        Number(right.branch_context?.branch_index || 0),
+    )
+    .forEach((snapshot) => archiveTemporaryBranchInParent(parent, snapshot))
+  const readyTaskIds = new Set(readySnapshots.map((item) => item.task_id))
+  await Promise.allSettled(
+    localChildren
+      .filter(
+        (child) =>
+          !child.taskAgentTaskId ||
+          readyTaskIds.has(child.taskAgentTaskId),
+      )
+      .map((child) => disposeTemporaryBranch(session, child, false)),
+  )
+  return settledSnapshots.length === branchTaskIds.size &&
+    settledSnapshots.every(isReady)
+}
+
+function clearTerminalTaskAgentChrome(
+  session: RedTeamSession,
+  parent: RedTeamChatThread,
+  snapshot: TaskAgentSnapshot,
+) {
+  const lingeringChildren = session.chats.filter(
+    (item) => item.temporaryBranch && item.parentChatId === parent.id,
+  )
+  const lingeringChildIds = new Set(lingeringChildren.map((item) => item.id))
+  lingeringChildren.forEach((child) => {
+    const taskId = child.taskAgentTaskId || ''
+    if (!taskId) return
+    const timer = taskAgentPollTimers.get(taskId)
+    if (timer) window.clearTimeout(timer)
+    taskAgentPollTimers.delete(taskId)
+  })
+  session.chats = session.chats.filter(
+    (item) => !item.temporaryBranch || item.parentChatId !== parent.id,
+  )
+  if (lingeringChildIds.has(activeChatId.value)) {
+    activeChatId.value = parent.id
   }
-  if (snapshot.status !== 'succeeded') {
-    await disposeTemporaryBranch(session, child, false)
-    return
-  }
-  if (!parent.taskAgentTaskId) {
-    child.taskAgentStatusDetail =
-      '子聊天已成功，但主任务已不存在，暂时保留以便人工查看。'
-    persistSessions()
-    return
-  }
-  if (taskAgentBranchCleanupLocks.has(parent.id)) return
-  taskAgentBranchCleanupLocks.add(parent.id)
+  const nextExpandedBranches = new Set(expandedTaskAgentBranches.value)
+  nextExpandedBranches.delete(parent.id)
+  expandedTaskAgentBranches.value = nextExpandedBranches
+  parent.taskGoal = ''
+  parent.taskAgentTaskId = ''
+  parent.taskAgentStatus = 'idle'
+  parent.taskAgentStatusDetail = ''
+  parent.sensitiveAnalysisStatus = 'complete'
+  parent.sensitiveAnalysisUpdatedAt = snapshot.updated_at
+}
+
+async function finalizeParentTaskAgent(
+  session: RedTeamSession,
+  parent: RedTeamChatThread,
+  snapshot: TaskAgentSnapshot,
+) {
+  if (taskAgentParentFinalizationLocks.has(snapshot.task_id)) return false
+  taskAgentParentFinalizationLocks.add(snapshot.task_id)
   try {
-    const parentTimer = taskAgentPollTimers.get(parent.taskAgentTaskId)
-    if (parentTimer) window.clearTimeout(parentTimer)
-    taskAgentPollTimers.delete(parent.taskAgentTaskId)
-    const adopted = await taskAgentsApi.adoptBranchSuccess(
-      parent.taskAgentTaskId,
-      snapshot.task_id,
+    await syncBackendManagedBranches(session, parent, snapshot)
+    const allBranchesArchived = await archiveAndDisposeAllTemporaryBranches(
+      session,
+      parent,
+      snapshot,
     )
-    syncTaskAgentSnapshot(session, parent, adopted)
-    await disposeAllTemporaryBranches(session, parent.id, true)
-    message.success(
-      `${parent.title}: 子聊天 ${child.branchIndex || 1} 已达到目标，成功轨迹已合并到主聊天。`,
+    if (!allBranchesArchived) return false
+    const findings = await taskAgentsApi
+      .listFindings({ task_id: snapshot.task_id, limit: 10 })
+      .catch(() => [] as AttackFinding[])
+    const finding = findings.find(
+      (item) => item.source_task_id === snapshot.task_id,
     )
-  } catch (error) {
-    child.taskAgentStatusDetail =
-      error instanceof Error
-        ? `成功轨迹合并失败：${error.message}`
-        : '成功轨迹合并失败。'
+    const added = appendTaskAgentFinalFeedback(parent, snapshot, finding)
+    clearTerminalTaskAgentChrome(session, parent, snapshot)
+    if (snapshot.status === 'succeeded') {
+      if (activeChat.value?.id === parent.id) {
+        chatPrompt.value = ''
+        taskAgentGoalEntryMode.value = false
+        taskAgentDetailsExpanded.value = false
+      }
+      if (added) message.success(`${parent.title}: objective reached`)
+    } else if (snapshot.status === 'failed') {
+      if (activeChat.value?.id === parent.id) {
+        chatPrompt.value = snapshot.goal
+        taskAgentGoalEntryMode.value = true
+        taskAgentDetailsExpanded.value = true
+      }
+      if (added) {
+        message.error(
+          `${parent.title}: ${snapshot.error || 'Attack Agent failed.'}`,
+        )
+      }
+    } else {
+      if (added) {
+        message.warning(
+          `${parent.title}: ${snapshot.stop_reason || 'Attack Agent stopped.'}`,
+        )
+      }
+    }
+    parent.updatedAt = snapshot.updated_at
+    session.updatedAt = snapshot.updated_at
     persistSessions()
-    message.error(child.taskAgentStatusDetail)
+    if (activeChat.value?.id === parent.id) {
+      await scrollChatToBottom({ force: true })
+    }
+    return true
   } finally {
-    taskAgentBranchCleanupLocks.delete(parent.id)
+    taskAgentParentFinalizationLocks.delete(snapshot.task_id)
   }
 }
 
@@ -4050,10 +5344,10 @@ function startTaskAgentPolling(sessionId: string, chatId: string, taskId: string
           snapshot,
         )
       }
-      const pendingAiWatch = Object.values(snapshot.ai_watch_reviews || {}).some(
-        (review) => ['pending', 'analyzing'].includes(review.status),
-      )
-      if (TASK_AGENT_TERMINAL_BACKEND_STATUSES.has(snapshot.status) && !pendingAiWatch) {
+      if (
+        TASK_AGENT_TERMINAL_BACKEND_STATUSES.has(snapshot.status) &&
+        !hasPendingTaskAgentReviews(snapshot)
+      ) {
         taskAgentPollTimers.delete(taskId)
         if (target.chat.temporaryBranch) {
           await handleTerminalTemporaryBranch(
@@ -4062,20 +5356,19 @@ function startTaskAgentPolling(sessionId: string, chatId: string, taskId: string
             snapshot,
           )
         } else {
-          await disposeAllTemporaryBranches(
+          const finalized = await finalizeParentTaskAgent(
             target.session,
-            target.chat.id,
-            true,
+            target.chat,
+            snapshot,
           )
+          if (!finalized) {
+            taskAgentPollTimers.set(
+              taskId,
+              window.setTimeout(poll, 1200),
+            )
+          }
         }
         return
-      }
-      if (!target.chat.temporaryBranch) {
-        void maybeSpawnAdaptiveBranches(
-          target.session,
-          target.chat,
-          snapshot,
-        )
       }
       taskAgentPollTimers.set(taskId, window.setTimeout(poll, 1200))
     } catch (error) {
@@ -4113,37 +5406,78 @@ async function resumeActiveTaskAgent() {
   }
 }
 
+function toggleTaskAgentGoalDetails() {
+  if (taskAgentGoalEditing.value) return
+  taskAgentDetailsExpanded.value = !taskAgentDetailsExpanded.value
+}
+
+function beginTaskAgentGoalEdit() {
+  const goal = String(activeChat.value?.taskGoal || '').trim()
+  if (!goal) return
+  taskAgentGoalDraft.value = goal
+  taskAgentGoalEditing.value = true
+  void nextTick(() => {
+    taskAgentGoalEditInputRef.value?.focus()
+    taskAgentGoalEditInputRef.value?.select()
+  })
+}
+
+function cancelTaskAgentGoalEdit() {
+  taskAgentGoalDraft.value = ''
+  taskAgentGoalEditing.value = false
+}
+
+async function saveTaskAgentGoalEdit() {
+  const session = activeSession.value
+  const chat = activeChat.value
+  const goal = taskAgentGoalDraft.value.trim()
+  if (!session || !chat?.taskAgentTaskId || !goal) return
+  if (goal === String(chat.taskGoal || '').trim()) {
+    cancelTaskAgentGoalEdit()
+    return
+  }
+  try {
+    const snapshot = await taskAgentsApi.updateGoal(
+      chat.taskAgentTaskId,
+      goal,
+    )
+    syncTaskAgentSnapshot(session, chat, snapshot)
+    cancelTaskAgentGoalEdit()
+    taskAgentDetailsExpanded.value = false
+    message.success('Goal updated. The Attack Agent will replan from the edited objective.')
+  } catch (error) {
+    message.error(
+      error instanceof Error
+        ? error.message
+        : 'Unable to update the active goal.',
+    )
+  }
+}
+
 async function clearTaskAgentGoal() {
   const session = activeSession.value
   const chat = activeChat.value
   if (!session || !chat) return
-  if (
-    chat.taskAgentTaskId &&
-    !['achieved', 'stopped', 'error'].includes(chat.taskAgentStatus || '')
-  ) {
-    try {
-      const snapshot = await taskAgentsApi.stopTask(
-        chat.taskAgentTaskId,
-        'Goal cleared by user',
-      )
-      syncTaskAgentSnapshot(session, chat, snapshot)
-    } catch (error) {
-      message.error(
-        error instanceof Error
-          ? `The background task could not be stopped: ${error.message}`
-          : 'The background task could not be stopped.',
-      )
-      return
-    }
-  }
-  if (chat.taskAgentTaskId) {
-    const timer = taskAgentPollTimers.get(chat.taskAgentTaskId)
-    if (timer) window.clearTimeout(timer)
-    taskAgentPollTimers.delete(chat.taskAgentTaskId)
-  }
-  if (!chat.temporaryBranch) {
-    await disposeAllTemporaryBranches(session, chat.id, true)
-  }
+  const childChats = session.chats.filter(
+    (item) => item.temporaryBranch && item.parentChatId === chat.id,
+  )
+  const taskIds = [chat, ...childChats]
+    .filter(
+      (item) =>
+        item.taskAgentTaskId &&
+        TASK_AGENT_RUNNING_STATUSES.has(item.taskAgentStatus || 'idle'),
+    )
+    .map((item) => item.taskAgentTaskId || '')
+  taskIds.forEach(cancelTaskAgentClientActivity)
+  session.chats = session.chats.filter(
+    (item) => !item.temporaryBranch || item.parentChatId !== chat.id,
+  )
+  const nextBranches = new Set(expandedTaskAgentBranches.value)
+  nextBranches.delete(chat.id)
+  expandedTaskAgentBranches.value = nextBranches
+  const nextAgentPanels = new Set(expandedParallelAgentPanels.value)
+  nextAgentPanels.delete(chat.id)
+  expandedParallelAgentPanels.value = nextAgentPanels
   releaseTaskAgentAiWatch(session, chat)
   chat.taskGoal = ''
   chat.taskAgentStatus = 'idle'
@@ -4167,11 +5501,22 @@ async function clearTaskAgentGoal() {
   chat.taskAgentInputTokens = 0
   chat.taskAgentOutputTokens = 0
   chat.taskAgentLastOutcome = ''
+  chat.taskAgentScorerEnsemble = null
+  chat.taskAgentCampaignId = ''
+  chat.taskAgentSourceManifestId = ''
   chatPrompt.value = ''
   taskAgentRemovalModalOpen.value = false
   session.updatedAt = new Date().toISOString()
   persistSessions()
-  message.success(translateSource('auto.2629c639b41d'))
+  const results = await stopTaskAgentTaskIds(taskIds, 'Goal cleared by user')
+  const failedStops = results.filter((result) => result.status === 'rejected')
+  if (failedStops.length) {
+    message.warning(
+      `The test was closed locally, but ${failedStops.length} background task stop request(s) need server recovery.`,
+    )
+  } else {
+    message.success(translateSource('auto.2629c639b41d'))
+  }
 }
 
 async function retryFailedTaskAgentGoal() {
@@ -4208,6 +5553,9 @@ async function retryFailedTaskAgentGoal() {
   chat.taskAgentCompletedAt = ''
   chat.taskAgentEnabledAiWatch = false
   chat.taskAgentLastOutcome = ''
+  chat.taskAgentScorerEnsemble = null
+  chat.taskAgentCampaignId = ''
+  chat.taskAgentSourceManifestId = ''
   taskAgentGoalEntryMode.value = true
   taskAgentDetailsExpanded.value = false
   chatPrompt.value = failedGoal
@@ -4410,6 +5758,41 @@ function updateRedTeamMessage(messageId: string, patch: Partial<RedTeamMessage>)
   }
 }
 
+function normalizeTaskAgentMessageOrder(
+  messages: RedTeamMessage[],
+): RedTeamMessage[] {
+  const byId = new Map(messages.map((item) => [item.id, item]))
+  const consumed = new Set<string>()
+  const ordered: RedTeamMessage[] = []
+  for (const messageItem of messages) {
+    if (consumed.has(messageItem.id)) continue
+    const isUserTurn = messageItem.id.endsWith('-user')
+    const isAssistantTurn = messageItem.id.endsWith('-assistant')
+    const counterpartId = isUserTurn
+      ? `${messageItem.id.slice(0, -'-user'.length)}-assistant`
+      : isAssistantTurn
+        ? `${messageItem.id.slice(0, -'-assistant'.length)}-user`
+        : ''
+    const counterpart = counterpartId ? byId.get(counterpartId) : undefined
+    if (!counterpart) {
+      ordered.push(messageItem)
+      consumed.add(messageItem.id)
+      continue
+    }
+    const userMessage = isUserTurn ? messageItem : counterpart
+    const assistantMessage = isAssistantTurn ? messageItem : counterpart
+    if (!consumed.has(userMessage.id)) {
+      ordered.push(userMessage)
+      consumed.add(userMessage.id)
+    }
+    if (!consumed.has(assistantMessage.id)) {
+      ordered.push(assistantMessage)
+      consumed.add(assistantMessage.id)
+    }
+  }
+  return ordered
+}
+
 async function loadSessions() {
   try {
     const sessions = await moonshotApi.getLocalRedTeamSessions()
@@ -4453,6 +5836,15 @@ async function resumePersistentTaskAgents() {
         if (TASK_AGENT_TERMINAL_BACKEND_STATUSES.has(snapshot.status)) {
           if (chat.temporaryBranch) {
             await handleTerminalTemporaryBranch(session, chat, snapshot)
+          } else {
+            const finalized = await finalizeParentTaskAgent(
+              session,
+              chat,
+              snapshot,
+            )
+            if (!finalized) {
+              startTaskAgentPolling(session.id, chat.id, snapshot.task_id)
+            }
           }
         } else {
           startTaskAgentPolling(session.id, chat.id, snapshot.task_id)
@@ -4491,6 +5883,17 @@ function persistSessions() {
   }
 }
 
+function hasMatchingTaskAgentFinalFeedback(chat: RedTeamChatThread) {
+  const taskId = String(chat.taskAgentTaskId || chat.taskAgentRunId || '')
+  if (!taskId) return false
+  return (chat.messages || []).some(
+    (message) =>
+      (message.presentation === 'task-agent-result' ||
+        message.presentation === 'task-agent-success') &&
+      message.taskAgentFeedback?.taskId === taskId,
+  )
+}
+
 function normalizeSessions(value: unknown): RedTeamSession[] {
   if (!Array.isArray(value)) return []
   return value
@@ -4503,7 +5906,7 @@ function normalizeSessions(value: unknown): RedTeamSession[] {
               title: session.name || session.endpointName || 'Chat',
               createdAt: session.createdAt,
               updatedAt: session.updatedAt,
-              messages: session.messages,
+              messages: normalizeTaskAgentMessageOrder(session.messages),
               baselineMessages: Array.isArray(session.baselineMessages) ? session.baselineMessages : [],
               compareEnabled: Boolean(session.compareEnabled),
               sensitiveFindings: [],
@@ -4518,7 +5921,9 @@ function normalizeSessions(value: unknown): RedTeamSession[] {
       const chats = Array.isArray(session.chats)
         ? session.chats.map((chat) => ({
             ...chat,
-            messages: Array.isArray(chat.messages) ? chat.messages : [],
+            messages: normalizeTaskAgentMessageOrder(
+              Array.isArray(chat.messages) ? chat.messages : [],
+            ),
             baselineMessages: Array.isArray(chat.baselineMessages) ? chat.baselineMessages : [],
             compareEnabled: Boolean(chat.compareEnabled),
             sensitiveFindings: Array.isArray(chat.sensitiveFindings)
@@ -4573,12 +5978,38 @@ function normalizeSessions(value: unknown): RedTeamSession[] {
             taskAgentBranchFocusHistory: Array.isArray(chat.taskAgentBranchFocusHistory)
               ? chat.taskAgentBranchFocusHistory.map(String)
               : [],
-            taskAgentBranchGeneration: Number(chat.taskAgentBranchGeneration || 0),
-          }))
+              taskAgentBranchGeneration: Number(chat.taskAgentBranchGeneration || 0),
+            }))
         : []
+      const terminalParentIds = new Set(
+        chats
+          .filter(
+            (chat) =>
+              !chat.temporaryBranch &&
+              hasMatchingTaskAgentFinalFeedback(chat),
+          )
+          .map((chat) => chat.id),
+      )
+      chats.forEach((chat) => {
+        if (!terminalParentIds.has(chat.id)) return
+        chat.taskGoal = ''
+        chat.taskAgentTaskId = ''
+        chat.taskAgentStatus = 'idle'
+        chat.taskAgentStatusDetail = ''
+        chat.sensitiveAnalysisStatus = 'complete'
+      })
+      const normalizedChats = chats.filter(
+        (chat) =>
+          !chat.temporaryBranch ||
+          !terminalParentIds.has(chat.parentChatId || ''),
+      )
       return {
         ...session,
-        chats: chats.length ? chats : migratedChat ? [migratedChat] : [createEmptyChatThread(session)],
+        chats: normalizedChats.length
+          ? normalizedChats
+          : migratedChat
+            ? [migratedChat]
+            : [createEmptyChatThread(session)],
         messages: [],
         baselineMessages: [],
         compareEnabled: false,
@@ -4841,15 +6272,52 @@ async function analyzeSensitiveTurn({
     }
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'The active Settings model could not analyze this turn.'
-    chat.sensitiveAnalysisStatus = 'error'
-    chat.sensitiveAnalysisError = detail
+    const retryable = isTransientAiWatchError(detail)
+    chat.sensitiveAnalysisStatus = retryable ? 'idle' : 'error'
+    chat.sensitiveAnalysisError = retryable
+      ? ''
+      : 'AI Watch could not complete this optional review. The conversation remains available.'
+    chat.sensitiveAnalysisSummary = retryable
+      ? 'AI Watch was temporarily unavailable. The conversation remains available.'
+      : chat.sensitiveAnalysisSummary
     chat.sensitiveAnalysisUpdatedAt = new Date().toISOString()
     session.updatedAt = chat.sensitiveAnalysisUpdatedAt
     persistSessions()
-    message.error(`AI Watch could not review this turn: ${detail}`)
+    if (retryable) {
+      message.warning('AI Watch was temporarily unavailable. You can continue the conversation.')
+    } else {
+      message.error('AI Watch could not complete this optional review.')
+    }
   } finally {
     activeSensitiveReviewIds.delete(reviewId)
   }
+}
+
+function isTransientAiWatchError(value: string) {
+  const detail = value.toLowerCase()
+  return [
+    'timed out',
+    'timeout',
+    'rate limited',
+    'http 408',
+    'http 425',
+    'http 429',
+    'http 500',
+    'http 502',
+    'http 503',
+    'http 504',
+    'connection reset',
+    'temporarily unavailable',
+    'unable to reach the active ai model',
+  ].some((marker) => detail.includes(marker))
+}
+
+function visibleAiWatchError(value?: string | null) {
+  const detail = String(value || '').trim()
+  if (!detail) return ''
+  if (detail.startsWith('AI Watch ')) return detail
+  if (isTransientAiWatchError(detail)) return ''
+  return detail
 }
 
 function openSensitiveEvidence(category: SensitiveFindingCategory) {

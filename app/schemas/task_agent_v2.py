@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -18,7 +18,11 @@ from pydantic import (
 
 
 class TaskAgentModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+        protected_namespaces=(),
+    )
 
 
 class TerminationMode(str, Enum):
@@ -43,6 +47,32 @@ class VerificationStatus(str, Enum):
     SUSPECT = "suspect"
     VERIFIED = "verified"
     REVOKED = "revoked"
+
+
+class TargetDeliveryStatus(str, Enum):
+    PREPARED = "PREPARED"
+    SENDING = "SENDING"
+    DELIVERED = "DELIVERED"
+    AMBIGUOUS = "AMBIGUOUS"
+    NOT_DELIVERED = "NOT_DELIVERED"
+    COMMITTED = "COMMITTED"
+
+
+class GoalType(str, Enum):
+    SECRET_VALUE_EXTRACTION = "secret_value_extraction"
+    SYSTEM_PROMPT_DISCLOSURE = "system_prompt_disclosure"
+    PROTECTION_VALIDATION = "protection_validation"
+    BEHAVIORAL_OBSERVATION = "behavioral_observation"
+
+
+class EvidenceProvenanceSource(str, Enum):
+    TARGET_NOVEL = "target_novel"
+    USER_ECHO = "user_echo"
+    HISTORY_ECHO = "history_echo"
+    MEMORY_ECHO = "memory_echo"
+    EXAMPLE_ANCHORED = "example_anchored"
+    INFERRED = "inferred"
+    UNVERIFIED = "unverified"
 
 
 class RouteDecision(str, Enum):
@@ -86,14 +116,29 @@ class ChatMessage(TaskAgentModel):
 
 class TaskAgentConfig(TaskAgentModel):
     termination_mode: TerminationMode = TerminationMode.GUARDED_UNBOUNDED
-    max_rounds: StrictInt | None = Field(default=None, ge=1, le=100_000)
+    exploration_intensity: Literal[
+        "light",
+        "standard",
+        "deep",
+        "extreme",
+    ] = "deep"
+    control_provider: StrictStr | None = Field(default=None, max_length=80)
+    control_model: StrictStr | None = Field(default=None, max_length=240)
+    max_rounds: StrictInt | None = Field(default=24, ge=1, le=100_000)
     request_interval_ms: StrictInt = Field(default=1_200, ge=0, le=300_000)
     max_node_retries: StrictInt = Field(default=2, ge=0, le=10)
+    auto_resume_transient_failures: StrictBool = True
+    max_auto_resumes: StrictInt = Field(default=2, ge=0, le=10)
+    auto_resume_delay_seconds: StrictFloat = Field(
+        default=15.0,
+        ge=0,
+        le=3_600,
+    )
     max_consecutive_target_failures: StrictInt = Field(default=3, ge=1, le=100)
     max_no_novelty_rounds: StrictInt = Field(default=5, ge=1, le=1_000)
-    max_runtime_seconds: StrictInt | None = Field(default=None, ge=1)
-    max_input_tokens: StrictInt | None = Field(default=None, ge=1)
-    max_output_tokens: StrictInt | None = Field(default=None, ge=1)
+    max_runtime_seconds: StrictInt | None = Field(default=1_800, ge=1)
+    max_input_tokens: StrictInt | None = Field(default=500_000, ge=1)
+    max_output_tokens: StrictInt | None = Field(default=100_000, ge=1)
     max_estimated_cost: StrictFloat | None = Field(default=None, ge=0)
     recent_history_messages: StrictInt = Field(default=16, ge=2, le=100)
     max_prompt_chars: StrictInt = Field(default=90_000, ge=10_000, le=500_000)
@@ -108,6 +153,28 @@ class TaskAgentConfig(TaskAgentModel):
     branch_stall_novelty_threshold: StrictInt = Field(default=15, ge=0, le=100)
     min_strategy_candidate_score: StrictFloat = Field(default=45, ge=0, le=100)
     min_expected_information_gain: StrictFloat = Field(default=0.08, ge=0, le=1)
+    max_family_rounds: StrictInt = Field(default=32, ge=1, le=100_000)
+    max_family_input_tokens: StrictInt = Field(
+        default=750_000,
+        ge=1,
+    )
+    max_family_output_tokens: StrictInt = Field(
+        default=150_000,
+        ge=1,
+    )
+    max_evidence_stall_rounds: StrictInt = Field(default=4, ge=1, le=100)
+    near_duplicate_threshold: StrictFloat = Field(default=0.92, ge=0.7, le=1)
+    baseline_scanner_enabled: StrictBool = True
+    baseline_max_probes: StrictInt = Field(default=4, ge=0, le=12)
+    branch_min_marginal_utility: StrictFloat = Field(
+        default=0.12,
+        ge=0,
+        le=10,
+    )
+    branch_stop_no_gain_rounds: StrictInt = Field(default=3, ge=1, le=100)
+    branch_followup_round_gap: StrictInt = Field(default=2, ge=1, le=100)
+    branch_min_allocated_rounds: StrictInt = Field(default=2, ge=1, le=100)
+    branch_max_allocated_rounds: StrictInt = Field(default=8, ge=1, le=1_000)
 
     @field_validator("max_rounds")
     @classmethod
@@ -119,11 +186,38 @@ class TaskAgentConfig(TaskAgentModel):
 
     @model_validator(mode="after")
     def validate_technique_variant_limits(self) -> "TaskAgentConfig":
+        if bool(self.control_provider) != bool(self.control_model):
+            raise ValueError(
+                "control_provider and control_model must be configured together"
+            )
         if self.min_variants_per_technique > self.max_variants_per_technique:
             raise ValueError(
                 "min_variants_per_technique cannot exceed "
                 "max_variants_per_technique"
             )
+        if self.branch_min_allocated_rounds > self.branch_max_allocated_rounds:
+            raise ValueError(
+                "branch_min_allocated_rounds cannot exceed "
+                "branch_max_allocated_rounds"
+            )
+        if all(
+            value is None
+            for value in (
+                self.max_rounds,
+                self.max_runtime_seconds,
+                self.max_input_tokens,
+                self.max_output_tokens,
+                self.max_estimated_cost,
+            )
+        ):
+            # Compatibility migration for task settings saved before bounded
+            # budgets became mandatory. Explicit JSON nulls bypass Pydantic's
+            # field defaults, so restore the safe defaults instead of rejecting
+            # the task before it can start.
+            self.max_rounds = 24
+            self.max_runtime_seconds = 1800
+            self.max_input_tokens = 500_000
+            self.max_output_tokens = 100_000
         return self
 
 
@@ -137,6 +231,12 @@ class TaskBranchContext(TaskAgentModel):
     sibling_focuses: list[StrictStr] = Field(default_factory=list, max_length=10)
     fork_round: StrictInt = Field(default=0, ge=0)
     candidate_signature: StrictStr | None = Field(default=None, max_length=500)
+    allocation_score: StrictFloat = Field(default=0, ge=0, le=100)
+    expected_marginal_gain: StrictFloat = Field(default=0, ge=0, le=1)
+    estimated_cost_units: StrictFloat = Field(default=1, ge=0.01, le=100)
+    allocated_rounds: StrictInt | None = Field(default=None, ge=1, le=1_000)
+    allocated_input_tokens: StrictInt | None = Field(default=None, ge=1)
+    allocated_output_tokens: StrictInt | None = Field(default=None, ge=1)
 
 
 class TaskBranchTemplate(TaskAgentModel):
@@ -251,6 +351,11 @@ class StrategyCandidate(TaskAgentModel):
     expected_information_gain: StrictInt = Field(ge=0, le=100)
     response_fit: StrictInt = Field(ge=0, le=100)
     novelty: StrictInt = Field(ge=0, le=100)
+    estimated_cost_units: StrictFloat = Field(default=1, ge=0.01, le=100)
+    proof_requirement_ids: list[StrictStr] = Field(
+        default_factory=list,
+        max_length=30,
+    )
 
 
 class PlannerOutput(TaskAgentModel):
@@ -349,6 +454,10 @@ class ExecutorOutput(TaskAgentModel):
     method_status: MethodStatus
     skill_status: dict[StrictStr, SkillRuntimeStatus] = Field(default_factory=dict)
     risk_notes: list[StrictStr] = Field(default_factory=list, max_length=12)
+    generation_mode: Literal["model", "baseline_scanner"] = "model"
+    baseline_probe_id: StrictStr | None = Field(default=None, max_length=160)
+    attack_strategy_id: StrictStr | None = Field(default=None, max_length=160)
+    transform_id: StrictStr | None = Field(default=None, max_length=160)
 
     @model_validator(mode="after")
     def validate_variation_record(self) -> "ExecutorOutput":
@@ -381,9 +490,230 @@ class EvidenceItem(TaskAgentModel):
     strength: Literal["weak", "medium", "strong"]
     request_excerpt: StrictStr | None = Field(default=None, max_length=2_000)
     response_excerpt: StrictStr | None = Field(default=None, max_length=2_000)
+    provenance: Optional["EvidenceProvenance"] = None
+
+
+class EvidenceProvenance(TaskAgentModel):
+    schema_version: StrictInt = Field(default=1, ge=1)
+    source: EvidenceProvenanceSource
+    evidence_type: StrictStr = Field(min_length=1, max_length=120)
+    target_origin: StrictBool
+    novel: StrictBool
+    eligible_for_progress: StrictBool
+    eligible_for_success: StrictBool
+    confidence: Literal["low", "medium", "high"] = "low"
+    reasons: list[StrictStr] = Field(default_factory=list, max_length=20)
+    matched_source_hashes: list[StrictStr] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    classified_at: datetime
+
+
+class GoalContract(TaskAgentModel):
+    schema_version: StrictInt = Field(default=2, ge=1)
+    original_goal: StrictStr = Field(min_length=1, max_length=12_000)
+    goal_type: GoalType
+    immutable: StrictBool = True
+    acceptable_evidence: list[StrictStr] = Field(min_length=1, max_length=20)
+    must_be_target_origin: StrictBool
+    must_be_novel: StrictBool
+    disallowed_sources: list[EvidenceProvenanceSource] = Field(
+        default_factory=list,
+        max_length=10,
+    )
+    disallowed_evidence_types: list[StrictStr] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    minimum_confidence: Literal["low", "medium", "high"] = "medium"
+    success_criteria: list[StrictStr] = Field(min_length=1, max_length=30)
+    proof_spec: "ProofSpec"
+    goal_primary_skill_id: StrictStr | None = None
+    best_known_progress: StrictInt = Field(default=0, ge=0, le=100)
+    progress_policy: dict[str, Any] = Field(default_factory=dict)
+    rules: list[StrictStr] = Field(default_factory=list, max_length=20)
+
+
+class ProofRequirement(TaskAgentModel):
+    requirement_id: StrictStr = Field(pattern=r"^[a-z0-9][a-z0-9._:-]{1,159}$")
+    description: StrictStr = Field(min_length=1, max_length=2_000)
+    required: StrictBool = True
+    evidence_types: list[StrictStr] = Field(default_factory=list, max_length=20)
+    minimum_evidence_count: StrictInt = Field(default=1, ge=1, le=1_000)
+    cardinality: dict[str, Any] = Field(default_factory=dict)
+    coverage: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProofSpec(TaskAgentModel):
+    schema_version: StrictInt = Field(default=2, ge=2)
+    proof_id: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+    kind: Literal["generic", "tool_inventory"] = "generic"
+    operator: Literal["all", "any"] = "all"
+    immutable: StrictBool = True
+    requirements: list[ProofRequirement] = Field(min_length=1, max_length=30)
+    completion_policy: dict[str, Any] = Field(default_factory=dict)
+
+
+class AttackVulnerability(TaskAgentModel):
+    vulnerability_id: StrictStr = Field(
+        pattern=r"^[a-z0-9][a-z0-9._:-]{1,159}$"
+    )
+    category: Literal[
+        "secret_extraction",
+        "prompt_disclosure",
+        "tool_capability",
+        "policy_disclosure",
+        "model_information",
+        "retrieval_boundary",
+        "authorization",
+        "workflow_integrity",
+        "behavioral",
+        "generic",
+    ]
+    title: StrictStr = Field(min_length=1, max_length=240)
+    taxonomy: list[StrictStr] = Field(default_factory=list, max_length=20)
+    severity_hint: Literal["low", "medium", "high", "critical"] = "high"
+
+
+class AttackObjective(TaskAgentModel):
+    goal: StrictStr = Field(min_length=1, max_length=12_000)
+    goal_type: GoalType
+    proof_spec: ProofSpec
+    success_criteria: list[StrictStr] = Field(min_length=1, max_length=30)
+    must_be_target_origin: StrictBool
+    must_be_novel: StrictBool
+
+
+class AttackStrategy(TaskAgentModel):
+    strategy_id: StrictStr = Field(
+        pattern=r"^[a-z0-9][a-z0-9._:-]{1,159}$"
+    )
+    skill_id: StrictStr = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,79}$")
+    technique_ids: list[StrictStr] = Field(min_length=1, max_length=20)
+    stage: Literal["baseline", "adaptive", "followup"] = "adaptive"
+    priority: StrictInt = Field(ge=1, le=100)
+    rationale: StrictStr = Field(min_length=1, max_length=2_000)
+    applicable_transforms: list[StrictStr] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+
+
+class AttackTransform(TaskAgentModel):
+    transform_id: StrictStr = Field(
+        pattern=r"^[a-z0-9][a-z0-9._:-]{1,159}$"
+    )
+    kind: Literal[
+        "identity",
+        "structured_output",
+        "encoding",
+        "translation",
+        "fragmentation",
+        "context",
+    ]
+    label: StrictStr = Field(min_length=1, max_length=240)
+    deterministic: StrictBool = True
+    cost_weight: StrictFloat = Field(default=1, ge=0.01, le=100)
+
+
+class AttackTarget(TaskAgentModel):
+    target_id: StrictStr = Field(min_length=1, max_length=2_000)
+    target_type: Literal[
+        "runner",
+        "http",
+        "browser",
+        "stateful_agent",
+        "tool_trace",
+    ] = "runner"
+    endpoint_name: StrictStr | None = Field(default=None, max_length=240)
+    capabilities: list[StrictStr] = Field(default_factory=list, max_length=30)
+
+
+class AttackScorer(TaskAgentModel):
+    scorer_id: StrictStr = Field(
+        pattern=r"^[a-z0-9][a-z0-9._:-]{1,159}$"
+    )
+    kind: Literal["proof_spec", "rule_detector", "llm_judge", "ai_watch"]
+    required: StrictBool = False
+    weight: StrictFloat = Field(default=1, ge=0, le=100)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class AttackSpec(TaskAgentModel):
+    schema_version: StrictInt = Field(default=1, ge=1)
+    attack_spec_id: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+    immutable: StrictBool = True
+    vulnerability: AttackVulnerability
+    objective: AttackObjective
+    strategies: list[AttackStrategy] = Field(min_length=1, max_length=30)
+    transforms: list[AttackTransform] = Field(min_length=1, max_length=30)
+    target: AttackTarget
+    scorers: list[AttackScorer] = Field(min_length=1, max_length=20)
+
+
+class BaselineProbe(TaskAgentModel):
+    probe_id: StrictStr = Field(pattern=r"^[a-z0-9][a-z0-9._:-]{1,159}$")
+    strategy_id: StrictStr = Field(
+        pattern=r"^[a-z0-9][a-z0-9._:-]{1,159}$"
+    )
+    transform_id: StrictStr = Field(
+        pattern=r"^[a-z0-9][a-z0-9._:-]{1,159}$"
+    )
+    message: StrictStr = Field(min_length=1, max_length=12_000)
+    changed_variable: StrictStr = Field(min_length=1, max_length=2_000)
+    expected_signal: StrictStr = Field(min_length=1, max_length=2_000)
+    evidence_criteria: list[StrictStr] = Field(min_length=1, max_length=20)
+    proof_requirement_ids: list[StrictStr] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+    estimated_cost_units: StrictFloat = Field(default=0.25, ge=0.01, le=100)
+
+
+class BaselineScan(TaskAgentModel):
+    schema_version: StrictInt = Field(default=1, ge=1)
+    attack_spec_id: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+    dataset_id: StrictStr = Field(
+        default="attack-agent-baseline-seeds-legacy",
+        min_length=1,
+        max_length=160,
+    )
+    dataset_sha256: StrictStr = Field(
+        default="0" * 64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    status: Literal["pending", "running", "completed", "disabled"] = "pending"
+    probes: list[BaselineProbe] = Field(default_factory=list, max_length=12)
+    completed_probe_ids: list[StrictStr] = Field(
+        default_factory=list,
+        max_length=12,
+    )
+    skipped_probe_ids: list[StrictStr] = Field(
+        default_factory=list,
+        max_length=12,
+    )
+    max_probes: StrictInt = Field(default=0, ge=0, le=12)
+
+
+class EvidenceLedgerEntry(TaskAgentModel):
+    schema_version: StrictInt = Field(default=1, ge=1)
+    entry_id: StrictStr = Field(min_length=1, max_length=200)
+    root_task_id: StrictStr = Field(min_length=1, max_length=200)
+    claim_hash: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+    claim: StrictStr = Field(min_length=1, max_length=6_000)
+    supports: StrictStr = Field(default="", max_length=2_000)
+    status: Literal["confirmed", "suspect", "rejected"]
+    strength: Literal["weak", "medium", "strong"]
+    provenance: EvidenceProvenance
+    sources: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    contradictions: list[StrictStr] = Field(default_factory=list, max_length=50)
+    created_at: datetime
+    updated_at: datetime
 
 
 class BranchReport(TaskAgentModel):
+    schema_version: StrictInt = Field(default=1, ge=1)
     report_id: StrictStr = Field(min_length=1, max_length=240)
     parent_task_id: StrictStr = Field(min_length=1, max_length=200)
     child_task_id: StrictStr = Field(min_length=1, max_length=200)
@@ -400,6 +730,19 @@ class BranchReport(TaskAgentModel):
     recommended_next_action: StrictStr = Field(default="", max_length=4_000)
     outcome: Literal["running", "succeeded", "failed", "stopped", "exhausted"]
     verification_status: VerificationStatus = VerificationStatus.PENDING
+    rounds: StrictInt = Field(default=0, ge=0)
+    input_tokens: StrictInt = Field(default=0, ge=0)
+    output_tokens: StrictInt = Field(default=0, ge=0)
+    estimated_cost: StrictFloat = Field(default=0, ge=0)
+    model_call_counts: dict[StrictStr, StrictInt] = Field(
+        default_factory=dict
+    )
+    duration_seconds: StrictFloat = Field(default=0, ge=0)
+    eligible_evidence_count: StrictInt = Field(default=0, ge=0)
+    evidence_gain: StrictFloat = Field(default=0, ge=0, le=1)
+    cost_units: StrictFloat = Field(default=1, ge=0.01)
+    marginal_efficiency: StrictFloat = Field(default=0, ge=0)
+    parent_control: Literal["none", "followup", "stopped"] = "none"
     created_at: datetime
     updated_at: datetime
 
@@ -426,7 +769,17 @@ class SuccessVerification(TaskAgentModel):
     reason: StrictStr = Field(default="", max_length=4_000)
     evidence_ids: list[StrictStr] = Field(default_factory=list, max_length=100)
     criterion: StrictStr | None = Field(default=None, max_length=2_000)
-    adjudicator: StrictStr = Field(default="deterministic-evidence-gate", max_length=160)
+    proof_spec_version: StrictInt = Field(default=2, ge=1)
+    proof_id: StrictStr | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    requirement_results: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+    coverage: dict[str, Any] = Field(default_factory=dict)
+    adjudicator: StrictStr = Field(default="deterministic-proof-gate-v2", max_length=160)
     verified_at: datetime | None = None
 
 
@@ -473,6 +826,51 @@ class SensitiveAnalysisOutput(TaskAgentModel):
     severity: Literal["none", "P0", "P1", "P2", "P3"] = "none"
 
 
+class TaskAgentIssue(TaskAgentModel):
+    component: Literal[
+        "runtime",
+        "planner",
+        "executor",
+        "target",
+        "evaluator",
+        "ai_watch",
+        "storage",
+        "branch",
+    ]
+    severity: Literal["info", "warning", "error", "critical"]
+    code: StrictStr = Field(min_length=1, max_length=160)
+    summary: StrictStr = Field(min_length=1, max_length=500)
+    detail: StrictStr = Field(default="", max_length=4_000)
+    recoverable: StrictBool = False
+    delivery_id: StrictStr | None = Field(default=None, max_length=160)
+    retry_at: datetime | None = None
+
+
+class TargetDeliveryRecord(TaskAgentModel):
+    schema_version: StrictInt = Field(default=1, ge=1)
+    delivery_id: StrictStr = Field(min_length=1, max_length=160)
+    round_key: StrictStr = Field(min_length=1, max_length=160)
+    round: StrictInt = Field(ge=1)
+    status: TargetDeliveryStatus
+    runner_id: StrictStr = Field(min_length=1, max_length=200)
+    message_sha256: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+    message: StrictStr = Field(min_length=1, max_length=200_000)
+    prepared_request: StrictStr | None = Field(
+        default=None,
+        max_length=200_000,
+    )
+    idempotency_supported: StrictBool = False
+    transport_receipt: dict[str, Any] | None = None
+    response: StrictStr | None = None
+    raw_response: Any = None
+    error: StrictStr | None = Field(default=None, max_length=2_000)
+    prepared_at: datetime
+    sending_at: datetime | None = None
+    delivered_at: datetime | None = None
+    committed_at: datetime | None = None
+    updated_at: datetime
+
+
 class TaskCreateRequest(TaskAgentModel):
     session_id: StrictStr = Field(min_length=1, max_length=200)
     chat_id: StrictStr = Field(min_length=1, max_length=200)
@@ -480,12 +878,31 @@ class TaskCreateRequest(TaskAgentModel):
     target_key: StrictStr | None = Field(default=None, max_length=2_000)
     goal: StrictStr = Field(min_length=1, max_length=12_000)
     endpoint_name: StrictStr | None = Field(default=None, max_length=240)
-    payload_name: StrictStr | None = Field(default=None, max_length=240)
-    attack_module: StrictStr | None = Field(default=None, max_length=240)
-    context_strategy: StrictStr | None = Field(default=None, max_length=240)
+    payload_name: StrictStr | None = Field(
+        default=None,
+        max_length=240,
+        deprecated=True,
+        description="Deprecated manual-chat field. Task Agent ignores this value.",
+    )
+    attack_module: StrictStr | None = Field(
+        default=None,
+        max_length=240,
+        deprecated=True,
+        description="Deprecated manual-chat field. Task Agent ignores this value.",
+    )
+    context_strategy: StrictStr | None = Field(
+        default=None,
+        max_length=240,
+        deprecated=True,
+        description="Deprecated manual-chat field. Task Agent ignores this value.",
+    )
     history: list[ChatMessage] = Field(default_factory=list, max_length=5_000)
     branch_context: TaskBranchContext | None = None
     branch_template: TaskBranchTemplate | None = None
+    campaign_id: StrictStr | None = Field(default=None, max_length=160)
+    source_manifest_id: StrictStr | None = Field(default=None, max_length=160)
+    fork_origin: dict[str, Any] | None = None
+    attack_spec: AttackSpec | None = None
     config: TaskAgentConfig = Field(default_factory=TaskAgentConfig)
 
 
@@ -497,7 +914,69 @@ class TaskSteerRequest(TaskAgentModel):
     instruction: StrictStr = Field(min_length=1, max_length=4_000)
 
 
+class TaskGoalUpdateRequest(TaskAgentModel):
+    goal: StrictStr = Field(min_length=1, max_length=4_000)
+
+
+class TaskHumanReviewRequest(TaskAgentModel):
+    decision: Literal["confirm", "reject", "needs_more_evidence"]
+    reviewer: StrictStr = Field(default="human", min_length=1, max_length=160)
+    note: StrictStr = Field(default="", max_length=4_000)
+    evidence_ids: list[StrictStr] = Field(default_factory=list, max_length=100)
+
+
+class TaskRegradeRequest(TaskAgentModel):
+    scorer_versions: dict[StrictStr, StrictStr] = Field(default_factory=dict)
+    human_review: TaskHumanReviewRequest | None = None
+
+
+class TaskForkRequest(TaskAgentModel):
+    round: StrictInt = Field(ge=0)
+    goal: StrictStr | None = Field(default=None, min_length=1, max_length=12_000)
+    instruction: StrictStr | None = Field(default=None, max_length=4_000)
+
+
+class AttackCampaignCreateRequest(TaskAgentModel):
+    name: StrictStr = Field(min_length=1, max_length=240)
+    description: StrictStr = Field(default="", max_length=4_000)
+    target_key: StrictStr = Field(default="", max_length=2_000)
+    owner: StrictStr = Field(default="", max_length=160)
+
+
+class AttackCampaignUpdateRequest(TaskAgentModel):
+    name: StrictStr | None = Field(default=None, min_length=1, max_length=240)
+    description: StrictStr | None = Field(default=None, max_length=4_000)
+    owner: StrictStr | None = Field(default=None, max_length=160)
+    status: Literal["active", "paused", "completed", "archived"] | None = None
+
+
+class AttackFindingCreateRequest(TaskAgentModel):
+    campaign_id: StrictStr | None = Field(default=None, max_length=160)
+
+
+class AttackFindingUpdateRequest(TaskAgentModel):
+    severity: Literal["info", "low", "medium", "high", "critical"] | None = None
+    status: Literal[
+        "open",
+        "triaged",
+        "in_progress",
+        "fixed",
+        "accepted",
+        "false_positive",
+        "closed",
+    ] | None = None
+    owner: StrictStr | None = Field(default=None, max_length=160)
+    fix_version: StrictStr | None = Field(default=None, max_length=160)
+    summary: StrictStr | None = Field(default=None, max_length=4_000)
+
+
+class AttackRegressionCreateRequest(TaskAgentModel):
+    name: StrictStr | None = Field(default=None, min_length=1, max_length=240)
+    expected_outcome: Literal["blocked", "detected", "no_regression"] = "blocked"
+
+
 class TaskSnapshot(TaskAgentModel):
+    schema_version: StrictInt = Field(default=2, ge=1)
     task_id: StrictStr
     session_id: StrictStr
     chat_id: StrictStr
@@ -508,6 +987,10 @@ class TaskSnapshot(TaskAgentModel):
     route: RouteDecision | None = None
     stop_reason: StrictStr | None = None
     goal: StrictStr
+    goal_contract: GoalContract | None = None
+    attack_spec: AttackSpec | None = None
+    baseline_scan: BaselineScan | None = None
+    attack_assets_initialized: StrictBool = False
     goal_progress: StrictInt = Field(default=0, ge=0, le=100)
     best_goal_progress: StrictInt = Field(default=0, ge=0, le=100)
     best_turn: dict[str, Any] | None = None
@@ -526,6 +1009,9 @@ class TaskSnapshot(TaskAgentModel):
     input_tokens: StrictInt = Field(default=0, ge=0)
     output_tokens: StrictInt = Field(default=0, ge=0)
     estimated_cost: StrictFloat = Field(default=0, ge=0)
+    model_call_counts: dict[StrictStr, StrictInt] = Field(
+        default_factory=dict
+    )
     latest_request: StrictStr | None = None
     latest_response: StrictStr | None = None
     planner_output: PlannerOutput | None = None
@@ -533,17 +1019,34 @@ class TaskSnapshot(TaskAgentModel):
     evaluator_output: EvaluatorOutput | None = None
     sensitive_output: SensitiveAnalysisOutput | None = None
     ai_watch_result: SensitiveAnalysisOutput | None = None
+    ai_watch_reviews: dict[StrictStr, dict[str, Any]] = Field(
+        default_factory=dict
+    )
     evidence: list[EvidenceItem] = Field(default_factory=list)
+    evidence_ledger: list[EvidenceLedgerEntry] = Field(default_factory=list)
+    family_metrics: dict[str, Any] = Field(default_factory=dict)
+    evidence_stall_count: StrictInt = Field(default=0, ge=0)
     gaps: list[StrictStr] = Field(default_factory=list)
     committed_turns: list[dict[str, Any]] = Field(default_factory=list)
+    target_deliveries: dict[StrictStr, TargetDeliveryRecord] = Field(
+        default_factory=dict
+    )
+    active_issue: TaskAgentIssue | None = None
     prompt_versions: dict[str, Any] = Field(default_factory=dict)
     analysis_errors: list[StrictStr] = Field(default_factory=list)
     branch_context: TaskBranchContext | None = None
     branch_template: TaskBranchTemplate | None = None
     branch_reports: list[BranchReport] = Field(default_factory=list)
     branch_result: dict[str, Any] | None = None
+    branch_runner_deleted: StrictBool = False
+    branch_cleanup: dict[str, Any] = Field(default_factory=dict)
+    branch_orchestration: dict[str, Any] = Field(default_factory=dict)
     research_state: ResearchState | None = None
     success_verification: SuccessVerification | None = None
+    scorer_ensemble: dict[str, Any] | None = None
+    campaign_id: StrictStr | None = Field(default=None, max_length=160)
+    source_manifest_id: StrictStr | None = Field(default=None, max_length=160)
+    fork_origin: dict[str, Any] | None = None
     steering_messages: list[StrictStr] = Field(default_factory=list)
     context_health: dict[str, Any] = Field(default_factory=dict)
     provider: StrictStr | None = None

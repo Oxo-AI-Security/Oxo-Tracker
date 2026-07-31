@@ -38,7 +38,7 @@
                 <strong>{{ endpoint.name || endpoint.id }}</strong>
               </div>
               <p>{{ endpoint.created_at ? `Added on ${endpoint.created_at}` : endpoint.connector_type || 'Endpoint' }}</p>
-              <n-button secondary round size="small" @click.stop="router.push('/endpoints')">
+              <n-button secondary round size="small" @click.stop="openEndpointEditor(endpoint)">
                 <template #icon><n-icon><CreateOutline /></n-icon></template> {{ $t('auto.5301648dcf6b') }} </n-button>
               <n-checkbox :checked="selectedEndpoints.includes(endpointId(endpoint))" @click.stop @update:checked="toggleEndpoint(endpoint)" />
             </article>
@@ -90,86 +90,134 @@
         </n-scrollbar>
       </section>
 
-      <section v-else-if="step === 3" class="wizard-body run-config-body">
-        <h2>{{ $t('auto.b9c2f40f81a1') }}</h2>
-        <div class="requirements-panel">
-          <template v-for="cookbook in requirementCookbooks" :key="cookbookId(cookbook)">
-            <section class="requirement-card">
-              <div class="evaluator-endpoints-column">
-                <h3>
-                  <n-icon><BookOutline /></n-icon>
-                  {{ cookbook.name || cookbook.id }}
-                </h3>
-                <p> {{ $t('auto.747cd06c8fa7') }} </p>
-                <ul>
-                  <li v-for="endpoint in requiredEndpointLabels(cookbook)" :key="endpoint">{{ endpoint }}</li>
-                </ul>
-              </div>
+      <section v-else-if="step === 3" class="wizard-body run-config-body evaluator-step-body">
+        <div class="evaluator-step-heading">
+          <span><n-icon><SparklesOutline /></n-icon>{{ $t('benchmark.evaluator.eyebrow') }}</span>
+          <h2>{{ $t('benchmark.evaluator.title') }}</h2>
+          <p>{{ $t('benchmark.evaluator.subtitle') }}</p>
+        </div>
+
+        <div class="evaluator-setup-layout">
+          <section class="evaluator-requirements-card">
+            <header>
+              <span class="evaluator-section-icon"><n-icon><BookOutline /></n-icon></span>
               <div>
-                <h4>{{ $t('auto.04431dff5ce3') }}</h4>
-                <p>{{ $t('auto.998e93d2b2c5') }}</p>
-                <div v-for="endpoint in requiredEndpoints(cookbook)" :key="endpoint.id" class="evaluator-config-group">
-                  <div class="evaluator-card">
-                    <n-icon><CubeOutline /></n-icon>
-                    <strong>{{ endpoint.label }}</strong>
-                    <n-tag size="small" round :type="endpoint.configured ? 'success' : 'warning'">
-                      {{ endpoint.configured ? 'Configured' : endpoint.exists ? $t('auto.1dfa895c487f') : 'Missing' }}
-                    </n-tag>
-                    <n-button secondary round size="small" @click="openEvaluatorConfig(endpoint.id, evaluatorConfigKey(cookbook, endpoint.id))">
-                      <template #icon><n-icon><CreateOutline /></n-icon></template> {{ $t('auto.792c81a4cfdc') }} </n-button>
-                  </div>
+                <small>{{ $t('benchmark.evaluator.requiredEyebrow') }}</small>
+                <h3>{{ $t('benchmark.evaluator.requiredTitle') }}</h3>
+                <p>{{ $t('benchmark.evaluator.requiredHint') }}</p>
+              </div>
+            </header>
+
+            <div class="evaluator-suite-list">
+              <article v-for="cookbook in requirementCookbooks" :key="cookbookId(cookbook)">
+                <div>
+                  <strong>{{ cookbook.name || cookbook.id }}</strong>
+                </div>
+                <n-tag size="small" round type="info">
+                  {{ requiredEndpointIds(cookbook).length }} {{ $t('benchmark.evaluator.endpointCount') }}
+                </n-tag>
+              </article>
+            </div>
+
+            <div class="evaluator-credential-note">
+              <n-icon><ShieldCheckmarkOutline /></n-icon>
+              <span>
+                <strong>{{ $t('benchmark.evaluator.credentialTitle') }}</strong>
+                {{ $t('benchmark.evaluator.credentialHint', { count: requiredEvaluatorIds.length }) }}
+              </span>
+            </div>
+          </section>
+
+          <section class="evaluator-picker-card">
+            <header class="evaluator-picker-header">
+              <span class="evaluator-section-icon evaluator-section-icon--purple"><n-icon><SparklesOutline /></n-icon></span>
+              <div>
+                <small>{{ $t('benchmark.evaluator.pickerEyebrow') }}</small>
+                <h3>{{ $t('benchmark.evaluator.pickerTitle') }}</h3>
+                <p>{{ $t('benchmark.evaluator.pickerHint') }}</p>
+              </div>
+              <span v-if="evaluatorSelectionReady" class="evaluator-ready-badge">
+                <n-icon><CheckmarkCircleOutline /></n-icon>
+                {{ $t('benchmark.evaluator.ready') }}
+              </span>
+            </header>
+
+            <div v-if="!configuredEvaluatorProviders.length" class="evaluator-empty-state">
+              <span><n-icon><AlertCircleOutline /></n-icon></span>
+              <div>
+                <strong>{{ $t('benchmark.evaluator.noProviderTitle') }}</strong>
+                <p>{{ $t('benchmark.evaluator.noProviderHint') }}</p>
+              </div>
+              <n-button type="primary" round @click="router.push('/settings/ai')">
+                <template #icon><n-icon><SettingsOutline /></n-icon></template>
+                {{ $t('benchmark.evaluator.openSettings') }}
+              </n-button>
+            </div>
+
+            <template v-else>
+              <div v-if="configuredEvaluatorProviders.length > 1" class="evaluator-choice-step">
+                <div class="evaluator-choice-label">
+                  <b>01</b>
+                  <span>
+                    <strong>{{ $t('benchmark.evaluator.providerTitle') }}</strong>
+                    <small>{{ $t('benchmark.evaluator.providerHint') }}</small>
+                  </span>
+                </div>
+                <div class="evaluator-provider-select-shell">
+                  <span v-if="selectedEvaluatorCatalog" class="evaluator-provider-logo">
+                    <img :src="selectedEvaluatorCatalog.logo" :alt="`${selectedEvaluatorCatalog.label} logo`" />
+                  </span>
+                  <n-select
+                    :value="selectedEvaluatorProvider"
+                    class="evaluator-provider-select"
+                    :options="evaluatorProviderOptions"
+                    :placeholder="$t('benchmark.evaluator.providerPlaceholder')"
+                    @update:value="selectEvaluatorProvider"
+                  />
                 </div>
               </div>
-            </section>
 
-            <div v-if="isCookbookConfigOpen(cookbook)" class="evaluator-config-panel inline">
-              <div class="builder-header">
-                <h2>{{ $t('auto.792c81a4cfdc') }} {{ configuringEvaluatorId }}</h2>
-                <n-button circle quaternary @click="closeEvaluatorConfig">
-                  <template #icon><n-icon><CloseOutline /></n-icon></template>
-                </n-button>
+              <div v-else-if="selectedEvaluatorCatalog" class="evaluator-single-provider">
+                <span class="evaluator-provider-logo">
+                  <img :src="selectedEvaluatorCatalog.logo" :alt="`${selectedEvaluatorCatalog.label} logo`" />
+                </span>
+                <span>
+                  <small>{{ $t('benchmark.evaluator.singleProvider') }}</small>
+                  <strong>{{ selectedEvaluatorCatalog.label }}</strong>
+                </span>
+                <n-tag size="small" round type="success">{{ $t('benchmark.evaluator.configured') }}</n-tag>
               </div>
-              <n-form label-placement="top">
-                <n-form-item :label="$t('auto.57162c35dea4')">
-                  <n-input v-model:value="evaluatorForm.name" :disabled="Boolean(configuringEvaluatorId)" />
-                </n-form-item>
-                <n-form-item :label="$t('auto.1698cae51b38')">
-                  <n-select
-                    v-model:value="evaluatorForm.connector_type"
-                    filterable
-                    :options="connectorOptions"
-                    :placeholder="$t('auto.7570458c3e6e')"
-                  />
-                </n-form-item>
-                <n-form-item label="URI">
-                  <n-input v-model:value="evaluatorForm.uri" :placeholder="$t('auto.039b0acb846a')" />
-                </n-form-item>
-                <n-form-item :label="$t('auto.cf1dcef754f6')">
-                  <n-input v-model:value="evaluatorForm.token" type="password" show-password-on="click" placeholder="YOUR_TOKEN" />
-                </n-form-item>
-                <n-form-item :label="$t('auto.eac8cf6f13d4')">
-                  <n-input v-model:value="evaluatorForm.model" placeholder="gpt-4o" />
-                </n-form-item>
-                <n-form-item :label="$t('auto.e95137370c13')">
-                  <n-input-number v-model:value="evaluatorForm.max_calls_per_second" :min="1" />
-                </n-form-item>
-                <n-form-item :label="$t('auto.34167f06ef5f')">
-                  <n-input-number v-model:value="evaluatorForm.max_concurrency" :min="1" />
-                </n-form-item>
-                <n-form-item :label="$t('auto.4d7ded687ca3')">
-                  <n-input
-                    v-model:value="evaluatorParamsText"
-                    type="textarea"
-                    :autosize="{ minRows: 5, maxRows: 8 }"
-                  />
-                </n-form-item>
-              </n-form>
-              <div class="endpoint-form-actions">
-                <n-button round @click="closeEvaluatorConfig">{{ $t('auto.77dfd2135f4d') }}</n-button>
-                <n-button type="primary" round :loading="savingEvaluator" @click="saveEvaluatorEndpoint">{{ $t('auto.efc007a393f6') }}</n-button>
+
+              <div class="evaluator-choice-step evaluator-model-step">
+                <div class="evaluator-choice-label">
+                  <b>{{ configuredEvaluatorProviders.length > 1 ? '02' : '01' }}</b>
+                  <span>
+                    <strong>{{ $t('benchmark.evaluator.modelTitle') }}</strong>
+                    <small>{{ $t('benchmark.evaluator.modelHint') }}</small>
+                  </span>
+                </div>
+                <n-select
+                  v-model:value="selectedEvaluatorModel"
+                  class="evaluator-model-select"
+                  :options="evaluatorModelOptions"
+                  filterable
+                  tag
+                  :placeholder="$t('benchmark.evaluator.modelPlaceholder')"
+                />
               </div>
-            </div>
-          </template>
+
+              <div v-if="evaluatorSelectionReady && selectedEvaluatorCatalog" class="evaluator-selection-preview">
+                <span class="evaluator-provider-logo">
+                  <img :src="selectedEvaluatorCatalog.logo" :alt="`${selectedEvaluatorCatalog.label} logo`" />
+                </span>
+                <span>
+                  <small>{{ $t('benchmark.evaluator.selectionLabel', { count: requiredEvaluatorIds.length }) }}</small>
+                  <strong>{{ selectedEvaluatorCatalog.label }} · {{ selectedEvaluatorModel }}</strong>
+                </span>
+                <n-icon><CheckmarkCircleOutline /></n-icon>
+              </div>
+            </template>
+          </section>
         </div>
       </section>
 
@@ -336,39 +384,46 @@
 <script setup lang="ts">
 import { translateSource } from '../i18n'
 
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useMessage, useNotification } from 'naive-ui'
 import {
   AddOutline,
+  AlertCircleOutline,
   BookOutline,
+  CheckmarkCircleOutline,
   CloseOutline,
   CreateOutline,
   CubeOutline,
   SearchOutline,
+  SettingsOutline,
   ShieldCheckmarkOutline,
+  SparklesOutline,
 } from '@vicons/ionicons5'
 import GlassPanel from '../components/GlassPanel.vue'
 import { moonshotApi } from '../api/moonshot'
+import { CONFIGURABLE_CONNECTOR } from '../services/connectorService'
 import { useMoonshotStore } from '../stores/moonshot'
-import type { CookbookRecord, EndpointCreatePayload, EndpointRecord, RequiredConfig } from '../types/moonshot'
+import { useSettingsStore } from '../stores/settings'
+import type { CookbookRecord, EndpointRecord, RequiredConfig } from '../types/moonshot'
 
 const store = useMoonshotStore()
+const settingsStore = useSettingsStore()
 const router = useRouter()
+const { t } = useI18n()
 const message = useMessage()
 const notification = useNotification()
 const step = ref(1)
 const running = ref(false)
 const runAll = ref(false)
-const savingEvaluator = ref(false)
 const endpointSearch = ref('')
 const selectedEndpoints = ref<string[]>([])
 const selectedCookbooks = ref<string[]>([])
 const cookbookAboutOpen = ref(false)
 const selectedCookbookAbout = ref<CookbookRecord | null>(null)
-const configuringEvaluatorId = ref('')
-const activeEvaluatorConfigKey = ref('')
-const evaluatorParamsText = ref('{\n  "timeout": 300,\n  "max_attempts": 3,\n  "temperature": 0.5\n}')
+const selectedEvaluatorProvider = ref('')
+const selectedEvaluatorModel = ref('')
 const activeCategory = ref('IMDA Starter Kit')
 const cookbookPromptPercentages = reactive<Record<string, number>>({})
 
@@ -376,23 +431,12 @@ function notify(type: 'info' | 'success' | 'warning' | 'error', options: { title
   notification[type]({ ...options, duration: 2000 })
 }
 
-const evaluatorForm = reactive<EndpointCreatePayload>({
-  name: '',
-  connector_type: '',
-  uri: '',
-  token: '',
-  max_calls_per_second: 10,
-  max_concurrency: 1,
-  model: '',
-  params: {},
-})
-
-const steps = [
-  { key: 'endpoint', label: translateSource('auto.af204023eb51'), index: 1 },
-  { key: 'tests', label: translateSource('auto.52f491fdd1ad'), index: 2 },
-  { key: 'requirements', label: translateSource('auto.d1d328fb841f'), index: 3 },
-  { key: 'run', label: translateSource('common.run'), index: 4 },
-]
+const steps = computed(() => [
+  { key: 'endpoint', label: t('auto.af204023eb51'), index: 1 },
+  { key: 'tests', label: t('auto.52f491fdd1ad'), index: 2 },
+  { key: 'requirements', label: t('auto.d1d328fb841f'), index: 3 },
+  { key: 'run', label: t('common.run'), index: 4 },
+])
 
 const categories = ['IMDA Starter Kit', 'Capability', 'Trust & Safety', 'Others']
 
@@ -411,18 +455,28 @@ const filteredCookbooks = computed(() => {
 
 const filteredEndpoints = computed(() => {
   const keyword = endpointSearch.value.trim().toLowerCase()
-  if (!keyword) return store.endpoints
-  return store.endpoints.filter((endpoint) =>
-    [
-      endpoint.name,
-      endpoint.id,
-      endpoint.connector_type,
-      endpoint.model,
-      endpoint.uri,
-    ]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(keyword)),
-  )
+  const endpoints = keyword
+    ? store.endpoints.filter((endpoint) =>
+        [
+          endpoint.name,
+          endpoint.id,
+          endpoint.connector_type,
+          endpoint.model,
+          endpoint.uri,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(keyword)),
+      )
+    : store.endpoints
+
+  return [...endpoints].sort((left, right) => {
+    const sourceOrder = Number(isUserCreatedEndpoint(right)) - Number(isUserCreatedEndpoint(left))
+    if (sourceOrder) return sourceOrder
+    return endpointLabel(left).localeCompare(endpointLabel(right), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    })
+  })
 })
 
 const categoryDescription = computed(() => {
@@ -466,8 +520,8 @@ const requirementCookbooks = computed(() => {
 })
 
 const visibleSteps = computed(() => {
-  if (requirementCookbooks.value.length) return steps
-  return steps.filter((item) => item.key !== 'requirements')
+  if (requirementCookbooks.value.length) return steps.value
+  return steps.value.filter((item) => item.key !== 'requirements')
 })
 
 const requiredEvaluatorIds = computed(() => {
@@ -478,20 +532,92 @@ const requiredEvaluatorIds = computed(() => {
   return [...ids]
 })
 
-const missingRequiredEndpointIds = computed(() => {
-  return requiredEvaluatorIds.value.filter((id) => !isEndpointConfigured(findEndpointById(id)))
+const configuredEvaluatorProviders = computed(() => {
+  const settings = settingsStore.ai
+  if (!settings) return []
+  return Object.entries(settings.providers)
+    .filter(([, provider]) => provider.apiKeyConfigured)
+    .map(([id, provider]) => ({
+      id,
+      settings: provider,
+      catalog: settings.catalog[id],
+    }))
+    .filter((provider) => Boolean(provider.catalog))
 })
 
-const connectorOptions = computed(() =>
-  store.connectorTypes.map((type) => ({ label: type, value: type })),
+const evaluatorProviderOptions = computed(() =>
+  configuredEvaluatorProviders.value.map((provider) => ({
+    label: `${provider.catalog.label} · ${provider.catalog.company}`,
+    value: provider.id,
+  })),
 )
 
-onMounted(() => {
-  void store.loadOverview()
+const selectedEvaluatorProviderRecord = computed(() =>
+  configuredEvaluatorProviders.value.find((provider) => provider.id === selectedEvaluatorProvider.value),
+)
+
+const selectedEvaluatorCatalog = computed(() => selectedEvaluatorProviderRecord.value?.catalog)
+
+const evaluatorModelOptions = computed(() => {
+  const provider = selectedEvaluatorProviderRecord.value
+  if (!provider) return []
+  return Array.from(new Set([provider.settings.model, ...(provider.catalog.models || [])].filter(Boolean))).map((model) => ({
+    label: provider.catalog.latestModels?.includes(model) ? `${model}  ·  Latest` : model,
+    value: model,
+  }))
+})
+
+const evaluatorSelectionReady = computed(() => Boolean(
+  selectedEvaluatorProviderRecord.value
+  && selectedEvaluatorModel.value.trim(),
+))
+
+watch(configuredEvaluatorProviders, (providers) => {
+  if (!providers.length) {
+    selectedEvaluatorProvider.value = ''
+    selectedEvaluatorModel.value = ''
+    return
+  }
+  const current = providers.find((provider) => provider.id === selectedEvaluatorProvider.value)
+  if (current) return
+  const activeProvider = providers.find((provider) => provider.id === settingsStore.ai?.activeProvider)
+  selectEvaluatorProvider((activeProvider || providers[0]).id)
+}, { immediate: true })
+
+onMounted(async () => {
+  await store.loadOverview()
+  if (!settingsStore.ai) {
+    try {
+      await settingsStore.loadSettings()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Unable to load AI settings')
+    }
+  }
 })
 
 function endpointId(endpoint?: EndpointRecord) {
   return String(endpoint?.id || endpoint?.name || '')
+}
+
+function endpointLabel(endpoint: EndpointRecord) {
+  return String(endpoint.name || endpoint.id || '')
+}
+
+function isUserCreatedEndpoint(endpoint: EndpointRecord) {
+  return endpoint.connector_type === CONFIGURABLE_CONNECTOR
+}
+
+function openEndpointEditor(endpoint: EndpointRecord) {
+  const id = endpointId(endpoint)
+  if (!id) return
+  void router.push({
+    path: '/agents',
+    query: {
+      view: 'endpoints',
+      endpointId: id,
+      edit: '1',
+    },
+  })
 }
 
 function findEndpointById(id: string) {
@@ -500,14 +626,6 @@ function findEndpointById(id: string) {
 
 function endpointMatchesId(endpoint: EndpointRecord, id: string) {
   return endpointId(endpoint) === id || endpoint.id === id || endpoint.name === id
-}
-
-function endpointHasToken(endpoint?: EndpointRecord) {
-  return typeof endpoint?.token === 'string' && endpoint.token.trim().length > 0
-}
-
-function isEndpointConfigured(endpoint?: EndpointRecord) {
-  return Boolean(endpoint && endpointHasToken(endpoint))
 }
 
 function cookbookId(cookbook?: CookbookRecord) {
@@ -587,8 +705,12 @@ function nextStep() {
 }
 
 function validateRequiredEvaluatorTokens() {
-  if (!missingRequiredEndpointIds.value.length) return true
-  message.warning(`Please input token for required evaluator endpoint(s): ${missingRequiredEndpointIds.value.join(', ')}`)
+  if (!requirementCookbooks.value.length || evaluatorSelectionReady.value) return true
+  if (!configuredEvaluatorProviders.value.length) {
+    message.warning(translateSource('benchmark.evaluator.configureProviderWarning'))
+  } else {
+    message.warning(translateSource('benchmark.evaluator.selectModelWarning'))
+  }
   return false
 }
 
@@ -615,11 +737,14 @@ async function runBenchmark() {
   running.value = true
   try {
     notify('info', { title: translateSource('auto.83b11ff4e174'), content: runForm.run_name.trim() })
-    await moonshotApi.runRecipeBenchmark({
+    const requestPayload = {
       run_name: runForm.run_name.trim(),
       endpoints: selectedEndpoints.value,
       recipes: selectedRecipes.value,
       cookbooks: selectedCookbooks.value,
+      evaluator_provider: requirementCookbooks.value.length ? selectedEvaluatorProvider.value : undefined,
+      evaluator_model: requirementCookbooks.value.length ? selectedEvaluatorModel.value.trim() : undefined,
+      evaluator_endpoints: requiredEvaluatorIds.value,
       cookbook_prompt_selection_percentages: selectedCookbookPercentagesPayload(),
       description: runForm.description,
       prompt_selection_percentage: runForm.prompt_selection_percentage,
@@ -627,11 +752,43 @@ async function runBenchmark() {
       thread_count: runForm.thread_count,
       random_seed: runForm.random_seed,
       system_prompt: runForm.system_prompt,
-    }).then((response) => {
-      notify('success', { title: translateSource('auto.0c4c43c79bd1'), content: `Run ${response.runner_id} is now running.` })
-      router.push(`/jobs/${encodeURIComponent(response.runner_id)}`)
+    }
+    const response = await moonshotApi.runRecipeBenchmark(requestPayload)
+    const createdAt = new Date().toISOString()
+    store.upsertJob({
+      id: response.runner_id,
+      runner_id: response.runner_id,
+      name: requestPayload.run_name,
+      description: requestPayload.description,
+      status: response.status,
+      progress: 0,
+      created_at: createdAt,
+      updated_at: createdAt,
+      started_at: null,
+      ended_at: null,
+      request: requestPayload,
+      outputs: {},
+      summary: {
+        endpoints: [...requestPayload.endpoints],
+        recipes: [...requestPayload.recipes],
+        cookbooks: [...requestPayload.cookbooks],
+        estimated_prompts: requestPayload.estimated_prompts,
+        completed_prompts: 0,
+        error_count: 0,
+        thread_count: requestPayload.thread_count,
+        judge_progress: {
+          phase: 'pending',
+          completed: 0,
+          total: requestPayload.estimated_prompts,
+          percentage: 0,
+        },
+      },
+      errors: [],
+      events: [{ time: createdAt, level: 'info', message: 'Job created' }],
     })
-    await store.loadOverview()
+    notify('success', { title: translateSource('auto.0c4c43c79bd1'), content: `Run ${response.runner_id} is now running.` })
+    await router.push(`/jobs/${encodeURIComponent(response.runner_id)}`)
+    void store.loadOverview()
   } catch (error) {
     notify('error', { title: translateSource('auto.1686a5d2f668'), content: error instanceof Error ? error.message : 'Benchmark failed' })
     message.error(error instanceof Error ? error.message : 'Benchmark failed')
@@ -645,8 +802,6 @@ function resetWizard() {
   selectedEndpoints.value = []
   selectedCookbooks.value = []
   Object.keys(cookbookPromptPercentages).forEach((key) => delete cookbookPromptPercentages[key])
-  configuringEvaluatorId.value = ''
-  activeEvaluatorConfigKey.value = ''
 }
 
 function cookbookTags(cookbook: CookbookRecord) {
@@ -730,102 +885,14 @@ function requiredEndpointLabels(cookbook: CookbookRecord) {
   })
 }
 
-function requiredEndpoints(cookbook: CookbookRecord) {
-  return requiredEndpointIds(cookbook).map((id) => {
-    const endpoint = findEndpointById(id)
-    return {
-      id,
-      label: endpoint?.name || id,
-      exists: Boolean(endpoint),
-      configured: isEndpointConfigured(endpoint),
-    }
-  })
-}
-
 function requiresEvaluator(cookbook: CookbookRecord) {
   return requiredEndpointIds(cookbook).length > 0
 }
 
-function evaluatorConfigKey(cookbook: CookbookRecord, endpointIdValue: string) {
-  return `${cookbookId(cookbook)}::${endpointIdValue}`
-}
-
-function isCookbookConfigOpen(cookbook: CookbookRecord) {
-  return activeEvaluatorConfigKey.value.startsWith(`${cookbookId(cookbook)}::`)
-}
-
-function resetEvaluatorForm(id: string, endpoint?: EndpointRecord) {
-  configuringEvaluatorId.value = id
-  evaluatorForm.name = endpoint?.name || id
-  evaluatorForm.connector_type = endpoint?.connector_type || store.connectorTypes[0] || 'openai-connector'
-  evaluatorForm.uri = endpoint?.uri || ''
-  evaluatorForm.token = endpoint?.token || ''
-  evaluatorForm.max_calls_per_second = endpoint?.max_calls_per_second ?? 10
-  evaluatorForm.max_concurrency = endpoint?.max_concurrency ?? 1
-  evaluatorForm.model = endpoint?.model || ''
-  evaluatorForm.params = endpoint?.params || {}
-  evaluatorParamsText.value = JSON.stringify(evaluatorForm.params || {
-    timeout: 300,
-    max_attempts: 3,
-    temperature: 0.5,
-  }, null, 2)
-}
-
-function openEvaluatorConfig(id: string, configKey: string) {
-  resetEvaluatorForm(id, findEndpointById(id))
-  activeEvaluatorConfigKey.value = configKey
-}
-
-function closeEvaluatorConfig() {
-  configuringEvaluatorId.value = ''
-  activeEvaluatorConfigKey.value = ''
-}
-
-async function saveEvaluatorEndpoint() {
-  if (!configuringEvaluatorId.value) return
-  if (!evaluatorForm.name.trim()) {
-    message.warning(translateSource('auto.364b9a372803'))
-    return
-  }
-  if (!evaluatorForm.connector_type) {
-    message.warning(translateSource('auto.b95a2e242aac'))
-    return
-  }
-  if (!evaluatorForm.token.trim()) {
-    message.warning(translateSource('auto.bd221630cfdc'))
-    return
-  }
-  if (!evaluatorForm.model.trim()) {
-    message.warning(translateSource('auto.6a6f4eaf3c25'))
-    return
-  }
-
-  savingEvaluator.value = true
-  try {
-    const params = JSON.parse(evaluatorParamsText.value || '{}')
-    const payload = {
-      ...evaluatorForm,
-      name: evaluatorForm.name.trim(),
-      uri: evaluatorForm.uri.trim(),
-      token: evaluatorForm.token.trim(),
-      model: evaluatorForm.model.trim(),
-      params,
-    }
-    const existingEndpoint = findEndpointById(configuringEvaluatorId.value)
-    if (existingEndpoint) {
-      await moonshotApi.updateEndpoint(endpointId(existingEndpoint), payload)
-    } else {
-      await moonshotApi.createEndpoint(payload)
-    }
-    await store.loadOverview()
-    closeEvaluatorConfig()
-    notify('success', { title: translateSource('auto.9a215f514178'), content: payload.name })
-    message.success(translateSource('auto.c8284c31029a'))
-  } catch (error) {
-    notify('error', { title: translateSource('auto.c7166f9c55fd'), content: error instanceof Error ? error.message : 'Save evaluator endpoint failed' })
-    message.error(error instanceof Error ? error.message : 'Save evaluator endpoint failed')
-  } finally {
-    savingEvaluator.value = false
-  }
+function selectEvaluatorProvider(providerId: string | number | null) {
+  const normalizedProviderId = String(providerId || '')
+  const provider = configuredEvaluatorProviders.value.find((item) => item.id === normalizedProviderId)
+  selectedEvaluatorProvider.value = provider?.id || ''
+  selectedEvaluatorModel.value = provider?.settings.model || ''
 }
 </script>

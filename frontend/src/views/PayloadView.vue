@@ -19,7 +19,12 @@
       </div>
 
       <section class="payload-pipeline" :aria-label="$t('auto.19b7ae596a08')">
-        <div v-for="item in payloadFlowItems" :key="item.key" class="payload-pipeline-step">
+        <div
+          v-for="item in payloadFlowItems"
+          :key="item.key"
+          class="payload-pipeline-step"
+          :class="`payload-pipeline-step--${item.key}`"
+        >
           <span class="payload-pipeline-node">{{ item.step }}</span>
           <span>
             <strong>{{ item.stage }}</strong>
@@ -30,10 +35,11 @@
 
       <div class="payload-option-grid payload-option-grid--relationship">
         <RouterLink
-          v-for="item in payloadFlowItems"
+          v-for="item in payloadMenuItems"
           :key="item.path"
           :to="item.path"
           class="payload-option-card payload-option-card--overview"
+          :class="`payload-option-card--${item.key}`"
         >
           <span class="payload-overview-top">
             <span class="payload-option-head">
@@ -324,7 +330,7 @@ const section = computed(() => {
   return 'menu'
 })
 
-const payloadFlowItems = computed(() => [
+const payloadMenuItems = computed(() => [
   {
     key: 'datasets',
     step: '01',
@@ -349,7 +355,7 @@ const payloadFlowItems = computed(() => [
     description: translateSource('auto.be7aecdb05f8'),
     analysis: translateSource('payloadFlow.templates.analysis'),
     relationship: translateSource('payloadFlow.templates.relationship'),
-    consumes: `{{ prompt }} ${translateSource('payloadFlow.templates.token')}`,
+    consumes: `Prompt ${translateSource('payloadFlow.templates.token')}`,
     produces: translateSource('payloadFlow.templates.produces'),
     icon: NewspaperOutline,
     path: '/payload/prompt-templates',
@@ -357,7 +363,7 @@ const payloadFlowItems = computed(() => [
   },
   {
     key: 'recipes',
-    step: '03',
+    step: '02',
     stage: translateSource('payloadFlow.recipes.stage'),
     role: translateSource('payloadFlow.recipes.role'),
     name: translateSource('payloadFlow.recipes.name'),
@@ -372,7 +378,7 @@ const payloadFlowItems = computed(() => [
   },
   {
     key: 'cookbooks',
-    step: '04',
+    step: '03',
     stage: translateSource('payloadFlow.cookbooks.stage'),
     role: translateSource('payloadFlow.cookbooks.role'),
     name: translateSource('payloadFlow.cookbooks.name'),
@@ -386,6 +392,8 @@ const payloadFlowItems = computed(() => [
     count: store.cookbooks.length,
   },
 ])
+
+const payloadFlowItems = computed(() => payloadMenuItems.value.filter((item) => item.key !== 'prompt-templates'))
 
 const payloadSummary = computed(() => ({
   total: store.datasets.length + store.promptTemplates.length + store.recipes.length + store.cookbooks.length,

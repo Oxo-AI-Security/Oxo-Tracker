@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import threading
 from contextlib import contextmanager
@@ -20,7 +21,6 @@ MAX_REQUEST_INFORMATION_CHARS = 50_000
 MAX_MODEL_RESPONSE_BYTES = 2_000_000
 PROMPT_TOKEN = "{{ prompt }}"
 AI_CONNECTION_ATTEMPTS = 3
-AI_CONNECTION_RETRY_DELAYS = (0.25, 0.75)
 AI_MODEL_MAX_CONCURRENCY = max(
     1,
     min(16, int(os.getenv("AI_MODEL_MAX_CONCURRENCY", "3"))),
@@ -29,6 +29,48 @@ AI_MODEL_QUEUE_TIMEOUT_SECONDS = max(
     10,
     min(300, int(os.getenv("AI_MODEL_QUEUE_TIMEOUT_SECONDS", "90"))),
 )
+AI_PROVIDER_RETRY_BASE_SECONDS = max(
+    0.0,
+    min(30.0, float(os.getenv("AI_PROVIDER_RETRY_BASE_SECONDS", "0.5"))),
+)
+AI_PROVIDER_RETRY_MAX_SECONDS = max(
+    AI_PROVIDER_RETRY_BASE_SECONDS,
+    min(120.0, float(os.getenv("AI_PROVIDER_RETRY_MAX_SECONDS", "8"))),
+)
+AI_PROVIDER_RETRY_JITTER_RATIO = max(
+    0.0,
+    min(1.0, float(os.getenv("AI_PROVIDER_RETRY_JITTER_RATIO", "0.25"))),
+)
+AI_PROVIDER_CIRCUIT_FAILURE_THRESHOLD = max(
+    1,
+    min(20, int(os.getenv("AI_PROVIDER_CIRCUIT_FAILURE_THRESHOLD", "3"))),
+)
+AI_PROVIDER_CIRCUIT_RECOVERY_SECONDS = max(
+    1.0,
+    min(
+        3_600.0,
+        float(os.getenv("AI_PROVIDER_CIRCUIT_RECOVERY_SECONDS", "30")),
+    ),
+)
+
+
+class ConnectorAIError(RuntimeError):
+    """A safe, user-facing AI configuration or transport failure."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        status_code: int | None = None,
+        retry_after_seconds: float | None = None,
+        failure_kind: str = "provider_error",
+    ) -> None:
+        super().__init__(message)
+        self.retryable = bool(retryable)
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
+        self.failure_kind = failure_kind
 
 
 class _ModelQueueTimeout(RuntimeError):
@@ -78,8 +120,96 @@ class _PriorityModelScheduler:
                 self._condition.notify_all()
 
 
+class _ProviderCircuitBreaker:
+    """Share failure state across all clients using one provider/model."""
+
+    def __init__(
+        self,
+        *,
+        failure_threshold: int,
+        recovery_seconds: float,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        self.failure_threshold = max(1, int(failure_threshold))
+        self.recovery_seconds = max(0.001, float(recovery_seconds))
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._consecutive_failures = 0
+        self._opened_at: float | None = None
+        self._half_open_probe_active = False
+
+    def before_request(self) -> str:
+        with self._lock:
+            if self._opened_at is None:
+                return "closed"
+            elapsed = self._clock() - self._opened_at
+            if elapsed < self.recovery_seconds:
+                retry_after = max(0.0, self.recovery_seconds - elapsed)
+                raise ConnectorAIError(
+                    "The active AI provider circuit is open after repeated "
+                    "transient failures. Retry after the recovery window.",
+                    retryable=True,
+                    retry_after_seconds=retry_after,
+                    failure_kind="circuit_open",
+                )
+            if self._half_open_probe_active:
+                raise ConnectorAIError(
+                    "The active AI provider circuit is half-open and already "
+                    "has a recovery probe in progress.",
+                    retryable=True,
+                    retry_after_seconds=self.recovery_seconds,
+                    failure_kind="circuit_half_open",
+                )
+            self._half_open_probe_active = True
+            return "half_open"
+
+    def record_success(self) -> str:
+        with self._lock:
+            self._consecutive_failures = 0
+            self._opened_at = None
+            self._half_open_probe_active = False
+            return "closed"
+
+    def record_failure(self) -> str:
+        with self._lock:
+            self._consecutive_failures += 1
+            if (
+                self._half_open_probe_active
+                or self._consecutive_failures >= self.failure_threshold
+            ):
+                self._opened_at = self._clock()
+                self._half_open_probe_active = False
+                return "open"
+            return "closed"
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            if self._opened_at is None:
+                state = "closed"
+                retry_after = 0.0
+            else:
+                elapsed = self._clock() - self._opened_at
+                if elapsed < self.recovery_seconds:
+                    state = "open"
+                    retry_after = max(0.0, self.recovery_seconds - elapsed)
+                else:
+                    state = (
+                        "half_open_probe"
+                        if self._half_open_probe_active
+                        else "half_open"
+                    )
+                    retry_after = 0.0
+            return {
+                "circuit_state": state,
+                "circuit_consecutive_failures": self._consecutive_failures,
+                "circuit_retry_after_ms": round(retry_after * 1_000, 2),
+            }
+
+
 _SCHEDULER_LOCK = threading.Lock()
 _MODEL_SCHEDULERS: dict[str, _PriorityModelScheduler] = {}
+_CIRCUIT_LOCK = threading.Lock()
+_PROVIDER_CIRCUITS: dict[str, _ProviderCircuitBreaker] = {}
 
 
 def _model_scheduler(
@@ -94,8 +224,21 @@ def _model_scheduler(
         return scheduler
 
 
-class ConnectorAIError(RuntimeError):
-    """A safe, user-facing AI configuration failure."""
+def _provider_circuit(
+    key: str,
+    *,
+    failure_threshold: int,
+    recovery_seconds: float,
+) -> _ProviderCircuitBreaker:
+    with _CIRCUIT_LOCK:
+        circuit = _PROVIDER_CIRCUITS.get(key)
+        if circuit is None:
+            circuit = _ProviderCircuitBreaker(
+                failure_threshold=failure_threshold,
+                recovery_seconds=recovery_seconds,
+            )
+            _PROVIDER_CIRCUITS[key] = circuit
+        return circuit
 
 
 class ConnectorAIService:
@@ -111,8 +254,20 @@ class ConnectorAIService:
         scheduler_concurrency: int = AI_MODEL_MAX_CONCURRENCY,
         scheduler_priority: int = 10,
         queue_timeout_seconds: int = AI_MODEL_QUEUE_TIMEOUT_SECONDS,
+        retry_base_delay_seconds: float = AI_PROVIDER_RETRY_BASE_SECONDS,
+        retry_max_delay_seconds: float = AI_PROVIDER_RETRY_MAX_SECONDS,
+        retry_jitter_ratio: float = AI_PROVIDER_RETRY_JITTER_RATIO,
+        circuit_failure_threshold: int = (
+            AI_PROVIDER_CIRCUIT_FAILURE_THRESHOLD
+        ),
+        circuit_recovery_seconds: float = (
+            AI_PROVIDER_CIRCUIT_RECOVERY_SECONDS
+        ),
+        sleep_fn: Callable[[float], None] = sleep,
+        random_fn: Callable[[], float] = random.random,
     ) -> None:
         self.settings = settings or SettingsStore().get_active_ai_settings()
+        uses_shared_transport = request_open is None
         self.request_open = request_open or open_with_current_network_settings
         self.request_timeout_seconds = max(
             10,
@@ -132,6 +287,37 @@ class ConnectorAIService:
         self._scheduler = _model_scheduler(
             self.scheduler_group,
             max(1, min(16, int(scheduler_concurrency))),
+        )
+        self.retry_base_delay_seconds = max(
+            0.0,
+            min(30.0, float(retry_base_delay_seconds)),
+        )
+        self.retry_max_delay_seconds = max(
+            self.retry_base_delay_seconds,
+            min(120.0, float(retry_max_delay_seconds)),
+        )
+        self.retry_jitter_ratio = max(
+            0.0,
+            min(1.0, float(retry_jitter_ratio)),
+        )
+        self._sleep = sleep_fn
+        self._random = random_fn
+        provider_key = "|".join(
+            (
+                str(self.settings.get("provider") or "").strip().lower(),
+                str(self.settings.get("base_url") or "").strip().lower(),
+                str(self.settings.get("model") or "").strip().lower(),
+                (
+                    "shared-transport"
+                    if uses_shared_transport
+                    else f"injected-transport-{id(self.request_open)}"
+                ),
+            )
+        )
+        self._circuit = _provider_circuit(
+            provider_key,
+            failure_threshold=circuit_failure_threshold,
+            recovery_seconds=circuit_recovery_seconds,
         )
         self._usage = threading.local()
         self._transport = threading.local()
@@ -285,7 +471,26 @@ selectedText must be copied exactly from the response and must not be invented.
             method="POST",
         )
         raw = b""
+        request_attempts = 0
+        retry_delay_seconds = 0.0
         try:
+            try:
+                circuit_state = self._circuit.before_request()
+            except ConnectorAIError as error:
+                self._transport.value = {
+                    "scheduler_group": self.scheduler_group,
+                    "scheduler_priority": (
+                        self.scheduler_priority
+                        if scheduler_priority is None
+                        else int(scheduler_priority)
+                    ),
+                    "queue_wait_ms": 0.0,
+                    "request_attempts": 0,
+                    "provider_retry_delay_ms": 0.0,
+                    **self._circuit.snapshot(),
+                    "failure_kind": error.failure_kind,
+                }
+                raise
             slot = self._scheduler.slot(
                 priority=(
                     self.scheduler_priority
@@ -303,37 +508,105 @@ selectedText must be copied exactly from the response and must not be invented.
                         else int(scheduler_priority)
                     ),
                     "queue_wait_ms": round(queue_wait_seconds * 1_000, 2),
+                    "request_attempts": 0,
+                    "provider_retry_delay_ms": 0.0,
+                    "circuit_state": circuit_state,
                 }
                 for attempt in range(self.max_connection_attempts):
+                    request_attempts = attempt + 1
+                    transport_error: BaseException | None = None
                     try:
                         with self.request_open(
                             request,
                             timeout=self.request_timeout_seconds,
                         ) as response:
                             raw = response.read(MAX_MODEL_RESPONSE_BYTES + 1)
+                        circuit_state = self._circuit.record_success()
                         break
                     except HTTPError as error:
+                        transport_error = error
                         detail = error.read(4_000).decode("utf-8", errors="replace")
-                        raise ConnectorAIError(
-                            _provider_http_error(error.code, detail)
-                        ) from error
+                        provider_error = _provider_http_exception(error, detail)
                     except (URLError, TimeoutError, OSError) as error:
-                        if (
-                            attempt < self.max_connection_attempts - 1
-                            and _is_connection_setup_error(error)
-                        ):
-                            sleep(AI_CONNECTION_RETRY_DELAYS[attempt])
-                            continue
+                        transport_error = error
                         reason = getattr(error, "reason", None)
-                        raise ConnectorAIError(
+                        provider_error = ConnectorAIError(
                             "Unable to reach the active AI model after "
-                            f"{attempt + 1} attempt(s): {reason or error}"
-                        ) from error
+                            f"{attempt + 1} attempt(s): {reason or error}",
+                            retryable=True,
+                            failure_kind=_transport_failure_kind(error),
+                        )
+                    circuit_state = (
+                        self._circuit.record_failure()
+                        if provider_error.retryable
+                        else self._circuit.record_success()
+                    )
+                    self._transport.value = {
+                        **self._transport.value,
+                        "request_attempts": request_attempts,
+                        "provider_retry_delay_ms": round(
+                            retry_delay_seconds * 1_000,
+                            2,
+                        ),
+                        **self._circuit.snapshot(),
+                        "failure_kind": provider_error.failure_kind,
+                        "http_status": provider_error.status_code,
+                    }
+                    can_retry = (
+                        provider_error.retryable
+                        and circuit_state != "open"
+                        and attempt < self.max_connection_attempts - 1
+                    )
+                    if not can_retry:
+                        raise provider_error from transport_error
+                    delay = self._provider_retry_delay(
+                        attempt=attempt,
+                        retry_after_seconds=(
+                            provider_error.retry_after_seconds
+                        ),
+                    )
+                    retry_delay_seconds += delay
+                    self._transport.value = {
+                        **self._transport.value,
+                        "provider_retry_delay_ms": round(
+                            retry_delay_seconds * 1_000,
+                            2,
+                        ),
+                    }
+                    if delay:
+                        self._sleep(delay)
+                self._transport.value = {
+                    **self._transport.value,
+                    "request_attempts": request_attempts,
+                    "provider_retry_delay_ms": round(
+                        retry_delay_seconds * 1_000,
+                        2,
+                    ),
+                    **self._circuit.snapshot(),
+                }
         except _ModelQueueTimeout as error:
+            self._transport.value = {
+                "scheduler_group": self.scheduler_group,
+                "scheduler_priority": (
+                    self.scheduler_priority
+                    if scheduler_priority is None
+                    else int(scheduler_priority)
+                ),
+                "queue_wait_ms": round(
+                    self.queue_timeout_seconds * 1_000,
+                    2,
+                ),
+                "request_attempts": 0,
+                "provider_retry_delay_ms": 0.0,
+                **self._circuit.snapshot(),
+                "failure_kind": "local_queue_timeout",
+            }
             raise ConnectorAIError(
                 "The active AI model is busy. This call was not sent before "
                 f"the {self.queue_timeout_seconds}s local queue deadline "
-                f"(scheduler={self.scheduler_group})."
+                f"(scheduler={self.scheduler_group}).",
+                retryable=True,
+                failure_kind="local_queue_timeout",
             ) from error
         if len(raw) > MAX_MODEL_RESPONSE_BYTES:
             raise ConnectorAIError("The active AI model returned an unexpectedly large response.")
@@ -353,6 +626,23 @@ selectedText must be copied exactly from the response and must not be invented.
         if not isinstance(parsed, dict):
             raise ConnectorAIError("The active AI model returned an invalid connector configuration object.")
         return parsed
+
+    def _provider_retry_delay(
+        self,
+        *,
+        attempt: int,
+        retry_after_seconds: float | None,
+    ) -> float:
+        exponential = min(
+            self.retry_max_delay_seconds,
+            self.retry_base_delay_seconds * (2 ** max(0, int(attempt))),
+        )
+        jitter = exponential * self.retry_jitter_ratio * self._random()
+        requested = max(0.0, float(retry_after_seconds or 0.0))
+        return min(
+            self.retry_max_delay_seconds,
+            max(requested, exponential + jitter),
+        )
 
 
 def normalize_connector_draft(payload: dict[str, Any]) -> dict[str, Any]:
@@ -559,6 +849,51 @@ def _provider_http_error(status_code: int, detail: str) -> str:
         return "The active AI model is rate limited. Wait briefly and try again."
     safe_detail = re.sub(r"(?i)(api[-_ ]?key|authorization)[^,}\n]*", r"\1: ***", detail)[:500]
     return f"The active AI model returned HTTP {status_code}. {safe_detail}".strip()
+
+
+def _provider_http_exception(
+    error: HTTPError,
+    detail: str,
+) -> ConnectorAIError:
+    status_code = int(error.code)
+    retryable = status_code in {408, 425, 429, 500, 502, 503, 504}
+    retry_after = _retry_after_seconds(getattr(error, "headers", None))
+    return ConnectorAIError(
+        _provider_http_error(status_code, detail),
+        retryable=retryable,
+        status_code=status_code,
+        retry_after_seconds=retry_after,
+        failure_kind=(
+            "rate_limit"
+            if status_code == 429
+            else "provider_http_transient"
+            if retryable
+            else "provider_http_permanent"
+        ),
+    )
+
+
+def _retry_after_seconds(headers: Any) -> float | None:
+    if headers is None:
+        return None
+    try:
+        raw = headers.get("Retry-After")
+    except AttributeError:
+        return None
+    try:
+        return max(0.0, min(120.0, float(raw)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _transport_failure_kind(error: BaseException) -> str:
+    reason = getattr(error, "reason", error)
+    detail = str(reason).lower()
+    if isinstance(error, TimeoutError) or "timed out" in detail:
+        return "provider_timeout"
+    if _is_connection_setup_error(error):
+        return "provider_connection"
+    return "provider_network"
 
 
 def _is_connection_setup_error(error: BaseException) -> bool:

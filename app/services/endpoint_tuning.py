@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 
-from app.core.config import PROJECT_ROOT
+from app.core.paths import MOONSHOT_DATA_ROOT
 
 
-ENDPOINT_DIR = PROJECT_ROOT / "data" / "moonshot-data" / "connectors-endpoints"
+ENDPOINT_DIR = MOONSHOT_DATA_ROOT / "connectors-endpoints"
 
 
 def apply_endpoint_thread_count(endpoint_ids: list[str], thread_count: int) -> None:

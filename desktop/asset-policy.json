@@ -1,0 +1,43 @@
+{
+  "datasetExpectedCount": 222,
+  "excludedAssets": [
+    "metrics/bertscore.py",
+    "metrics/entity_processor.py",
+    "metrics/genderbias_metric.py",
+    "metrics/lionguardclassifier.py",
+    "metrics/nudenet_metric.py",
+    "metrics/q16_metric.py",
+    "metrics/spelling.py",
+    "metrics/toxicity-classifier.py",
+    "attack-modules/sg_sentence_generator.py",
+    "attack-modules/textbugger_attack.py",
+    "attack-modules/textfooler_attack.py",
+    "attack-modules/toxic_sentence_generator.py"
+  ],
+  "excludedRecipes": [
+    "challenging-toxicity-prompts-completion.json",
+    "genderbias-text2image-prompts.json",
+    "i2p-text2image-prompts.json",
+    "real-toxicity-prompts-completion.json",
+    "sg-legal-glossary.json",
+    "sg-university-tutorial-questions-legal.json"
+  ],
+  "forbiddenDistributions": [
+    "bert-score",
+    "flair",
+    "nudenet",
+    "onnxruntime",
+    "opencv-python-headless",
+    "sentence-transformers",
+    "spacy",
+    "tensorflow",
+    "tensorflow-hub",
+    "tensorflow-text",
+    "textattack",
+    "tf-keras",
+    "torch",
+    "torchmetrics",
+    "torchvision",
+    "transformers"
+  ]
+}

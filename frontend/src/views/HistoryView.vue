@@ -16,7 +16,29 @@
           <template #icon><n-icon><AddOutline /></n-icon></template> {{ $t('auto.0f84f5f5d160') }} </n-button>
       </div>
 
-      <div v-if="jobs.length" class="history-grid">
+      <div v-if="historyState === 'loading'" class="history-state-panel" role="status" aria-live="polite">
+        <n-spin size="medium" />
+        <div>
+          <strong>{{ $t('historyRun.loading.title') }}</strong>
+          <span>{{ $t('historyRun.loading.description') }}</span>
+        </div>
+      </div>
+
+      <div v-else-if="historyState === 'error'" class="history-state-panel history-state-panel--error" role="alert">
+        <span class="history-state-icon" aria-hidden="true">
+          <n-icon><AlertCircleOutline /></n-icon>
+        </span>
+        <div>
+          <strong>{{ $t('historyRun.error.title') }}</strong>
+          <span>{{ loadError }}</span>
+        </div>
+        <n-button secondary round :loading="initialLoading" @click="retryLoadJobs">
+          <template #icon><n-icon><RefreshOutline /></n-icon></template>
+          {{ $t('historyRun.error.retry') }}
+        </n-button>
+      </div>
+
+      <div v-else-if="historyState === 'list'" class="history-grid">
         <n-scrollbar class="history-list-scrollbar">
           <button
             v-for="item in jobs"
@@ -31,7 +53,7 @@
               <strong>{{ item.name }}</strong>
               <small>{{ item.description || $t('auto.f354c94fcf63') }}</small>
             </span>
-            <n-tag size="small" round :type="tagType(item.status)">{{ item.status }}</n-tag>
+            <n-tag size="small" round :type="tagType(item.status)">{{ statusLabel(item.status) }}</n-tag>
           </button>
         </n-scrollbar>
 
@@ -61,7 +83,7 @@
           <div class="job-stat-grid">
             <div>
               <span>{{ $t('auto.bae7d5be7082') }}</span>
-              <strong>{{ selectedJob.status }}</strong>
+              <strong>{{ statusLabel(selectedJob.status) }}</strong>
             </div>
             <div>
               <span>{{ $t('auto.1b90271d66cf') }}</span>
@@ -99,26 +121,46 @@
 <script setup lang="ts">
 import { translateSource } from '../i18n'
 
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { AddOutline, EyeOutline, TimeOutline, TrashOutline } from '@vicons/ionicons5'
+import {
+  AddOutline,
+  AlertCircleOutline,
+  EyeOutline,
+  RefreshOutline,
+  TimeOutline,
+  TrashOutline,
+} from '@vicons/ionicons5'
 import { useMessage, useNotification } from 'naive-ui'
 import GlassPanel from '../components/GlassPanel.vue'
 import { moonshotApi } from '../api/moonshot'
-import type { BenchmarkJob } from '../types/moonshot'
+import { useMoonshotStore } from '../stores/moonshot'
+import { benchmarkJobLoadErrorKind } from '../utils/jobRun'
+import { resolveHistoryViewState } from '../utils/historyViewState'
 
 const router = useRouter()
+const { t } = useI18n()
 const message = useMessage()
 const notification = useNotification()
-const jobs = ref<BenchmarkJob[]>([])
+const store = useMoonshotStore()
+const { jobs } = storeToRefs(store)
 const selectedId = ref('')
 const deleting = ref(false)
+const initialLoading = ref(!jobs.value.length)
+const loadError = ref('')
 
 function notify(type: 'success' | 'warning' | 'error', options: { title: string; content: string }) {
   notification[type]({ ...options, duration: 2000 })
 }
 
 const selectedJob = computed(() => jobs.value.find((job) => job.id === selectedId.value) ?? jobs.value[0])
+const historyState = computed(() => resolveHistoryViewState({
+  loading: initialLoading.value,
+  error: loadError.value,
+  jobCount: jobs.value.length,
+}))
 
 function tagType(status: string) {
   if (status === 'completed') return 'success'
@@ -127,11 +169,34 @@ function tagType(status: string) {
   return 'info'
 }
 
-async function loadJobs() {
-  jobs.value = await moonshotApi.getBenchmarkJobs()
-  if (!jobs.value.find((job) => job.id === selectedId.value)) {
-    selectedId.value = jobs.value[0]?.id ?? ''
+function statusLabel(status: string) {
+  const keys: Record<string, string> = {
+    queued: 'jobRun.status.queued',
+    running: 'jobRun.status.running',
+    running_with_errors: 'jobRun.status.runningWithErrors',
+    paused: 'jobRun.status.paused',
+    completed: 'jobRun.status.completed',
+    completed_with_errors: 'jobRun.status.completedWithErrors',
+    failed: 'jobRun.status.failed',
   }
+  return keys[status] ? t(keys[status]) : status
+}
+
+async function loadJobs() {
+  if (!jobs.value.length) initialLoading.value = true
+  try {
+    store.jobs = await moonshotApi.getBenchmarkJobs()
+    loadError.value = ''
+  } catch (error) {
+    const errorKind = benchmarkJobLoadErrorKind(error)
+    loadError.value = t(`historyRun.error.${errorKind}`)
+  } finally {
+    initialLoading.value = false
+  }
+}
+
+async function retryLoadJobs() {
+  await loadJobs()
 }
 
 async function deleteSelectedJob() {
@@ -156,7 +221,13 @@ async function deleteSelectedJob() {
   }
 }
 
-onMounted(async () => {
-  await loadJobs()
+watch(jobs, (nextJobs) => {
+  if (!nextJobs.find((job) => job.id === selectedId.value)) {
+    selectedId.value = nextJobs[0]?.id ?? ''
+  }
+}, { immediate: true })
+
+onMounted(() => {
+  void loadJobs()
 })
 </script>

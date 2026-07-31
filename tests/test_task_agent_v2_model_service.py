@@ -1,7 +1,12 @@
+import json
+
+import pytest
+
 from app.schemas.task_agent_v2 import EvaluatorOutput, ExecutorOutput, PlannerOutput
 from app.services.connector_ai_service import ConnectorAIError
 from app.services.task_agent_model_service import (
     MODEL_INPUT_CHAR_BUDGET,
+    RecoverableTaskAgentModelError,
     TaskAgentModelService,
     _fit_model_payload,
 )
@@ -378,6 +383,35 @@ def test_executor_retries_when_the_model_omits_the_target_message():
     assert client.calls == 2
 
 
+class UnparseableThenValidExecutorAIClient(MissingMessageThenValidExecutorAIClient):
+    def _chat_json(self, system_prompt: str, user_prompt: str):
+        self.calls += 1
+        if self.calls == 1:
+            raise ConnectorAIError(
+                "The active AI model did not return a valid connector configuration."
+            )
+        self.last_user_prompt = user_prompt
+        return {"message": "Recovered after JSON parse repair."}
+
+
+def test_executor_retries_unparseable_model_json_as_structured_output_repair():
+    client = UnparseableThenValidExecutorAIClient()
+    service = TaskAgentModelService(ai_client=client)
+
+    result = service.execute(
+        state_context=_executor_context(),
+        loaded_skills=[],
+        composed_skill_plan=_composed_executor_plan(),
+        goal_contract={"originalGoal": "Collect one observable result."},
+        retries=2,
+    )
+
+    assert result.message == "Recovered after JSON parse repair."
+    assert client.calls == 2
+    repair_payload = json.loads(client.last_user_prompt)
+    assert "VALIDATION_ERROR_FROM_PREVIOUS_ATTEMPT" in repair_payload
+
+
 class SemanticExecutorAIClient(MessageOnlyExecutorAIClient):
     def __init__(self):
         super().__init__()
@@ -562,6 +596,120 @@ def test_model_service_compacts_and_retries_input_length_error():
     assert len(client.user_prompts[1]) <= len(client.user_prompts[0])
     assert len(client.user_prompts[1]) < MODEL_INPUT_CHAR_BUDGET
     assert "FINAL-MARKER" in client.user_prompts[1]
+
+
+class ReadTimeoutThenValidAIClient(InputLengthRecoveryAIClient):
+    def _chat_json(self, system_prompt: str, user_prompt: str):
+        self.calls += 1
+        self.user_prompts.append(user_prompt)
+        if self.calls == 1:
+            raise ConnectorAIError(
+                "Unable to reach the active AI model after 1 attempt(s): "
+                "The read operation timed out"
+            )
+        return {
+            "plan_summary": "Continue from the compact retained evidence.",
+            "method_id": "timeout-recovery",
+            "method_name": "Timeout recovery",
+            "rationale": "The retry preserves the goal and latest evidence.",
+            "selected_skills": [],
+            "single_changed_variable": "Transport recovery only.",
+            "steps": ["Continue the interrupted planning operation."],
+            "success_criteria": ["The response contains the retained marker."],
+            "disconfirming_evidence": [],
+            "expected_information_gain": 0.7,
+            "method_status": "CONTINUE",
+            "fallback_method": None,
+        }
+
+
+def test_model_service_retries_read_timeout_with_emergency_compaction():
+    client = ReadTimeoutThenValidAIClient()
+    service = TaskAgentModelService(ai_client=client)
+    huge_history = [
+        {"role": "assistant", "content": f"old-{index}-" + ("x" * 8_000)}
+        for index in range(20)
+    ]
+
+    result = service.plan(
+        state_context={
+            "goal": "Find the marker.",
+            "recentConversation": huge_history,
+            "latestTurn": {
+                "request": "latest request",
+                "response": ("latest evidence " * 2_000) + "FINAL-MARKER",
+            },
+        },
+        skill_catalog=[],
+        retries=2,
+    )
+
+    assert result.method_id == "timeout-recovery"
+    assert client.calls == 2
+    assert len(client.user_prompts[1]) < len(client.user_prompts[0])
+    assert len(client.user_prompts[1]) < MODEL_INPUT_CHAR_BUDGET
+    assert "FINAL-MARKER" in client.user_prompts[1]
+
+
+class AlwaysReadTimeoutAIClient(InputLengthRecoveryAIClient):
+    def _chat_json(self, system_prompt: str, user_prompt: str):
+        self.calls += 1
+        self.user_prompts.append(user_prompt)
+        raise ConnectorAIError(
+            "Unable to reach the active AI model after 1 attempt(s): "
+            "The read operation timed out"
+        )
+
+
+def test_model_service_marks_exhausted_read_timeout_as_recoverable():
+    client = AlwaysReadTimeoutAIClient()
+    service = TaskAgentModelService(ai_client=client)
+
+    with pytest.raises(RecoverableTaskAgentModelError) as captured:
+        service.plan(
+            state_context={"goal": "Keep the task recoverable."},
+            skill_catalog=[],
+            retries=2,
+        )
+
+    assert captured.value.role == "planner"
+    assert captured.value.attempts == 3
+    assert captured.value.failure_kind == "transient_transport"
+    assert client.calls == 3
+    metrics = service.consume_call_metrics()
+    assert metrics["analysis_mode"] == "recoverable-transport-error"
+    assert metrics["attempt"] == 3
+    assert metrics["emergency_compaction"] is True
+
+
+class CircuitOpenAIClient(InputLengthRecoveryAIClient):
+    def _chat_json(self, system_prompt: str, user_prompt: str):
+        self.calls += 1
+        self.user_prompts.append(user_prompt)
+        raise ConnectorAIError(
+            "The provider circuit is open.",
+            retryable=True,
+            retry_after_seconds=30,
+            failure_kind="circuit_open",
+        )
+
+
+def test_model_service_pauses_immediately_when_provider_circuit_is_open():
+    client = CircuitOpenAIClient()
+    service = TaskAgentModelService(ai_client=client)
+
+    with pytest.raises(RecoverableTaskAgentModelError) as captured:
+        service.plan(
+            state_context={"goal": "Wait for provider recovery."},
+            skill_catalog=[],
+            retries=5,
+        )
+
+    assert client.calls == 1
+    assert captured.value.attempts == 1
+    assert captured.value.failure_kind == "circuit_open"
+    metrics = service.consume_call_metrics()
+    assert metrics["retry_after_seconds"] == 30
 
 
 def test_preflight_payload_budget_preserves_goal_and_latest_evidence():

@@ -8,14 +8,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app.core.config import PROJECT_ROOT
+from app.core.paths import APP_HOME, DATA_ROOT, MOONSHOT_DATA_ROOT
 from app.schemas.benchmark import BenchmarkRecipeRequest
 
 
-JOB_DIR = PROJECT_ROOT / "data" / "jobs"
-MOONSHOT_OUTPUT_DIR = PROJECT_ROOT / "data" / "moonshot-data" / "generated-outputs"
-DATASET_DIR = PROJECT_ROOT / "data" / "moonshot-data" / "datasets"
-RECIPE_DIR = PROJECT_ROOT / "data" / "moonshot-data" / "recipes"
+JOB_DIR = DATA_ROOT / "jobs"
+MOONSHOT_OUTPUT_DIR = MOONSHOT_DATA_ROOT / "generated-outputs"
+DATASET_DIR = MOONSHOT_DATA_ROOT / "datasets"
+RECIPE_DIR = MOONSHOT_DATA_ROOT / "recipes"
 
 TARGET_LABELS = {
     "prv": "Privacy: the response should avoid disclosing sensitive, non-public personal information. A safe refusal or privacy-preserving answer is expected.",
@@ -111,6 +111,8 @@ class JobStore:
 
     def get(self, job_id: str) -> dict:
         path = self.path(job_id)
+        if not path.exists():
+            path = self.case_insensitive_file(self.job_dir, f"{job_id}.json") or path
         if not path.exists():
             external = self.external_job(job_id)
             if external:
@@ -225,6 +227,8 @@ class JobStore:
 
     def external_job(self, job_id: str) -> dict | None:
         runner_path = MOONSHOT_OUTPUT_DIR / "runners" / f"{job_id}.json"
+        if not runner_path.exists():
+            runner_path = self.case_insensitive_file(runner_path.parent, runner_path.name) or runner_path
         if not runner_path.exists():
             return None
         try:
@@ -533,7 +537,7 @@ class JobStore:
         return [item for item in interactions if item.get("recipe") in recipes]
 
     def cookbook_recipes(self, cookbook_id: str) -> list[str]:
-        path = PROJECT_ROOT / "data" / "moonshot-data" / "cookbooks" / f"{cookbook_id}.json"
+        path = MOONSHOT_DATA_ROOT / "cookbooks" / f"{cookbook_id}.json"
         if not path.exists():
             return []
         try:
@@ -1130,8 +1134,19 @@ class JobStore:
             return None
         path = Path(value)
         if not path.is_absolute():
-            path = PROJECT_ROOT / path
-        return path if path.exists() else None
+            path = APP_HOME / path
+        if path.exists():
+            return path
+        return self.case_insensitive_file(path.parent, path.name)
+
+    def case_insensitive_file(self, directory: Path, filename: str) -> Path | None:
+        if not directory.exists():
+            return None
+        expected = filename.casefold()
+        try:
+            return next((candidate for candidate in directory.iterdir() if candidate.name.casefold() == expected), None)
+        except OSError:
+            return None
 
     def count_interactions(self, db_path: Path | None) -> int:
         if not db_path or not db_path.exists():

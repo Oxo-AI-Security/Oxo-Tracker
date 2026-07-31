@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { apiErrorMessage } from './http'
+import { apiErrorMessage, configureApiRuntime, http } from './http'
 
 describe('apiErrorMessage', () => {
   it('renders FastAPI validation locations instead of a generic 422 message', () => {
@@ -20,5 +20,21 @@ describe('apiErrorMessage', () => {
       'Active task already exists',
     )
     expect(apiErrorMessage(undefined, 'Network Error')).toBe('Network Error')
+  })
+
+  it('applies the sidecar URL and session token at runtime', async () => {
+    configureApiRuntime('http://127.0.0.1:49152/', 'desktop-session')
+    const response = await http.get('/health', {
+      adapter: async (config) => ({
+        config,
+        data: {},
+        headers: {},
+        status: 200,
+        statusText: 'OK',
+      }),
+    })
+    expect(http.defaults.baseURL).toBe('http://127.0.0.1:49152')
+    expect(response.config.headers.get('X-Oxo-Desktop-Token')).toBe('desktop-session')
+    configureApiRuntime('http://127.0.0.1:8001')
   })
 })

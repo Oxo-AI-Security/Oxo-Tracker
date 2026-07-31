@@ -1,45 +1,46 @@
 <template>
   <div class="job-shell">
-    <GlassPanel class="job-hero-panel">
-      <div class="job-hero-copy">
-        <p class="eyebrow">{{ $t('auto.a1cc90458b81') }}</p>
-        <h2>{{ heading }}</h2>
-        <p>{{ job?.description || $t('auto.f354c94fcf63') }}</p>
-        <div v-if="canPreviewReport" class="job-hero-actions">
-          <n-button type="primary" round @click="reportOpen = true"> {{ $t('auto.2632041f3c44') }} </n-button>
-          <n-button tag="a" :href="reportDownloadUrl" secondary round>
-            <template #icon><n-icon><DownloadOutline /></n-icon></template> {{ $t('auto.a479c9c34e87') }} </n-button>
+    <template v-if="job">
+      <GlassPanel class="job-hero-panel">
+        <div class="job-hero-copy">
+          <p class="eyebrow">{{ $t('auto.a1cc90458b81') }}</p>
+          <h2>{{ heading }}</h2>
+          <p>{{ job.description || $t('auto.f354c94fcf63') }}</p>
+          <div v-if="canPreviewReport" class="job-hero-actions">
+            <n-button type="primary" round @click="reportOpen = true"> {{ $t('auto.2632041f3c44') }} </n-button>
+            <n-button tag="a" :href="reportDownloadUrl" secondary round>
+              <template #icon><n-icon><DownloadOutline /></n-icon></template> {{ $t('auto.a479c9c34e87') }} </n-button>
+          </div>
         </div>
-      </div>
-      <div class="job-status-card">
-        <div>
-          <span>{{ $t('auto.bae7d5be7082') }}</span>
-          <strong>{{ job?.status || 'loading' }}</strong>
-        </div>
-        <n-progress
-          type="line"
-          :percentage="progress"
-          :show-indicator="false"
-          :color="progressColor"
-        />
-        <b>{{ progress }}%</b>
-        <div v-if="isJudgePhase" class="judge-progress">
+        <div class="job-status-card">
           <div>
-            <span>{{ $t('auto.46658a448ebf') }}</span>
-            <strong>{{ judgeProgressLabel }}</strong>
+            <span>{{ $t('auto.bae7d5be7082') }}</span>
+            <strong>{{ statusLabel }}</strong>
           </div>
           <n-progress
             type="line"
-            :percentage="judgeProgressPercent"
+            :percentage="progress"
             :show-indicator="false"
-            color="linear-gradient(90deg, #47d7ff, #8b5cf6, #7c3aed)"
+            :color="progressColor"
           />
-          <i v-if="judgeProgressIsPending" aria-hidden="true"></i>
+          <b>{{ progress }}%</b>
+          <div v-if="isJudgePhase" class="judge-progress">
+            <div>
+              <span>{{ $t('auto.46658a448ebf') }}</span>
+              <strong>{{ judgeProgressLabel }}</strong>
+            </div>
+            <n-progress
+              type="line"
+              :percentage="judgeProgressPercent"
+              :show-indicator="false"
+              color="linear-gradient(90deg, #47d7ff, #8b5cf6, #7c3aed)"
+            />
+            <i v-if="judgeProgressIsPending" aria-hidden="true"></i>
+          </div>
         </div>
-      </div>
-    </GlassPanel>
+      </GlassPanel>
 
-    <div v-if="job" class="job-grid">
+      <div class="job-grid">
       <GlassPanel class="job-side-panel">
         <div class="section-heading compact-heading">
           <div class="job-detail-title">
@@ -164,7 +165,7 @@
                 :options="interactionFilterOptions"
                 @update:value="changeTraceFilters"
               />
-              <n-button secondary circle :aria-label="$t('auto.d8274c187f9f')" @click="loadJob">
+              <n-button secondary circle :aria-label="$t('auto.d8274c187f9f')" :loading="refreshing" @click="refreshJob">
                 <template #icon><n-icon><RefreshOutline /></n-icon></template>
               </n-button>
             </div>
@@ -214,14 +215,57 @@
             v-model:page="interactionPage"
             :page-size="interactionPageSize"
             :item-count="interactionTotal"
-            @update:page="loadJob"
+            @update:page="changeInteractionPage"
           />
         </div>
       </GlassPanel>
-    </div>
+      </div>
+    </template>
 
-    <GlassPanel v-else class="job-loading-panel">
-      <n-spin size="large" />
+    <GlassPanel v-else-if="initialLoading" class="job-state-panel job-state-panel--loading" role="status" aria-live="polite">
+      <div class="job-state-visual" aria-hidden="true">
+        <span class="job-state-orbit"></span>
+        <n-spin size="large" />
+      </div>
+      <div class="job-state-copy">
+        <p class="eyebrow">{{ $t('jobRun.loading.eyebrow') }}</p>
+        <h2>{{ $t('jobRun.loading.title') }}</h2>
+        <p>{{ $t('jobRun.loading.description') }}</p>
+        <div class="job-loading-steps" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+      <div class="job-state-context">
+        <span>{{ $t('jobRun.taskId') }}</span>
+        <strong>{{ route.params.id }}</strong>
+      </div>
+    </GlassPanel>
+
+    <GlassPanel v-else class="job-state-panel job-state-panel--error" role="alert">
+      <div class="job-state-visual job-state-visual--error" aria-hidden="true">
+        <n-icon><AlertCircleOutline /></n-icon>
+      </div>
+      <div class="job-state-copy">
+        <p class="eyebrow">{{ $t('jobRun.error.eyebrow') }}</p>
+        <h2>{{ $t('jobRun.error.title') }}</h2>
+        <p>{{ loadError }}</p>
+        <div class="job-state-actions">
+          <n-button type="primary" round :loading="initialLoading" @click="retryLoad">
+            <template #icon><n-icon><RefreshOutline /></n-icon></template>
+            {{ $t('jobRun.error.retry') }}
+          </n-button>
+          <n-button secondary round @click="router.push('/history')">
+            <template #icon><n-icon><TimeOutline /></n-icon></template>
+            {{ $t('jobRun.error.back') }}
+          </n-button>
+        </div>
+      </div>
+      <div class="job-state-context">
+        <span>{{ $t('jobRun.taskId') }}</span>
+        <strong>{{ route.params.id }}</strong>
+      </div>
     </GlassPanel>
 
     <n-modal
@@ -404,7 +448,9 @@ import { translateSource } from '../i18n'
 
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import {
+  AlertCircleOutline,
   DownloadOutline,
   PauseCircleOutline,
   PlayCircleOutline,
@@ -417,12 +463,22 @@ import GlassPanel from '../components/GlassPanel.vue'
 import { moonshotApi } from '../api/moonshot'
 import { useMoonshotStore } from '../stores/moonshot'
 import type { BenchmarkInteraction, BenchmarkJob } from '../types/moonshot'
+import {
+  benchmarkJobLoadErrorKind,
+  findBenchmarkJob,
+  isActiveBenchmarkJob,
+  mergeBenchmarkJobSummary,
+} from '../utils/jobRun'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const store = useMoonshotStore()
 const notification = useNotification()
 const job = ref<BenchmarkJob | null>(null)
+const initialLoading = ref(true)
+const refreshing = ref(false)
+const loadError = ref('')
 const pausing = ref(false)
 const resuming = ref(false)
 const deleting = ref(false)
@@ -558,11 +614,27 @@ const etaLabel = computed(() => {
   return `${formatDuration(seconds)} (${formatDate(eta)})`
 })
 const heading = computed(() => {
-  if (!job.value) return 'Loading job'
-  if (job.value.status === 'running' || job.value.status === 'queued') return 'Running tests'
-  if (job.value.status === 'paused') return 'Job paused'
-  if (job.value.status === 'completed' || job.value.status === 'completed_with_errors') return 'Tests completed'
-  return 'Job needs attention'
+  if (!job.value) return ''
+  if (job.value.status === 'running' || job.value.status === 'queued') return t('jobRun.heading.running')
+  if (job.value.status === 'running_with_errors') return t('jobRun.heading.runningWithErrors')
+  if (job.value.status === 'paused') return t('jobRun.heading.paused')
+  if (job.value.status === 'completed') return t('jobRun.heading.completed')
+  if (job.value.status === 'completed_with_errors') return t('jobRun.heading.completedWithErrors')
+  return t('jobRun.heading.attention')
+})
+const statusLabel = computed(() => {
+  const status = job.value?.status
+  if (!status) return ''
+  const labels: Record<string, string> = {
+    queued: t('jobRun.status.queued'),
+    running: t('jobRun.status.running'),
+    running_with_errors: t('jobRun.status.runningWithErrors'),
+    paused: t('jobRun.status.paused'),
+    completed: t('jobRun.status.completed'),
+    completed_with_errors: t('jobRun.status.completedWithErrors'),
+    failed: t('jobRun.status.failed'),
+  }
+  return labels[status] || status
 })
 const progressColor = computed(() => {
   if (job.value?.status === 'failed') return '#ef4444'
@@ -571,28 +643,95 @@ const progressColor = computed(() => {
   return 'linear-gradient(90deg, #c4b5fd, #8b5cf6, #7c3aed)'
 })
 
-async function loadJob() {
+function applyLoadedJob(nextJob: BenchmarkJob, preserveDetails = false) {
   const previousStatus = job.value?.status
-  job.value = await moonshotApi.getBenchmarkJobPage(
-    String(route.params.id),
-    interactionPage.value,
-    interactionPageSize,
-    interactionFilter.value,
-    cookbookFilter.value,
-  )
-  threadCount.value = job.value.summary.thread_count || job.value.request.thread_count || threadCount.value
+  job.value = preserveDetails ? mergeBenchmarkJobSummary(job.value, nextJob) : nextJob
+  loadError.value = ''
+  initialLoading.value = false
+  threadCount.value = nextJob.summary.thread_count || nextJob.request.thread_count || threadCount.value
   if (
-    previousStatus &&
-    previousStatus !== job.value.status &&
-    ['completed', 'completed_with_errors', 'failed', 'paused'].includes(job.value.status)
+    previousStatus
+    && previousStatus !== nextJob.status
+    && ['completed', 'completed_with_errors', 'failed', 'paused'].includes(nextJob.status)
   ) {
-    notifyJobSettled(job.value.status)
+    notifyJobSettled(nextJob.status)
+  }
+}
+
+function seedJobFromStore() {
+  const summary = findBenchmarkJob(store.jobs, String(route.params.id))
+  if (!summary) return false
+  applyLoadedJob(summary, true)
+  return true
+}
+
+async function loadJobSummary() {
+  try {
+    const jobs = await moonshotApi.getBenchmarkJobs()
+    store.jobs = jobs
+    const summary = findBenchmarkJob(jobs, String(route.params.id))
+    if (!summary) return false
+    applyLoadedJob(summary, true)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function loadJob(options: { initial?: boolean; notifyOnError?: boolean; background?: boolean } = {}) {
+  const isInitialRequest = options.initial ?? !job.value
+  if (isInitialRequest) initialLoading.value = true
+  else if (!options.background) refreshing.value = true
+
+  try {
+    const nextJob = await moonshotApi.getBenchmarkJobPage(
+      String(route.params.id),
+      interactionPage.value,
+      interactionPageSize,
+      interactionFilter.value,
+      cookbookFilter.value,
+    )
+    applyLoadedJob(nextJob)
+    return true
+  } catch (error) {
+    const errorKind = benchmarkJobLoadErrorKind(error)
+    loadError.value = t(`jobRun.error.${errorKind}`)
+    if (options.notifyOnError && job.value) {
+      notify('error', {
+        title: t('jobRun.error.title'),
+        content: loadError.value,
+      })
+    }
+    return false
+  } finally {
+    initialLoading.value = false
+    refreshing.value = false
   }
 }
 
 async function changeTraceFilters() {
   interactionPage.value = 1
-  await loadJob()
+  await loadJob({ notifyOnError: true })
+}
+
+async function changeInteractionPage() {
+  await loadJob({ notifyOnError: true })
+}
+
+async function refreshJob() {
+  const loaded = await loadJob()
+  if (!loaded && !(await loadJobSummary())) {
+    notify('error', {
+      title: t('jobRun.error.title'),
+      content: loadError.value,
+    })
+  }
+}
+
+async function retryLoad() {
+  const summaryLoaded = seedJobFromStore() || await loadJobSummary()
+  const loaded = await loadJob({ initial: !summaryLoaded, background: summaryLoaded })
+  if (loaded || summaryLoaded) startPolling()
 }
 
 function notifyJobSettled(status: string) {
@@ -759,24 +898,29 @@ function gradeMarkerStyle(recipe: NonNullable<BenchmarkJob['report_summary']>['r
 }
 
 onMounted(async () => {
-  if (!store.endpoints.length) store.loadOverview()
-  await loadJob()
-  startPolling()
+  const summaryLoaded = seedJobFromStore() || await loadJobSummary()
+  if (!store.endpoints.length) void store.loadOverview()
+  const loaded = await loadJob({ initial: !summaryLoaded, background: summaryLoaded })
+  if (loaded || summaryLoaded) startPolling()
 })
 
 function startPolling() {
-  if (timer) window.clearInterval(timer)
-  if (job.value && !['queued', 'running'].includes(job.value.status)) return
+  stopPolling()
+  if (!isActiveBenchmarkJob(job.value?.status)) return
   timer = window.setInterval(async () => {
-    await loadJob()
-    if (job.value && !['queued', 'running'].includes(job.value.status)) {
-      window.clearInterval(timer)
-      timer = undefined
-    }
+    const loaded = await loadJob({ background: true })
+    if (!loaded) await loadJobSummary()
+    if (!job.value || !isActiveBenchmarkJob(job.value.status)) stopPolling()
   }, 2500)
 }
 
+function stopPolling() {
+  if (!timer) return
+  window.clearInterval(timer)
+  timer = undefined
+}
+
 onUnmounted(() => {
-  if (timer) window.clearInterval(timer)
+  stopPolling()
 })
 </script>

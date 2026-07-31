@@ -28,7 +28,7 @@ const lightThemeOverrides: GlobalThemeOverrides = {
     primaryColor: '#47d7ff',
     primaryColorHover: '#2f8dff',
     primaryColorPressed: '#7b5cff',
-    borderRadius: '8px',
+    borderRadius: '14px',
     bodyColor: '#f4f8ff',
     textColorBase: '#142033',
     textColor1: '#142033',
@@ -41,7 +41,7 @@ const lightThemeOverrides: GlobalThemeOverrides = {
   Card: {
     color: 'rgba(255, 255, 255, 0.76)',
     borderColor: 'rgba(45, 103, 171, 0.16)',
-    borderRadius: '8px',
+    borderRadius: '18px',
   },
   DataTable: {
     thColor: 'rgba(235, 244, 255, 0.92)',
@@ -60,7 +60,7 @@ const darkThemeOverrides: GlobalThemeOverrides = {
     primaryColorHover: '#a78bfa',
     primaryColorPressed: '#7c3aed',
     primaryColorSuppl: '#22d3ee',
-    borderRadius: '8px',
+    borderRadius: '14px',
     bodyColor: '#162235',
     baseColor: '#1d2a3f',
     cardColor: '#223049',
@@ -90,7 +90,7 @@ const darkThemeOverrides: GlobalThemeOverrides = {
   Card: {
     color: '#223049',
     borderColor: 'rgba(194, 205, 225, 0.2)',
-    borderRadius: '8px',
+    borderRadius: '18px',
   },
   DataTable: {
     thColor: '#283754',
