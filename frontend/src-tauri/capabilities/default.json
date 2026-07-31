@@ -3,5 +3,11 @@
   "identifier": "main-capability",
   "description": "Minimal capability for the Oxo Tracker main window",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-start-dragging",
+    "core:window:allow-unmaximize"
+  ]
 }

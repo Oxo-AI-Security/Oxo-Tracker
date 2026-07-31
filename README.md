@@ -157,6 +157,8 @@ This is the default daily development workflow. It does **not** run PyInstaller,
 
 Backend source changes require restarting `npm run desktop:dev`; frontend changes update through Vite HMR. Calling `tauri dev` directly is intentionally rejected because it would bypass the managed Python development backend.
 
+The desktop window uses an integrated title area instead of the native Windows title bar. The custom minimize and close buttons both keep Oxo Tracker running in the taskbar. To exit completely, right-click the Oxo Tracker taskbar entry and choose **Close window**; this sends the native close request that shuts down the Tauri host and Python sidecar together.
+
 ### Optional browser-only development
 
 Use this only when debugging the backend or Vue UI independently. Start the backend in one terminal:

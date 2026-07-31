@@ -177,6 +177,7 @@ code,
 
 .n-button--round,
 .n-button--circle-type,
+.window-control,
 .n-tag,
 .n-switch,
 .n-slider-handle,
@@ -264,4 +265,47 @@ code,
   .page-frame {
     border-radius: 28px !important;
   }
+}
+
+/* Tauri paints the WebView on a transparent undecorated window. Keep the
+   actual application canvas clipped to the same 28px curve as the page. */
+html.tauri-window,
+html.tauri-window body,
+html.tauri-window #app {
+  background: transparent !important;
+}
+
+html.tauri-window body,
+html.tauri-window #app,
+html.tauri-window .app-shell,
+html.tauri-window .app-shell.n-layout,
+html.tauri-window .app-shell > .n-layout-scroll-container {
+  border-radius: var(--radius-app-frame) !important;
+}
+
+html.tauri-window #app,
+html.tauri-window .app-shell,
+html.tauri-window .app-shell > .n-layout-scroll-container {
+  overflow: hidden !important;
+}
+
+html.tauri-window .app-shell {
+  background:
+    radial-gradient(circle at 84% 0, rgba(139, 92, 246, 0.08), transparent 28%),
+    linear-gradient(90deg, #ffffff, #fbfaff) !important;
+  box-shadow: inset 0 0 0 1px rgba(116, 100, 160, 0.16) !important;
+}
+
+html.tauri-window[data-theme="dark"] .app-shell {
+  background:
+    radial-gradient(circle at 84% 0, rgba(139, 92, 246, 0.12), transparent 30%),
+    linear-gradient(90deg, #182235, #1b263a) !important;
+}
+
+html.tauri-window[data-window-maximized="true"] body,
+html.tauri-window[data-window-maximized="true"] #app,
+html.tauri-window[data-window-maximized="true"] .app-shell,
+html.tauri-window[data-window-maximized="true"] .app-shell.n-layout,
+html.tauri-window[data-window-maximized="true"] .app-shell > .n-layout-scroll-container {
+  border-radius: 0 !important;
 }

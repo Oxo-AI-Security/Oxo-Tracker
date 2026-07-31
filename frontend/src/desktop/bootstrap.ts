@@ -17,6 +17,7 @@ export function isDesktopRuntime() {
 
 export async function initializeDesktopRuntime() {
   if (!isDesktopRuntime()) return
+  document.documentElement.classList.add('tauri-window')
   const { invoke } = await import('@tauri-apps/api/core')
   const runtime = await invoke<DesktopBootstrap>('desktop_bootstrap')
   configureApiRuntime(runtime.apiBaseUrl, runtime.token)

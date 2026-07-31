@@ -67,17 +67,51 @@
       <div class="ambient ambient-a" />
       <div class="ambient ambient-b" />
       <header class="topbar">
-        <div>
-          <p class="eyebrow">{{ t('app.workspace') }}</p>
+        <div class="topbar-title" data-tauri-drag-region>
+          <p class="eyebrow" data-tauri-drag-region>{{ t('app.workspace') }}</p>
           <AppBreadcrumbs />
         </div>
-        <n-space>
+        <n-space align="center" class="topbar-actions">
           <n-button secondary round @click="store.loadOverview">
             <template #icon>
               <n-icon><RefreshOutline /></n-icon>
             </template>
             {{ t('common.refresh') }}
           </n-button>
+          <div
+            v-if="desktopWindowControls"
+            class="window-controls"
+            role="group"
+            :aria-label="windowControlLabels.group"
+          >
+            <button
+              type="button"
+              class="window-control"
+              :title="windowControlLabels.minimize"
+              :aria-label="windowControlLabels.minimize"
+              @click="minimizeDesktopWindow"
+            >
+              <n-icon><RemoveOutline /></n-icon>
+            </button>
+            <button
+              type="button"
+              class="window-control"
+              :title="windowMaximized ? windowControlLabels.restore : windowControlLabels.maximize"
+              :aria-label="windowMaximized ? windowControlLabels.restore : windowControlLabels.maximize"
+              @click="toggleDesktopWindowMaximize"
+            >
+              <n-icon><CopyOutline v-if="windowMaximized" /><SquareOutline v-else /></n-icon>
+            </button>
+            <button
+              type="button"
+              class="window-control window-control--close"
+              :title="windowControlLabels.closeToTaskbar"
+              :aria-label="windowControlLabels.closeToTaskbar"
+              @click="minimizeDesktopWindow"
+            >
+              <n-icon><CloseOutline /></n-icon>
+            </button>
+          </div>
           <n-button type="primary" round @click="router.push('/benchmark')">
             <template #icon>
               <n-icon><RocketOutline /></n-icon>
@@ -104,21 +138,28 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import type { UnlistenFn } from '@tauri-apps/api/event'
+import type { Window as TauriWindow } from '@tauri-apps/api/window'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   AnalyticsOutline,
+  CloseOutline,
+  CopyOutline,
   CubeOutline,
   FlashOutline,
   ChevronBackOutline,
   LibraryOutline,
   RefreshOutline,
+  RemoveOutline,
   RocketOutline,
+  SquareOutline,
   SparklesOutline,
   SettingsOutline,
   TimeOutline,
 } from '@vicons/ionicons5'
+import { isDesktopRuntime } from '../desktop/bootstrap'
 import { useMoonshotStore } from '../stores/moonshot'
 import { useSettingsStore } from '../stores/settings'
 import AppBreadcrumbs from '../components/AppBreadcrumbs.vue'
@@ -129,6 +170,67 @@ const store = useMoonshotStore()
 const settings = useSettingsStore()
 const { t } = useI18n()
 const collapsed = ref(false)
+const desktopWindowControls = isDesktopRuntime()
+const windowMaximized = ref(false)
+let desktopWindow: TauriWindow | null = null
+let removeWindowResizeListener: UnlistenFn | undefined
+
+const windowControlLabels = computed(() => (
+  settings.locale === 'zh-CN'
+    ? {
+        group: '窗口控制',
+        minimize: '最小化',
+        maximize: '最大化',
+        restore: '还原窗口',
+        closeToTaskbar: '收起到任务栏',
+      }
+    : {
+        group: 'Window controls',
+        minimize: 'Minimize',
+        maximize: 'Maximize',
+        restore: 'Restore window',
+        closeToTaskbar: 'Keep running in the taskbar',
+      }
+))
+
+async function resolveDesktopWindow() {
+  if (!desktopWindowControls) return null
+  if (!desktopWindow) {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    desktopWindow = getCurrentWindow()
+  }
+  return desktopWindow
+}
+
+async function syncWindowMaximizedState() {
+  const appWindow = await resolveDesktopWindow()
+  if (!appWindow) return
+  windowMaximized.value = await appWindow.isMaximized()
+  document.documentElement.dataset.windowMaximized = String(windowMaximized.value)
+}
+
+async function minimizeDesktopWindow() {
+  try {
+    await (await resolveDesktopWindow())?.minimize()
+  } catch (error) {
+    console.error('Failed to minimize the desktop window', error)
+  }
+}
+
+async function toggleDesktopWindowMaximize() {
+  try {
+    const appWindow = await resolveDesktopWindow()
+    if (!appWindow) return
+    if (await appWindow.isMaximized()) {
+      await appWindow.unmaximize()
+    } else {
+      await appWindow.maximize()
+    }
+    await syncWindowMaximizedState()
+  } catch (error) {
+    console.error('Failed to resize the desktop window', error)
+  }
+}
 
 function expandSidebarFromBrand() {
   if (collapsed.value) {
@@ -149,7 +251,22 @@ function isActiveNav(path: string) {
   return route.path === path || route.path.startsWith(`${path}/`)
 }
 
-onMounted(() => {
+onMounted(async () => {
   store.loadOverview()
+  if (!desktopWindowControls) return
+  try {
+    const appWindow = await resolveDesktopWindow()
+    if (!appWindow) return
+    await syncWindowMaximizedState()
+    removeWindowResizeListener = await appWindow.onResized(() => {
+      void syncWindowMaximizedState()
+    })
+  } catch (error) {
+    console.error('Failed to initialize desktop window controls', error)
+  }
+})
+
+onBeforeUnmount(() => {
+  removeWindowResizeListener?.()
 })
 </script>
