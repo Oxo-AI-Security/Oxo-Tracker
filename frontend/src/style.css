@@ -21945,12 +21945,12 @@ body {
   gap: 10px;
 }
 
-.brand__mark.oxo-logo-mark {
+.brand .brand__mark {
   display: block;
-  width: 52px;
-  min-width: 52px;
-  height: 36px;
-  color: inherit;
+  width: 72px;
+  min-width: 72px;
+  height: 40px;
+  object-fit: contain;
   overflow: visible;
   background: transparent !important;
   border: 0 !important;
@@ -21958,10 +21958,10 @@ body {
   box-shadow: none !important;
 }
 
-.brand--collapsed-action .brand__mark.oxo-logo-mark {
-  width: 44px;
-  min-width: 44px;
-  height: 32px;
+.brand--collapsed-action .brand__mark {
+  width: 56px;
+  min-width: 56px;
+  height: 36px;
 }
 
 .brand__copy strong {

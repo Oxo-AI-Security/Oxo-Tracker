@@ -21,7 +21,7 @@
             @keydown.enter.prevent="expandSidebarFromBrand"
             @keydown.space.prevent="expandSidebarFromBrand"
           >
-            <OxoLogoMark class="brand__mark" />
+            <img class="brand__mark" :src="oxoLogoMark" :alt="collapsed ? 'Oxo Tracker' : 'Oxo'" />
             <div v-if="!collapsed" class="brand__copy">
               <strong>Tracker</strong>
               <span>{{ t('app.tagline') }}</span>
@@ -188,8 +188,8 @@ import {
 import { isDesktopRuntime } from '../desktop/bootstrap'
 import { useMoonshotStore } from '../stores/moonshot'
 import { useSettingsStore } from '../stores/settings'
+import oxoLogoMark from '../assets/oxo-logo-mark.png'
 import AppBreadcrumbs from '../components/AppBreadcrumbs.vue'
-import OxoLogoMark from '../components/OxoLogoMark.vue'
 
 const route = useRoute()
 const router = useRouter()
