@@ -67,17 +67,32 @@
       <div class="ambient ambient-a" />
       <div class="ambient ambient-b" />
       <header class="topbar">
+        <div
+          v-if="desktopWindowControls"
+          class="window-drag-strip"
+          data-tauri-drag-region
+          aria-hidden="true"
+          @mousedown.left.prevent="startDesktopWindowDrag"
+        />
         <div class="topbar-title" data-tauri-drag-region>
           <p class="eyebrow" data-tauri-drag-region>{{ t('app.workspace') }}</p>
           <AppBreadcrumbs />
         </div>
-        <n-space align="center" class="topbar-actions">
-          <n-button secondary round @click="store.loadOverview">
-            <template #icon>
-              <n-icon><RefreshOutline /></n-icon>
-            </template>
-            {{ t('common.refresh') }}
-          </n-button>
+        <div class="topbar-actions">
+          <n-space align="center" class="topbar-primary-actions">
+            <n-button secondary round @click="store.loadOverview">
+              <template #icon>
+                <n-icon><RefreshOutline /></n-icon>
+              </template>
+              {{ t('common.refresh') }}
+            </n-button>
+            <n-button type="primary" round @click="router.push('/benchmark')">
+              <template #icon>
+                <n-icon><RocketOutline /></n-icon>
+              </template>
+              {{ t('common.runTest') }}
+            </n-button>
+          </n-space>
           <div
             v-if="desktopWindowControls"
             class="window-controls"
@@ -91,7 +106,9 @@
               :aria-label="windowControlLabels.minimize"
               @click="minimizeDesktopWindow"
             >
-              <n-icon><RemoveOutline /></n-icon>
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M3 8h10" />
+              </svg>
             </button>
             <button
               type="button"
@@ -100,7 +117,18 @@
               :aria-label="windowMaximized ? windowControlLabels.restore : windowControlLabels.maximize"
               @click="toggleDesktopWindowMaximize"
             >
-              <n-icon><CopyOutline v-if="windowMaximized" /><SquareOutline v-else /></n-icon>
+              <svg
+                v-if="windowMaximized"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <rect x="5" y="3" width="8" height="8" rx="1.3" />
+                <path d="M11 11v.7A1.3 1.3 0 0 1 9.7 13H4.3A1.3 1.3 0 0 1 3 11.7V6.3A1.3 1.3 0 0 1 4.3 5H5" />
+              </svg>
+              <svg v-else viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <rect x="3" y="3" width="10" height="10" rx="1.5" />
+              </svg>
             </button>
             <button
               type="button"
@@ -109,16 +137,12 @@
               :aria-label="windowControlLabels.closeToTaskbar"
               @click="minimizeDesktopWindow"
             >
-              <n-icon><CloseOutline /></n-icon>
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="m4 4 8 8M12 4l-8 8" />
+              </svg>
             </button>
           </div>
-          <n-button type="primary" round @click="router.push('/benchmark')">
-            <template #icon>
-              <n-icon><RocketOutline /></n-icon>
-            </template>
-            {{ t('common.runTest') }}
-          </n-button>
-        </n-space>
+        </div>
       </header>
 
       <n-scrollbar class="content-scrollbar">
@@ -145,16 +169,12 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   AnalyticsOutline,
-  CloseOutline,
-  CopyOutline,
   CubeOutline,
   FlashOutline,
   ChevronBackOutline,
   LibraryOutline,
   RefreshOutline,
-  RemoveOutline,
   RocketOutline,
-  SquareOutline,
   SparklesOutline,
   SettingsOutline,
   TimeOutline,
@@ -230,6 +250,14 @@ async function toggleDesktopWindowMaximize() {
   } catch (error) {
     console.error('Failed to resize the desktop window', error)
   }
+}
+
+function startDesktopWindowDrag() {
+  const appWindow = desktopWindow
+  if (!appWindow) return
+  void appWindow.startDragging().catch((error) => {
+    console.error('Failed to start dragging the desktop window', error)
+  })
 }
 
 function expandSidebarFromBrand() {
