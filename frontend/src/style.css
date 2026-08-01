@@ -21939,3 +21939,31 @@ body {
     border-color: rgba(148, 163, 184, 0.18);
   }
 }
+
+/* Brand mark: replace the generic sparkle badge with the custom OXO symbol. */
+.brand {
+  gap: 10px;
+}
+
+.brand__mark.oxo-logo-mark {
+  display: block;
+  width: 52px;
+  min-width: 52px;
+  height: 36px;
+  color: inherit;
+  overflow: visible;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.brand--collapsed-action .brand__mark.oxo-logo-mark {
+  width: 44px;
+  min-width: 44px;
+  height: 32px;
+}
+
+.brand__copy strong {
+  line-height: 1;
+}

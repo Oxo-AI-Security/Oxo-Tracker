@@ -8,12 +8,21 @@
   </defs>
 
   <rect x="48" y="48" width="928" height="928" rx="220" fill="#ffffff" />
+
+  <!-- Geometry follows the supplied OXO double-ring and crossed-lightning mark. -->
   <g transform="translate(118 236) scale(1.06)">
     <g fill="none" stroke="url(#oxo-logo-gradient)" stroke-width="44">
       <circle cx="160" cy="253" r="98" />
       <circle cx="625" cy="253" r="98" />
     </g>
-    <path fill="url(#oxo-logo-gradient)" stroke="#251052" stroke-width="1.4" stroke-linejoin="round" d="M138 488 340 266 393 301Z" />
+
+    <path
+      fill="url(#oxo-logo-gradient)"
+      stroke="#251052"
+      stroke-width="1.4"
+      stroke-linejoin="round"
+      d="M138 488 340 266 393 301Z"
+    />
     <path
       fill="url(#oxo-logo-gradient)"
       stroke="#251052"

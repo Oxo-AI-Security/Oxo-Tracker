@@ -21,11 +21,9 @@
             @keydown.enter.prevent="expandSidebarFromBrand"
             @keydown.space.prevent="expandSidebarFromBrand"
           >
-            <div class="brand__mark">
-              <n-icon size="24"><SparklesOutline /></n-icon>
-            </div>
+            <OxoLogoMark class="brand__mark" />
             <div v-if="!collapsed" class="brand__copy">
-              <strong>Oxo Tracker</strong>
+              <strong>Tracker</strong>
               <span>{{ t('app.tagline') }}</span>
             </div>
           </div>
@@ -184,7 +182,6 @@ import {
   LibraryOutline,
   RefreshOutline,
   RocketOutline,
-  SparklesOutline,
   SettingsOutline,
   TimeOutline,
 } from '@vicons/ionicons5'
@@ -192,6 +189,7 @@ import { isDesktopRuntime } from '../desktop/bootstrap'
 import { useMoonshotStore } from '../stores/moonshot'
 import { useSettingsStore } from '../stores/settings'
 import AppBreadcrumbs from '../components/AppBreadcrumbs.vue'
+import OxoLogoMark from '../components/OxoLogoMark.vue'
 
 const route = useRoute()
 const router = useRouter()
