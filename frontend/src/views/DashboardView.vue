@@ -2,25 +2,18 @@
   <div class="dashboard-grid dashboard-command-center">
     <section class="hero-band dashboard-overview">
       <div class="hero-copy dashboard-overview__copy">
-        <div class="dashboard-hero-kicker-row">
-          <div class="dashboard-hero-kicker">
-            <span class="dashboard-hero-kicker__icon">
-              <n-icon><SparklesOutline /></n-icon>
-            </span>
-            <span>
-              <small>{{ $t('auto.29a6e8352546') }}</small>
-              <strong>{{ $t('auto.abc2104c6e0c') }}</strong>
+        <div class="dashboard-hero-message">
+          <div class="dashboard-title-row">
+            <h2 class="dashboard-brand-title">
+              <img class="dashboard-brand-title__mark" :src="oxoLogoMark" alt="Oxo" />
+              <span class="dashboard-brand-title__name">Tracker</span>
+              <span class="dashboard-brand-title__accent">{{ $t('auto.a2391118c814') }}</span>
+            </h2>
+            <span class="dashboard-health-pill" :class="store.health === 'ok' ? 'is-success' : 'is-warning'">
+              <span class="dashboard-health-pill__dot" />
+              {{ healthLabel }}
             </span>
           </div>
-          <span class="dashboard-health-pill" :class="store.health === 'ok' ? 'is-success' : 'is-warning'">
-            <span class="dashboard-health-pill__dot" />
-            {{ healthLabel }}
-          </span>
-        </div>
-
-        <div class="dashboard-hero-message">
-          <h2>Oxo Tracker <span>{{ $t('auto.a2391118c814') }}</span></h2>
-          <p class="dashboard-overview__lead"> {{ $t('auto.81acc9ace935') }} </p>
         </div>
 
         <div class="dashboard-hero-actions">
@@ -241,10 +234,10 @@ import {
   RadioButtonOnOutline,
   ShieldCheckmarkOutline,
   SpeedometerOutline,
-  SparklesOutline,
 } from '@vicons/ionicons5'
 import GlassPanel from '../components/GlassPanel.vue'
 import MetricCard from '../components/MetricCard.vue'
+import oxoLogoMark from '../assets/oxo-logo-mark.png'
 import { useMoonshotStore } from '../stores/moonshot'
 
 const store = useMoonshotStore()

@@ -37,10 +37,46 @@ def test_provider_catalog_includes_current_official_models(tmp_path):
 
     assert "qwen3.7-max" in catalog["qwen"]["models"]
     assert "kimi-k3" in catalog["kimi"]["models"]
+    assert catalog["deepseek"]["models"] == ["deepseek-v4-flash", "deepseek-v4-pro"]
+    assert catalog["deepseek"]["defaultBaseUrl"] == "https://api.deepseek.com"
     assert "gpt-5.6-sol" in catalog["openai"]["models"]
     assert "gemini-3.6-flash" in catalog["gemini"]["models"]
     assert "gpt-5.6-sol" in catalog["azure_openai"]["models"]
     assert all(item["catalogUrl"].startswith("https://") for item in catalog.values())
+
+
+def test_existing_settings_gain_new_provider_defaults(tmp_path):
+    path = tmp_path / "app-settings.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "theme": "light",
+                "locale": "en-US",
+                "ai": {
+                    "activeProvider": "qwen",
+                    "providers": {
+                        "qwen": {
+                            "model": "qwen-plus",
+                            "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                            "sealedApiKey": "",
+                        }
+                    },
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    settings = SettingsStore(path, protect=protect, unprotect=unprotect).get()
+
+    assert settings["ai"]["providers"]["qwen"]["model"] == "qwen-plus"
+    assert settings["ai"]["providers"]["deepseek"] == {
+        "model": "deepseek-v4-flash",
+        "baseUrl": "https://api.deepseek.com",
+        "apiKeyConfigured": False,
+        "apiKeyMasked": "",
+    }
 
 
 def test_only_one_provider_is_active_and_secret_is_never_public(tmp_path):

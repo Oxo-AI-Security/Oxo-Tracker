@@ -46,6 +46,30 @@ def test_connection_uses_bearer_auth_and_detects_model() -> None:
     }
 
 
+def test_deepseek_connection_uses_openai_compatible_models_endpoint() -> None:
+    captured = {}
+
+    def open_request(request, timeout):
+        captured["url"] = request.full_url
+        captured["authorization"] = request.get_header("Authorization")
+        return FakeResponse({"data": [{"id": "deepseek-v4-flash"}]})
+
+    result = probe_ai_connection(
+        "deepseek",
+        "deepseek-v4-flash",
+        "https://api.deepseek.com/",
+        "deepseek-secret",
+        request_open=open_request,
+    )
+
+    assert result["ok"] is True
+    assert result["modelAvailable"] is True
+    assert captured == {
+        "url": "https://api.deepseek.com/models",
+        "authorization": "Bearer deepseek-secret",
+    }
+
+
 def test_connection_uses_azure_api_key_header() -> None:
     captured = {}
 

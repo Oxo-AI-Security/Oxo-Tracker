@@ -78,6 +78,22 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
             "moonshot-v1-8k",
         ],
     },
+    "deepseek": {
+        "label": "DeepSeek",
+        "company": "DeepSeek AI",
+        "description": "DeepSeek models through the OpenAI-compatible API.",
+        "apiKeyLabel": "DeepSeek API Key",
+        "logo": "/provider-logos/deepseek.svg",
+        "defaultModel": "deepseek-v4-flash",
+        "defaultBaseUrl": "https://api.deepseek.com",
+        "catalogUrl": "https://api-docs.deepseek.com/quick_start/pricing/",
+        "catalogCheckedAt": "2026-08-01",
+        "latestModels": ["deepseek-v4-flash", "deepseek-v4-pro"],
+        "models": [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+        ],
+    },
     "openai": {
         "label": "ChatGPT",
         "company": "OpenAI",

@@ -73,7 +73,6 @@
           @mousedown.left.prevent="startDesktopWindowDrag"
         />
         <div class="topbar-title" data-tauri-drag-region>
-          <p class="eyebrow" data-tauri-drag-region>{{ t('app.workspace') }}</p>
           <AppBreadcrumbs />
         </div>
         <div class="topbar-actions">
@@ -137,9 +136,9 @@
             <button
               type="button"
               class="window-control window-control--close"
-              :title="windowControlLabels.closeToTaskbar"
-              :aria-label="windowControlLabels.closeToTaskbar"
-              @click="minimizeDesktopWindow"
+              :title="windowControlLabels.exit"
+              :aria-label="windowControlLabels.exit"
+              @click="exitDialogOpen = true"
             >
               <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                 <path d="m4 4 8 8M12 4l-8 8" />
@@ -165,6 +164,14 @@
         </main>
       </n-scrollbar>
     </n-layout-content>
+
+    <ExitConfirmationModal
+      v-model:show="exitDialogOpen"
+      :closing="exiting"
+      :locale="settings.locale"
+      @cancel="exitDialogOpen = false"
+      @confirm="confirmDesktopExit"
+    />
   </n-layout>
 </template>
 
@@ -190,6 +197,7 @@ import { useMoonshotStore } from '../stores/moonshot'
 import { useSettingsStore } from '../stores/settings'
 import oxoLogoMark from '../assets/oxo-logo-mark.png'
 import AppBreadcrumbs from '../components/AppBreadcrumbs.vue'
+import ExitConfirmationModal from '../components/ExitConfirmationModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -201,6 +209,8 @@ const refreshing = ref(false)
 const refreshRevision = ref(0)
 const desktopWindowControls = isDesktopRuntime()
 const windowMaximized = ref(false)
+const exitDialogOpen = ref(false)
+const exiting = ref(false)
 let desktopWindow: TauriWindow | null = null
 let removeWindowResizeListener: UnlistenFn | undefined
 
@@ -211,14 +221,14 @@ const windowControlLabels = computed(() => (
         minimize: '最小化',
         maximize: '最大化',
         restore: '还原窗口',
-        closeToTaskbar: '收起到任务栏',
+        exit: '退出应用',
       }
     : {
         group: 'Window controls',
         minimize: 'Minimize',
         maximize: 'Maximize',
         restore: 'Restore window',
-        closeToTaskbar: 'Keep running in the taskbar',
+        exit: 'Exit Oxo Tracker',
       }
 ))
 
@@ -243,6 +253,22 @@ async function minimizeDesktopWindow() {
     await (await resolveDesktopWindow())?.minimize()
   } catch (error) {
     console.error('Failed to minimize the desktop window', error)
+  }
+}
+
+async function confirmDesktopExit() {
+  if (exiting.value) return
+  exiting.value = true
+  try {
+    const appWindow = await resolveDesktopWindow()
+    if (!appWindow) {
+      window.close()
+      return
+    }
+    await appWindow.close()
+  } catch (error) {
+    exiting.value = false
+    console.error('Failed to close the desktop window', error)
   }
 }
 
