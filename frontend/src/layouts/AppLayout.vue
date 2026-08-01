@@ -80,7 +80,13 @@
         </div>
         <div class="topbar-actions">
           <n-space align="center" class="topbar-primary-actions">
-            <n-button secondary round @click="store.loadOverview">
+            <n-button
+              secondary
+              round
+              :loading="refreshing"
+              :disabled="refreshing"
+              @click="refreshCurrentView"
+            >
               <template #icon>
                 <n-icon><RefreshOutline /></n-icon>
               </template>
@@ -152,7 +158,10 @@
           </n-alert>
           <router-view v-slot="{ Component, route: childRoute }">
             <keep-alive include="EndpointsView">
-              <component :is="Component" :key="`${String(childRoute.name)}-${settings.locale}`" />
+              <component
+                :is="Component"
+                :key="`${String(childRoute.name)}-${settings.locale}-${refreshRevision}`"
+              />
             </keep-alive>
           </router-view>
         </main>
@@ -164,7 +173,7 @@
 <script setup lang="ts">
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import type { Window as TauriWindow } from '@tauri-apps/api/window'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
@@ -190,6 +199,8 @@ const store = useMoonshotStore()
 const settings = useSettingsStore()
 const { t } = useI18n()
 const collapsed = ref(false)
+const refreshing = ref(false)
+const refreshRevision = ref(0)
 const desktopWindowControls = isDesktopRuntime()
 const windowMaximized = ref(false)
 let desktopWindow: TauriWindow | null = null
@@ -258,6 +269,21 @@ function startDesktopWindowDrag() {
   void appWindow.startDragging().catch((error) => {
     console.error('Failed to start dragging the desktop window', error)
   })
+}
+
+async function refreshCurrentView() {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    await Promise.allSettled([
+      store.loadOverview(),
+      settings.loadSettings(),
+    ])
+    refreshRevision.value += 1
+    await nextTick()
+  } finally {
+    refreshing.value = false
+  }
 }
 
 function expandSidebarFromBrand() {
