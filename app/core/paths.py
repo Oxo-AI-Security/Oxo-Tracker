@@ -10,6 +10,17 @@ from typing import Final
 
 
 SOURCE_ROOT: Final = Path(__file__).resolve().parents[2]
+UTF8_BOM: Final = b"\xef\xbb\xbf"
+UNSUPPORTED_DESKTOP_RECIPE_IDS: Final = frozenset(
+    {
+        "challenging-toxicity-prompts-completion",
+        "genderbias-text2image-prompts",
+        "i2p-text2image-prompts",
+        "real-toxicity-prompts-completion",
+        "sg-legal-glossary",
+        "sg-university-tutorial-questions-legal",
+    }
+)
 
 
 def _environment_path(name: str, default: Path) -> Path:
@@ -76,7 +87,7 @@ class AppPaths:
             path.mkdir(parents=True, exist_ok=True)
 
     def prepare_desktop_assets(self, asset_version: str = "unversioned") -> None:
-        """Materialize bundled Moonshot assets without overwriting user changes."""
+        """Materialize and safely migrate Moonshot assets without losing user data."""
 
         if not self.desktop_mode:
             return
@@ -98,6 +109,7 @@ class AppPaths:
                     f"Bundled Moonshot archive was not found: {self.moonshot_archive}"
                 )
 
+        _repair_desktop_json_assets(self.moonshot_data_root)
         marker.write_text(
             json.dumps({"assetVersion": asset_version}, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -144,6 +156,58 @@ def _copy_missing(source: Path, destination: Path) -> None:
         elif not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
+
+
+def _repair_desktop_json_assets(root: Path) -> None:
+    """Apply semantic-preserving repairs needed by older desktop archives."""
+
+    # Windows PowerShell 5.1 wrote the v0.2.0 endpoint files with a UTF-8 BOM,
+    # while Moonshot's JSON loader expects plain UTF-8. Removing only those
+    # three marker bytes preserves every user value, including custom endpoints.
+    for json_path in root.rglob("*.json"):
+        with json_path.open("rb") as json_file:
+            if json_file.read(len(UTF8_BOM)) != UTF8_BOM:
+                continue
+            payload_without_bom = json_file.read()
+        _atomic_write_bytes(json_path, payload_without_bom)
+
+    recipes_root = root / "recipes"
+    cookbooks_root = root / "cookbooks"
+    if not cookbooks_root.is_dir():
+        return
+
+    for cookbook_path in cookbooks_root.glob("*.json"):
+        try:
+            cookbook = json.loads(cookbook_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        recipe_ids = cookbook.get("recipes")
+        if not isinstance(recipe_ids, list):
+            continue
+        filtered_recipe_ids = [
+            recipe_id
+            for recipe_id in recipe_ids
+            if not (
+                recipe_id in UNSUPPORTED_DESKTOP_RECIPE_IDS
+                and not (recipes_root / f"{recipe_id}.json").is_file()
+            )
+        ]
+        if filtered_recipe_ids == recipe_ids:
+            continue
+        cookbook["recipes"] = filtered_recipe_ids
+        _atomic_write_bytes(
+            cookbook_path,
+            (
+                json.dumps(cookbook, ensure_ascii=False, indent=2)
+                + "\n"
+            ).encode("utf-8"),
+        )
+
+
+def _atomic_write_bytes(path: Path, payload: bytes) -> None:
+    temporary = path.with_name(f".{path.name}.oxo-update")
+    temporary.write_bytes(payload)
+    os.replace(temporary, path)
 
 
 APP_PATHS: Final = AppPaths.from_environment()
