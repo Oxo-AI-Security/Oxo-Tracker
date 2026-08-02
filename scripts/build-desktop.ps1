@@ -74,6 +74,39 @@ function Invoke-Checked {
     }
 }
 
+function Get-VerifiedDownload {
+    param(
+        [Parameter(Mandatory = $true)][string]$Url,
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [Parameter(Mandatory = $true)][string]$Sha256
+    )
+    if (Test-Path -LiteralPath $Destination -PathType Leaf) {
+        $existingHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($existingHash -eq $Sha256) { return }
+        Remove-Item -LiteralPath $Destination -Force
+    }
+    $partial = "$Destination.partial"
+    if (Test-Path -LiteralPath $partial -PathType Leaf) {
+        Remove-Item -LiteralPath $partial -Force
+    }
+    $curl = Get-Command "curl.exe" -ErrorAction SilentlyContinue
+    if ($curl) {
+        Invoke-Checked -FilePath $curl.Source -Arguments @(
+            "--fail", "--location", "--retry", "5", "--retry-delay", "2",
+            "--output", $partial, $Url
+        )
+    }
+    else {
+        Invoke-WebRequest -Uri $Url -OutFile $partial -UseBasicParsing -TimeoutSec 120
+    }
+    $actualHash = (Get-FileHash -LiteralPath $partial -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualHash -ne $Sha256) {
+        Remove-Item -LiteralPath $partial -Force
+        throw "SHA-256 mismatch for $Url. Expected $Sha256, received $actualHash."
+    }
+    Move-Item -LiteralPath $partial -Destination $Destination
+}
+
 function Find-SignTool {
     $command = Get-Command "signtool.exe" -ErrorAction SilentlyContinue
     if ($command) { return $command.Source }
@@ -282,16 +315,24 @@ if (Test-Path -LiteralPath $NltkData) {
     Remove-Item -LiteralPath $NltkData -Recurse -Force
 }
 New-Item -ItemType Directory -Path $NltkData -Force | Out-Null
-$env:NLTK_DATA = $NltkData
-Invoke-Checked -FilePath $ReleasePython -Arguments @(
-    "-c",
-    "import nltk; [nltk.download(item, download_dir=r'$($NltkData.Replace("'", "''"))', quiet=True, raise_on_error=True) for item in ('punkt','punkt_tab','averaged_perceptron_tagger_eng','stopwords')]"
+$NltkCache = Join-Path $BuildRoot "nltk-cache"
+New-Item -ItemType Directory -Path $NltkCache -Force | Out-Null
+$NltkPackages = @(
+    @{ Category = "tokenizers"; Id = "punkt"; Sha256 = "51c3078994aeaf650bfc8e028be4fb42b4a0d177d41c012b6a983979653660ec" },
+    @{ Category = "tokenizers"; Id = "punkt_tab"; Sha256 = "e57f64187974277726a3417ca6f181ec5403676c717672eef6a748a7b20e0106" },
+    @{ Category = "taggers"; Id = "averaged_perceptron_tagger_eng"; Sha256 = "6025f530624335c67d6547d44757b357b4e79bae030a0383e9887a92c1718f0b" },
+    @{ Category = "corpora"; Id = "stopwords"; Sha256 = "48c0e52d8b52546e827f53761fb30300c0ab94f70660d28bd65ba0a86270946b" }
 )
-# NLTK extracts each downloaded archive, so keeping those ZIPs would duplicate
-# the runtime data. The spec also rejects host-profile nltk_data discovered by
-# PyInstaller's upstream hook. The desktop entry point restores NLTK_DATA at run time.
-Get-ChildItem -LiteralPath $NltkData -Filter "*.zip" -File -Recurse | Remove-Item -Force
-Remove-Item Env:NLTK_DATA -ErrorAction SilentlyContinue
+foreach ($package in $NltkPackages) {
+    $archive = Join-Path $NltkCache "$($package.Id).zip"
+    $url = "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/$($package.Category)/$($package.Id).zip"
+    Get-VerifiedDownload -Url $url -Destination $archive -Sha256 $package.Sha256
+    $categoryDirectory = Join-Path $NltkData $package.Category
+    New-Item -ItemType Directory -Path $categoryDirectory -Force | Out-Null
+    Expand-Archive -LiteralPath $archive -DestinationPath $categoryDirectory -Force
+}
+# The spec rejects host-profile nltk_data discovered by PyInstaller's upstream
+# hook. Runtime NLTK_DATA points only at these pinned, hash-verified resources.
 
 $MetadataDirectory = Join-Path $BuildDirectory "metadata"
 Invoke-Checked -FilePath $ReleasePython -Arguments @(
