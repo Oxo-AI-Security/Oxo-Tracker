@@ -93,6 +93,8 @@ function Get-VerifiedDownload {
     if ($curl) {
         Invoke-Checked -FilePath $curl.Source -Arguments @(
             "--fail", "--location", "--retry", "5", "--retry-delay", "2",
+            "--connect-timeout", "15", "--max-time", "300",
+            "--speed-time", "30", "--speed-limit", "1024",
             "--output", $partial, $Url
         )
     }
@@ -325,7 +327,24 @@ $NltkPackages = @(
 )
 foreach ($package in $NltkPackages) {
     $archive = Join-Path $NltkCache "$($package.Id).zip"
-    $url = "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/$($package.Category)/$($package.Id).zip"
+    if (!(Test-Path -LiteralPath $archive -PathType Leaf)) {
+        $localCandidates = @(
+            (Join-Path $env:APPDATA "nltk_data\$($package.Category)\$($package.Id).zip"),
+            (Join-Path $env:LOCALAPPDATA "nltk_data\$($package.Category)\$($package.Id).zip"),
+            (Join-Path $env:USERPROFILE "nltk_data\$($package.Category)\$($package.Id).zip")
+        )
+        foreach ($candidate in $localCandidates) {
+            if (!(Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            $candidateHash = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($candidateHash -eq $package.Sha256) {
+                Copy-Item -LiteralPath $candidate -Destination $archive
+                break
+            }
+        }
+    }
+    # jsDelivr serves the exact nltk/nltk_data gh-pages objects; the official
+    # nltk_data index SHA-256 below remains the source of truth.
+    $url = "https://cdn.jsdelivr.net/gh/nltk/nltk_data@gh-pages/packages/$($package.Category)/$($package.Id).zip"
     Get-VerifiedDownload -Url $url -Destination $archive -Sha256 $package.Sha256
     $categoryDirectory = Join-Path $NltkData $package.Category
     New-Item -ItemType Directory -Path $categoryDirectory -Force | Out-Null
