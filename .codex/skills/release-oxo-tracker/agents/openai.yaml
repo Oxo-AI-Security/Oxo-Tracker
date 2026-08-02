@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Oxo Tracker"
+  short_description: "安全提交、构建、发布 Oxo Tracker 并更新 OSS 清单"
+  default_prompt: "Use $release-oxo-tracker to commit the intended Oxo Tracker changes, publish the next validated Windows Preview release, review the release README when policy changed, and update OSS latest.json last."
