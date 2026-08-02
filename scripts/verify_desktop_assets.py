@@ -101,6 +101,27 @@ def verify(source: Path, staged: Path, policy_path: Path, manifest_path: Path) -
         if (staged / "recipes" / name).exists():
             raise RuntimeError(f"Unsupported local-model recipe remains: {name}")
 
+    available_recipe_ids = {path.stem for path in (staged / "recipes").glob("*.json")}
+    for cookbook_path in (staged / "cookbooks").glob("*.json"):
+        cookbook = json.loads(cookbook_path.read_text(encoding="utf-8-sig"))
+        recipe_ids = cookbook.get("recipes", []) or []
+        missing_recipe_ids = sorted(set(recipe_ids) - available_recipe_ids)
+        if missing_recipe_ids:
+            raise RuntimeError(
+                f"Cookbook {cookbook_path.name} references recipes not shipped in the desktop archive: "
+                f"{missing_recipe_ids}"
+            )
+        if not recipe_ids:
+            raise RuntimeError(f"Cookbook {cookbook_path.name} has no shippable recipes")
+
+    for json_path in staged.rglob("*.json"):
+        with json_path.open("rb") as handle:
+            if handle.read(3) == b"\xef\xbb\xbf":
+                raise RuntimeError(
+                    f"Staged JSON contains a UTF-8 BOM unsupported by Moonshot: "
+                    f"{json_path.relative_to(staged)}"
+                )
+
     removed_ids = {Path(item).stem for item in policy["excludedAssets"]}
     for recipe_path in (staged / "recipes").glob("*.json"):
         payload = json.loads(recipe_path.read_text(encoding="utf-8-sig"))

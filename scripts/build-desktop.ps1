@@ -153,6 +153,16 @@ function Clear-EndpointSecrets {
     }
 }
 
+function Write-JsonUtf8NoBom {
+    param([object]$Value, [string]$Path)
+    $json = $Value | ConvertTo-Json -Depth 100
+    [IO.File]::WriteAllText(
+        $Path,
+        $json + [Environment]::NewLine,
+        [Text.UTF8Encoding]::new($false)
+    )
+}
+
 function Test-Sidecar {
     param([string]$Executable, [string]$ResourceRoot, [string]$AppHome)
     $token = ([guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N"))
@@ -321,10 +331,27 @@ foreach ($name in $policy.excludedRecipes) {
     Assert-WithinDirectory -Path $target -Parent $StagedAssets
     if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force }
 }
+
+# Removing local-model recipes can leave upstream cookbooks with dangling
+# references. Keep each cookbook usable by retaining only recipes that are
+# actually shipped in the desktop archive.
+$availableRecipeIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($recipePath in Get-ChildItem -LiteralPath (Join-Path $StagedAssets "recipes") -Filter "*.json" -File) {
+    [void]$availableRecipeIds.Add($recipePath.BaseName)
+}
+foreach ($cookbookPath in Get-ChildItem -LiteralPath (Join-Path $StagedAssets "cookbooks") -Filter "*.json" -File) {
+    $cookbook = Get-Content -LiteralPath $cookbookPath.FullName -Raw | ConvertFrom-Json
+    $cookbook.recipes = @($cookbook.recipes | Where-Object { $availableRecipeIds.Contains([string]$_) })
+    if ($cookbook.recipes.Count -eq 0) {
+        Remove-Item -LiteralPath $cookbookPath.FullName -Force
+        continue
+    }
+    Write-JsonUtf8NoBom -Value $cookbook -Path $cookbookPath.FullName
+}
 foreach ($endpointPath in Get-ChildItem -LiteralPath (Join-Path $StagedAssets "connectors-endpoints") -Filter "*.json" -File) {
     $endpoint = Get-Content -LiteralPath $endpointPath.FullName -Raw | ConvertFrom-Json
     Clear-EndpointSecrets -Value $endpoint
-    $endpoint | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $endpointPath.FullName -Encoding UTF8
+    Write-JsonUtf8NoBom -Value $endpoint -Path $endpointPath.FullName
 }
 
 $DatasetManifest = Join-Path $BuildDirectory "dataset-manifest.json"
