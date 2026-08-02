@@ -126,4 +126,3 @@ export async function downloadInstallAndRelaunch(
   const { relaunch } = await import('@tauri-apps/plugin-process')
   await relaunch()
 }
-
