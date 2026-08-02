@@ -4,6 +4,8 @@ param(
     [string]$Version,
     [string]$CertificateThumbprint = $env:OXO_SIGNING_CERT_THUMBPRINT,
     [string]$TimestampUrl = "http://timestamp.digicert.com",
+    [string]$UpdaterPublicKey = $env:OXO_UPDATER_PUBLIC_KEY,
+    [string]$UpdaterEndpoint = "https://oxotracker.oss-cn-beijing.aliyuncs.com/stable/latest.json",
     [switch]$SkipTests,
     [switch]$AllowUnsigned
 )
@@ -23,6 +25,22 @@ $MoonshotSource = Join-Path $WorkspaceRoot "data\moonshot-data"
 $PolicyPath = Join-Path $WorkspaceRoot "desktop\asset-policy.json"
 $ReleaseDirectory = Join-Path $WorkspaceRoot "artifacts\desktop-release\$Version"
 . (Join-Path $PSScriptRoot "desktop-toolchain.ps1")
+
+$defaultUpdaterPublicKeyPath = Join-Path $TauriRoot "updater.pubkey"
+if ([string]::IsNullOrWhiteSpace($UpdaterPublicKey) -and (Test-Path -LiteralPath $defaultUpdaterPublicKeyPath -PathType Leaf)) {
+    $UpdaterPublicKey = $defaultUpdaterPublicKeyPath
+}
+$hasUpdaterPrivateKey = (
+    ![string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY) -or
+    ![string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY_PATH)
+)
+$hasUpdaterPublicKey = ![string]::IsNullOrWhiteSpace($UpdaterPublicKey)
+if ($hasUpdaterPrivateKey -xor $hasUpdaterPublicKey) {
+    throw "Tauri updater signing requires TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PATH, plus OXO_UPDATER_PUBLIC_KEY (or -UpdaterPublicKey)."
+}
+if ($hasUpdaterPublicKey -and $UpdaterPublicKey -notmatch '[\r\n]' -and (Test-Path -LiteralPath $UpdaterPublicKey -PathType Leaf)) {
+    $UpdaterPublicKey = (Get-Content -LiteralPath $UpdaterPublicKey -Raw -Encoding UTF8).Trim()
+}
 
 function Assert-WithinDirectory {
     param([string]$Path, [string]$Parent)
@@ -314,6 +332,16 @@ $releaseConfig = @{
     version = $Version
     bundle = @{ windows = @{} }
 }
+if ($hasUpdaterPublicKey) {
+    $releaseConfig.bundle.createUpdaterArtifacts = $true
+    $releaseConfig.plugins = @{
+        updater = @{
+            pubkey = $UpdaterPublicKey
+            endpoints = @($UpdaterEndpoint)
+            windows = @{ installMode = "passive" }
+        }
+    }
+}
 if ($CertificateThumbprint) {
     $releaseConfig.bundle.windows.certificateThumbprint = $CertificateThumbprint
     $releaseConfig.bundle.windows.digestAlgorithm = "sha256"
@@ -339,13 +367,20 @@ $installer = Get-ChildItem -LiteralPath $bundleRoot -Filter "*-setup.exe" -File 
 if (!$installer) { throw "Tauri did not produce an NSIS installer" }
 $releaseInstaller = Join-Path $ReleaseDirectory "Oxo-Tracker_${Version}_x64-setup.exe"
 Copy-Item -LiteralPath $installer.FullName -Destination $releaseInstaller -Force
-if ($CertificateThumbprint) { Sign-File -Path $releaseInstaller -Thumbprint $CertificateThumbprint }
 if ((Get-Item -LiteralPath $releaseInstaller).Length -gt 350MB) {
     throw "Installer exceeds the 350 MiB release gate: $releaseInstaller"
 }
 
 $hash = (Get-FileHash -LiteralPath $releaseInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $(Split-Path $releaseInstaller -Leaf)" | Set-Content -LiteralPath "$releaseInstaller.sha256" -Encoding ASCII
+if ($hasUpdaterPublicKey) {
+    $installerSignature = "$($installer.FullName).sig"
+    if (!(Test-Path -LiteralPath $installerSignature -PathType Leaf)) {
+        throw "Tauri did not produce the updater signature: $installerSignature"
+    }
+    $releaseSignature = "$releaseInstaller.sig"
+    Copy-Item -LiteralPath $installerSignature -Destination $releaseSignature -Force
+}
 Copy-Item -LiteralPath $DatasetManifest -Destination (Join-Path $ReleaseDirectory "dataset-manifest.json")
 Copy-Item -LiteralPath (Join-Path $MetadataDirectory "THIRD-PARTY-NOTICES.txt") -Destination $ReleaseDirectory
 Copy-Item -LiteralPath (Join-Path $MetadataDirectory "sbom.spdx.json") -Destination $ReleaseDirectory
@@ -357,6 +392,27 @@ Copy-Item -LiteralPath (Join-Path $MetadataDirectory "sbom.spdx.json") -Destinat
 - Uses user-configured online model APIs only; no local model runtime or weights are included.
 - Built and verified locally. Upload the files in this directory manually to Oxo-Tracker-Releases.
 "@ | Set-Content -LiteralPath (Join-Path $ReleaseDirectory "RELEASE-NOTES.md") -Encoding UTF8
+
+if ($hasUpdaterPublicKey) {
+    $signature = (Get-Content -LiteralPath "$releaseInstaller.sig" -Raw -Encoding UTF8).Trim()
+    $manifest = [ordered]@{
+        version = $Version
+        notes = "Oxo Tracker $Version"
+        pub_date = [DateTimeOffset]::UtcNow.ToString("o")
+        platforms = [ordered]@{
+            "windows-x86_64" = [ordered]@{
+                url = "https://github.com/Oxo-AI-Security/Oxo-Tracker-Releases/releases/download/v$Version/Oxo-Tracker_${Version}_x64-setup.exe"
+                signature = $signature
+            }
+        }
+    }
+    $manifestPath = Join-Path $ReleaseDirectory "latest.json"
+    [IO.File]::WriteAllText(
+        $manifestPath,
+        ($manifest | ConvertTo-Json -Depth 10),
+        [Text.UTF8Encoding]::new($false)
+    )
+}
 
 Write-Host "Desktop release artifacts are ready: $ReleaseDirectory"
 Get-ChildItem -LiteralPath $ReleaseDirectory | Select-Object Name, Length

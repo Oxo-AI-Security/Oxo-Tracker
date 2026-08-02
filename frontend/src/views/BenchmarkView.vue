@@ -12,10 +12,22 @@
       </div>
 
       <section v-if="step === 1" class="wizard-body">
-        <h2>
-          <template v-if="selectedEndpoints.length">{{ selectedEndpoints.length }} {{ $t('auto.ec814ab2f067') }}</template>
-          <template v-else>{{ $t('auto.1ef030ac9123') }}</template>
-        </h2>
+        <div class="benchmark-step-heading">
+          <button class="benchmark-step-nav benchmark-step-nav--back" type="button" disabled>
+            <n-icon><ArrowBackOutline /></n-icon>
+            <span>{{ $t('auto.b52b36b7269f') }}</span>
+          </button>
+          <div class="benchmark-step-heading-copy">
+            <h2>
+              <template v-if="selectedEndpoints.length">{{ selectedEndpoints.length }} {{ $t('auto.ec814ab2f067') }}</template>
+              <template v-else>{{ $t('auto.1ef030ac9123') }}</template>
+            </h2>
+          </div>
+          <button class="benchmark-step-nav benchmark-step-nav--next" type="button" @click="nextStep">
+            <span>{{ $t('auto.bc981983e7f5') }}</span>
+            <n-icon><ArrowForwardOutline /></n-icon>
+          </button>
+        </div>
         <div class="endpoint-filter-row">
           <n-input v-model:value="endpointSearch" clearable class="endpoint-search-input" :placeholder="$t('auto.33e66c40056a')">
             <template #prefix><n-icon><SearchOutline /></n-icon></template>
@@ -48,7 +60,19 @@
       </section>
 
       <section v-else-if="step === 2" class="wizard-body cookbook-test-body">
-        <h2>{{ $t('auto.ee50d7a884d7') }}</h2>
+        <div class="benchmark-step-heading">
+          <button class="benchmark-step-nav benchmark-step-nav--back" type="button" @click="previousStep">
+            <n-icon><ArrowBackOutline /></n-icon>
+            <span>{{ $t('auto.b52b36b7269f') }}</span>
+          </button>
+          <div class="benchmark-step-heading-copy">
+            <h2>{{ $t('auto.ee50d7a884d7') }}</h2>
+          </div>
+          <button class="benchmark-step-nav benchmark-step-nav--next" type="button" @click="nextStep">
+            <span>{{ $t('auto.bc981983e7f5') }}</span>
+            <n-icon><ArrowForwardOutline /></n-icon>
+          </button>
+        </div>
         <div class="category-row">
           <button
             v-for="category in categories"
@@ -91,10 +115,20 @@
       </section>
 
       <section v-else-if="step === 3" class="wizard-body run-config-body evaluator-step-body">
-        <div class="evaluator-step-heading">
-          <span><n-icon><SparklesOutline /></n-icon>{{ $t('benchmark.evaluator.eyebrow') }}</span>
-          <h2>{{ $t('benchmark.evaluator.title') }}</h2>
-          <p>{{ $t('benchmark.evaluator.subtitle') }}</p>
+        <div class="benchmark-step-heading benchmark-step-heading--detailed">
+          <button class="benchmark-step-nav benchmark-step-nav--back" type="button" @click="previousStep">
+            <n-icon><ArrowBackOutline /></n-icon>
+            <span>{{ $t('auto.b52b36b7269f') }}</span>
+          </button>
+          <div class="benchmark-step-heading-copy">
+            <span><n-icon><SparklesOutline /></n-icon>{{ $t('benchmark.evaluator.eyebrow') }}</span>
+            <h2>{{ $t('benchmark.evaluator.title') }}</h2>
+            <p>{{ $t('benchmark.evaluator.subtitle') }}</p>
+          </div>
+          <button class="benchmark-step-nav benchmark-step-nav--next" type="button" @click="nextStep">
+            <span>{{ $t('auto.bc981983e7f5') }}</span>
+            <n-icon><ArrowForwardOutline /></n-icon>
+          </button>
         </div>
 
         <div class="evaluator-setup-layout">
@@ -222,6 +256,19 @@
       </section>
 
       <section v-else-if="step === 4" class="wizard-body run-config-body">
+        <div class="benchmark-step-heading">
+          <button class="benchmark-step-nav benchmark-step-nav--back" type="button" :disabled="running" @click="previousStep">
+            <n-icon><ArrowBackOutline /></n-icon>
+            <span>{{ $t('auto.b52b36b7269f') }}</span>
+          </button>
+          <div class="benchmark-step-heading-copy">
+            <h2>Review and run your benchmark</h2>
+          </div>
+          <button class="benchmark-step-nav benchmark-step-nav--run" type="button" :disabled="running" @click="runBenchmark">
+            <span>{{ running ? 'Running...' : 'Run benchmark' }}</span>
+            <n-icon><RocketOutline /></n-icon>
+          </button>
+        </div>
         <div class="run-config-form">
           <n-form label-placement="top">
             <n-form-item :label="$t('auto.709a23220f2c')">
@@ -303,14 +350,6 @@
         </div>
       </section>
 
-      <footer v-if="step < 5" class="wizard-footer">
-        <button v-if="step > 1" class="wizard-link" type="button" @click="step -= 1">{{ $t('auto.29b589877c65') }}</button>
-        <span v-else />
-        <button v-if="step < 4" class="wizard-link" type="button" @click="nextStep">{{ $t('auto.7b6106b2fb1d') }}</button>
-        <button v-else class="wizard-link" type="button" :disabled="running" @click="runBenchmark">
-          {{ running ? 'RUNNING...' : $t('auto.b8777457fe3a') }}
-        </button>
-      </footer>
     </GlassPanel>
 
     <n-modal
@@ -391,12 +430,15 @@ import { useMessage, useNotification } from 'naive-ui'
 import {
   AddOutline,
   AlertCircleOutline,
+  ArrowBackOutline,
+  ArrowForwardOutline,
   BookOutline,
   CheckmarkCircleOutline,
   CloseOutline,
   CreateOutline,
   CubeOutline,
   SearchOutline,
+  RocketOutline,
   SettingsOutline,
   ShieldCheckmarkOutline,
   SparklesOutline,
@@ -702,6 +744,15 @@ function nextStep() {
     return
   }
   step.value += 1
+}
+
+function previousStep() {
+  if (running.value || step.value <= 1) return
+  if (step.value === 4 && !requirementCookbooks.value.length) {
+    step.value = 2
+    return
+  }
+  step.value -= 1
 }
 
 function validateRequiredEvaluatorTokens() {

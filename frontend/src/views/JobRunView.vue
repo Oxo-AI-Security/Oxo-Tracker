@@ -1,7 +1,11 @@
 <template>
   <div class="job-shell">
     <template v-if="job">
-      <GlassPanel class="job-hero-panel">
+      <GlassPanel
+        class="job-hero-panel"
+        :class="{ 'job-hero-panel--judging': isJudgePhase }"
+        :aria-busy="isJudgePhase"
+      >
         <div class="job-hero-copy">
           <p class="eyebrow">{{ $t('auto.a1cc90458b81') }}</p>
           <h2>{{ heading }}</h2>
@@ -144,12 +148,30 @@
             <span>{{ interactionRangeLabel }}</span>
           </div>
           <div class="prompt-trace-toolbar">
+            <div
+              v-if="expectationScore"
+              class="prompt-expectation-score"
+              :class="`is-${expectationScore.tone}`"
+              :style="expectationScoreStyle"
+              :aria-label="`${expectationScoreCopy.title} ${expectationScore.percent}%`"
+            >
+              <span class="prompt-expectation-score__ring" aria-hidden="true">
+                <strong>{{ expectationScore.percent }}<small>%</small></strong>
+              </span>
+              <span class="prompt-expectation-score__copy">
+                <small>{{ expectationScoreCopy.title }}</small>
+                <b>{{ expectationScoreCopy.state }}</b>
+                <em>{{ expectationScore.matched }} / {{ expectationScore.total }} Payloads</em>
+              </span>
+            </div>
             <div class="trace-count">
               <strong>{{ interactionTotal }}</strong>
               <span>{{ interactionFilterLabel }}</span>
             </div>
-            <div class="prompt-trace-spacer" />
-            <div class="prompt-trace-actions">
+            <div
+              class="prompt-trace-actions"
+              :class="{ 'prompt-trace-actions--single-filter': cookbookFilterOptions.length <= 2 }"
+            >
               <n-select
                 v-if="cookbookFilterOptions.length > 2"
                 v-model:value="cookbookFilter"
@@ -189,7 +211,16 @@
               <div class="trace-block">
                 <b>{{ $t('auto.6ac87f344682') }}</b>
                 <pre>{{ item.expected || $t('auto.eea4d26a1e58') }}</pre>
-                <small v-if="item.expected_raw && item.expected_raw !== item.expected">{{ $t('auto.fab2f9b4bf4c') }} {{ item.expected_raw }}</small>
+                <button
+                  v-if="item.expected_raw && item.expected_raw !== item.expected"
+                  type="button"
+                  class="trace-raw-label"
+                  @click="openRawLabelGuide(item.expected_raw)"
+                >
+                  <span>{{ $t('auto.fab2f9b4bf4c') }}</span>
+                  <strong>{{ item.expected_raw }}</strong>
+                  <n-icon><InformationCircleOutline /></n-icon>
+                </button>
               </div>
               <div class="trace-block">
                 <b>{{ $t('auto.6e617e4fc9da') }}</b>
@@ -267,6 +298,55 @@
         <strong>{{ route.params.id }}</strong>
       </div>
     </GlassPanel>
+
+    <n-modal
+      v-model:show="rawLabelGuideOpen"
+      preset="card"
+      class="trace-label-modal"
+      :bordered="false"
+      :mask-closable="true"
+    >
+      <template #header>
+        <div class="trace-label-modal__heading">
+          <span class="trace-label-modal__icon" aria-hidden="true">
+            <n-icon><InformationCircleOutline /></n-icon>
+          </span>
+          <div>
+            <small>{{ rawLabelModalCopy.eyebrow }}</small>
+            <h2>{{ activePolicyLabelGuide.name }}</h2>
+          </div>
+          <b>{{ activePolicyLabelGuide.code.toUpperCase() }}</b>
+        </div>
+      </template>
+
+      <div class="trace-label-modal__body">
+        <section>
+          <span>01</span>
+          <div>
+            <small>{{ rawLabelModalCopy.meaning }}</small>
+            <p>{{ activePolicyLabelGuide.meaning }}</p>
+          </div>
+        </section>
+        <section>
+          <span>02</span>
+          <div>
+            <small>{{ rawLabelModalCopy.expected }}</small>
+            <p>{{ activePolicyLabelGuide.expected }}</p>
+          </div>
+        </section>
+        <section class="is-rule">
+          <span>03</span>
+          <div>
+            <small>{{ rawLabelModalCopy.rule }}</small>
+            <p>{{ activePolicyLabelGuide.rule }}</p>
+          </div>
+        </section>
+        <aside>
+          <n-icon><ShieldCheckmarkOutline /></n-icon>
+          <span>{{ rawLabelModalCopy.note }}</span>
+        </aside>
+      </div>
+    </n-modal>
 
     <n-modal
       v-model:show="reportOpen"
@@ -407,7 +487,16 @@
                 <div>
                   <b>{{ $t('auto.6ac87f344682') }}</b>
                   <pre>{{ payload.expected || '-' }}</pre>
-                  <small v-if="payload.expected_raw && payload.expected_raw !== payload.expected">{{ $t('auto.fab2f9b4bf4c') }} {{ payload.expected_raw }}</small>
+                  <button
+                    v-if="payload.expected_raw && payload.expected_raw !== payload.expected"
+                    type="button"
+                    class="trace-raw-label"
+                    @click="openRawLabelGuide(payload.expected_raw)"
+                  >
+                    <span>{{ $t('auto.fab2f9b4bf4c') }}</span>
+                    <strong>{{ payload.expected_raw }}</strong>
+                    <n-icon><InformationCircleOutline /></n-icon>
+                  </button>
                 </div>
                 <div>
                   <b>{{ $t('auto.6e617e4fc9da') }}</b>
@@ -452,9 +541,11 @@ import { useI18n } from 'vue-i18n'
 import {
   AlertCircleOutline,
   DownloadOutline,
+  InformationCircleOutline,
   PauseCircleOutline,
   PlayCircleOutline,
   RefreshOutline,
+  ShieldCheckmarkOutline,
   TimeOutline,
   TrashOutline,
 } from '@vicons/ionicons5'
@@ -469,10 +560,12 @@ import {
   isActiveBenchmarkJob,
   mergeBenchmarkJobSummary,
 } from '../utils/jobRun'
+import { calculateJobExpectationScore } from '../utils/jobQuality'
+import { getPolicyLabelGuide } from '../utils/policyLabelGuides'
 
 const route = useRoute()
 const router = useRouter()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const store = useMoonshotStore()
 const notification = useNotification()
 const job = ref<BenchmarkJob | null>(null)
@@ -489,6 +582,8 @@ const interactionPage = ref(1)
 const interactionFilter = ref<'all' | 'unexpected'>('all')
 const cookbookFilter = ref('all')
 const reportOpen = ref(false)
+const rawLabelGuideOpen = ref(false)
+const selectedRawLabel = ref('')
 const interactionPageSize = 100
 let timer: number | undefined
 
@@ -496,6 +591,44 @@ const interactionFilterOptions = [
   { label: translateSource('auto.b3bd4b4cc2ca'), value: 'all' },
   { label: translateSource('auto.e42415449f47'), value: 'unexpected' },
 ]
+
+const isChineseLocale = computed(() => String(locale.value).toLowerCase().startsWith('zh'))
+const expectationScore = computed(() => calculateJobExpectationScore(job.value))
+const expectationScoreStyle = computed(() => ({
+  '--score-angle': `${(expectationScore.value?.percent || 0) * 3.6}deg`,
+}))
+const expectationScoreCopy = computed(() => {
+  const percent = expectationScore.value?.percent ?? 0
+  if (isChineseLocale.value) {
+    return {
+      title: '预期一致率',
+      state: percent === 100 ? '全部符合预期' : percent > 80 ? '整体表现良好' : percent >= 60 ? '需要关注' : '风险较高',
+    }
+  }
+  return {
+    title: 'Expectation match',
+    state: percent === 100 ? 'All payloads matched' : percent > 80 ? 'Strong result' : percent >= 60 ? 'Needs attention' : 'High risk',
+  }
+})
+const activePolicyLabelGuide = computed(() => getPolicyLabelGuide(
+  selectedRawLabel.value,
+  isChineseLocale.value ? 'zh' : 'en',
+))
+const rawLabelModalCopy = computed(() => isChineseLocale.value
+  ? {
+      eyebrow: '评测标签说明',
+      meaning: '标签含义',
+      expected: '预期行为',
+      rule: '判定规则',
+      note: '实际结论由当前测试方案绑定的指标与 AI 法官结果共同决定。',
+    }
+  : {
+      eyebrow: 'Evaluation label guide',
+      meaning: 'Meaning',
+      expected: 'Expected behavior',
+      rule: 'Judging rule',
+      note: 'The final outcome follows the metric and AI-judge result attached to this recipe.',
+    })
 
 const ratingGuides = [
   {
@@ -841,6 +974,11 @@ function formatDate(value?: string | null) {
 function formatResponse(value: unknown) {
   if (typeof value === 'string') return value
   return JSON.stringify(value, null, 2)
+}
+
+function openRawLabelGuide(rawLabel: string) {
+  selectedRawLabel.value = rawLabel
+  rawLabelGuideOpen.value = true
 }
 
 function evaluatorStatusLabel(value?: string) {

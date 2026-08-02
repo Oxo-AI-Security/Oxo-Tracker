@@ -175,6 +175,12 @@ code,
   border-radius: var(--radius-compact) !important;
 }
 
+/* The sidebar Info action is a button, but visually belongs to the same
+   navigation family as the Settings link. */
+.side-footer-actions button.product-details-entry {
+  border-radius: 10px !important;
+}
+
 .n-button--round,
 .n-button--circle-type,
 .window-control,

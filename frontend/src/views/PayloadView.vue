@@ -355,7 +355,7 @@ const payloadMenuItems = computed(() => [
     description: translateSource('auto.be7aecdb05f8'),
     analysis: translateSource('payloadFlow.templates.analysis'),
     relationship: translateSource('payloadFlow.templates.relationship'),
-    consumes: `Prompt ${translateSource('payloadFlow.templates.token')}`,
+    consumes: translateSource('payloadFlow.templates.consumes'),
     produces: translateSource('payloadFlow.templates.produces'),
     icon: NewspaperOutline,
     path: '/payload/prompt-templates',
@@ -363,7 +363,7 @@ const payloadMenuItems = computed(() => [
   },
   {
     key: 'recipes',
-    step: '02',
+    step: '03',
     stage: translateSource('payloadFlow.recipes.stage'),
     role: translateSource('payloadFlow.recipes.role'),
     name: translateSource('payloadFlow.recipes.name'),
@@ -378,7 +378,7 @@ const payloadMenuItems = computed(() => [
   },
   {
     key: 'cookbooks',
-    step: '03',
+    step: '04',
     stage: translateSource('payloadFlow.cookbooks.stage'),
     role: translateSource('payloadFlow.cookbooks.role'),
     name: translateSource('payloadFlow.cookbooks.name'),
@@ -393,7 +393,7 @@ const payloadMenuItems = computed(() => [
   },
 ])
 
-const payloadFlowItems = computed(() => payloadMenuItems.value.filter((item) => item.key !== 'prompt-templates'))
+const payloadFlowItems = computed(() => payloadMenuItems.value)
 
 const payloadSummary = computed(() => ({
   total: store.datasets.length + store.promptTemplates.length + store.recipes.length + store.cookbooks.length,

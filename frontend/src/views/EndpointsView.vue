@@ -9,7 +9,6 @@
           <div class="workspace-title-content">
             <p class="eyebrow">{{ $t('auto.5a67d8ce27b2') }}</p>
             <h2>{{ $t('auto.f0645999b750') }}</h2>
-            <p> {{ $t('auto.68cc04634758') }} </p>
           </div>
         </div>
         <dl class="agents-home-metrics">
@@ -71,10 +70,8 @@
       <section class="agents-infra-section">
         <div class="agents-infra-heading">
           <div>
-            <p class="eyebrow">{{ $t('auto.e841a5c88c61') }}</p>
             <h3>{{ $t('auto.82bef7f9b1b9') }}</h3>
           </div>
-          <span>{{ $t('auto.d3c57fa5823a') }}</span>
         </div>
 
         <div class="agents-infra-grid">

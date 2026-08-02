@@ -289,13 +289,22 @@ An unsigned engineering installer can be built locally for validation:
 .\scripts\build-desktop.ps1 -Version 0.1.0 -AllowUnsigned
 ```
 
-A formal release requires a clean Git worktree and an Authenticode certificate:
+A formal release requires a clean Git worktree, an Authenticode certificate, and the Tauri updater signing key pair. Generate the updater key once, store it outside the repository, and back up both the private key and its password:
+
+```powershell
+cd frontend
+npm run tauri signer generate -- -w "$env:USERPROFILE\.tauri\oxo-tracker.key"
+cd ..
+$env:TAURI_SIGNING_PRIVATE_KEY_PATH="$env:USERPROFILE\.tauri\oxo-tracker.key"
+```
+
+The public key is safely committed as `frontend/src-tauri/updater.pubkey` so every future client verifies the same publisher key. If the private key is password protected, set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in the same terminal. Do not save the private key or its password in `.env` or Git. Then build the formal release:
 
 ```powershell
 .\scripts\release-desktop.ps1 -Version 1.0.0 -CertificateThumbprint <certificate-thumbprint>
 ```
 
-The build creates an NSIS per-user installer plus SHA-256, SBOM, third-party notices, dataset manifest, and release notes under `artifacts\desktop-release\<version>`. There is no GitHub Actions workflow and the scripts do not upload anything. Review the local artifacts, then manually create a Release in [Oxo-AI-Security/Oxo-Tracker-Releases](https://github.com/Oxo-AI-Security/Oxo-Tracker-Releases).
+The build creates an NSIS per-user installer plus its Tauri `.sig`, SHA-256, SBOM, third-party notices, dataset manifest, release notes, and an OSS-ready `latest.json` under `artifacts\desktop-release\<version>`. There is no GitHub Actions workflow and the scripts do not upload anything. Upload the installer and release files to [Oxo-AI-Security/Oxo-Tracker-Releases](https://github.com/Oxo-AI-Security/Oxo-Tracker-Releases) first; upload `latest.json` to `oss://oxotracker/stable/latest.json` only after the GitHub Release is complete.
 
 ## Environment Files
 
