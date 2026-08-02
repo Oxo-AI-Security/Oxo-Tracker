@@ -468,19 +468,34 @@ Copy-Item -LiteralPath $DatasetManifest -Destination (Join-Path $ReleaseDirector
 Copy-Item -LiteralPath (Join-Path $MetadataDirectory "THIRD-PARTY-NOTICES.txt") -Destination $ReleaseDirectory
 Copy-Item -LiteralPath (Join-Path $MetadataDirectory "sbom.spdx.json") -Destination $ReleaseDirectory
 @"
-# Oxo Tracker $Version
+# Oxo Tracker v$Version (Preview)
+
+## What's new
+
+- Adds user-triggered in-app update checks and installation.
+- The Info menu always performs a fresh metadata check; startup reuses a cached pending update instead of repeatedly querying OSS.
+- Updates are never forced. Download and installation begin only after the user clicks the update action.
+- Includes evaluation workflow and result-quality guidance improvements.
+
+## Upgrade behavior
 
 - Windows x64 per-user NSIS installer.
+- Application files are replaced in place; Oxo Tracker's per-user local data directory is preserved.
+- Users upgrading from a build without the updater must install this bridge release manually once.
 - Includes all 222 approved Moonshot datasets.
 - Uses user-configured online model APIs only; no local model runtime or weights are included.
-- Built and verified locally. Upload the files in this directory manually to Oxo-Tracker-Releases.
+
+## Verification and preview notice
+
+- The installer has a SHA-256 checksum and a Tauri updater signature.
+- This preview installer is not Windows Authenticode-signed because no code-signing certificate is configured. Windows SmartScreen may show a warning on first install.
 "@ | Set-Content -LiteralPath (Join-Path $ReleaseDirectory "RELEASE-NOTES.md") -Encoding UTF8
 
 if ($hasUpdaterPublicKey) {
     $signature = (Get-Content -LiteralPath "$releaseInstaller.sig" -Raw -Encoding UTF8).Trim()
     $manifest = [ordered]@{
         version = $Version
-        notes = "Oxo Tracker $Version"
+        notes = "Adds user-triggered in-app updates and evaluation workflow improvements. Local user data is preserved during installation."
         pub_date = [DateTimeOffset]::UtcNow.ToString("o")
         platforms = [ordered]@{
             "windows-x86_64" = [ordered]@{
