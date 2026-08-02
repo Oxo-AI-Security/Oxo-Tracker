@@ -471,6 +471,19 @@ $tauriArguments = @("run", "tauri", "--", "build", "--bundles", "nsis", "--confi
 if ($UsePortableMsvc) {
     $tauriArguments += @("--target", "x86_64-pc-windows-msvc")
 }
+$bundleRoot = if ($UsePortableMsvc) {
+    Join-Path $TauriRoot "target\x86_64-pc-windows-msvc\release\bundle\nsis"
+}
+else {
+    Join-Path $TauriRoot "target\release\bundle\nsis"
+}
+$expectedInstaller = Join-Path $bundleRoot "Oxo Tracker_${Version}_x64-setup.exe"
+foreach ($staleArtifact in @($expectedInstaller, "$expectedInstaller.sig")) {
+    Assert-WithinDirectory -Path $staleArtifact -Parent $bundleRoot
+    if (Test-Path -LiteralPath $staleArtifact -PathType Leaf) {
+        Remove-Item -LiteralPath $staleArtifact -Force
+    }
+}
 $tauriBuildStartedAt = [DateTime]::UtcNow.AddSeconds(-2)
 $tauriBuildError = $null
 try {
@@ -483,12 +496,6 @@ catch {
     $tauriBuildError = $_
 }
 
-$bundleRoot = if ($UsePortableMsvc) {
-    Join-Path $TauriRoot "target\x86_64-pc-windows-msvc\release\bundle\nsis"
-}
-else {
-    Join-Path $TauriRoot "target\release\bundle\nsis"
-}
 $installer = Get-ChildItem -LiteralPath $bundleRoot -Filter "*_${Version}_x64-setup.exe" -File |
     Where-Object { $_.LastWriteTimeUtc -ge $tauriBuildStartedAt } |
     Sort-Object LastWriteTimeUtc -Descending |
@@ -497,8 +504,15 @@ if (!$installer) {
     if ($tauriBuildError) { throw $tauriBuildError }
     throw "Tauri did not produce a fresh NSIS installer for $Version"
 }
-if ($hasUpdaterPublicKey -and !(Test-Path -LiteralPath "$($installer.FullName).sig" -PathType Leaf)) {
-    Write-Warning "Tauri did not emit the updater signature during bundling; signing the fresh installer explicitly."
+$installerSignature = "$($installer.FullName).sig"
+$signatureItem = Get-Item -LiteralPath $installerSignature -ErrorAction SilentlyContinue
+$signatureIsFresh = $signatureItem -and $signatureItem.LastWriteTimeUtc -ge $tauriBuildStartedAt
+if ($hasUpdaterPublicKey -and !$signatureIsFresh) {
+    Write-Warning "Tauri did not emit a fresh updater signature during bundling; signing the fresh installer explicitly."
+    if ($signatureItem) {
+        Assert-WithinDirectory -Path $installerSignature -Parent $bundleRoot
+        Remove-Item -LiteralPath $installerSignature -Force
+    }
     Invoke-Checked -FilePath "npm" -Arguments @(
         "run", "tauri", "--", "signer", "sign", $installer.FullName
     ) -WorkingDirectory $FrontendRoot
@@ -515,9 +529,11 @@ if ((Get-Item -LiteralPath $releaseInstaller).Length -gt 350MB) {
 $hash = (Get-FileHash -LiteralPath $releaseInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $(Split-Path $releaseInstaller -Leaf)" | Set-Content -LiteralPath "$releaseInstaller.sha256" -Encoding ASCII
 if ($hasUpdaterPublicKey) {
-    $installerSignature = "$($installer.FullName).sig"
     if (!(Test-Path -LiteralPath $installerSignature -PathType Leaf)) {
         throw "Tauri did not produce the updater signature: $installerSignature"
+    }
+    if ((Get-Item -LiteralPath $installerSignature).LastWriteTimeUtc -lt $tauriBuildStartedAt) {
+        throw "Tauri updater signature is stale: $installerSignature"
     }
     $releaseSignature = "$releaseInstaller.sig"
     Copy-Item -LiteralPath $installerSignature -Destination $releaseSignature -Force
