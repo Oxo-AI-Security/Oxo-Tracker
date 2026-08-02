@@ -33,6 +33,9 @@ for package in (
     "botocore",
     "google.generativeai",
     "h2ogpte",
+    # Moonshot loads data/moonshot-data/io-modules/jsonio.py dynamically, so
+    # PyInstaller cannot discover its ijson import from the application graph.
+    "ijson",
     "langchain_openai",
     "nltk",
     "openai",

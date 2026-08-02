@@ -207,6 +207,37 @@ function Test-Sidecar {
         if (!$response -or $response.status -ne "ok" -or $response.challenge -ne $challenge) {
             throw "Sidecar health challenge failed"
         }
+
+        # Exercise every static Moonshot catalog used by the desktop overview.
+        # This runs against a clean app home after the bundled archive has been
+        # extracted, catching dynamic-import and missing-asset packaging bugs.
+        $resourceChecks = [ordered]@{
+            "/api/v1/moonshot/endpoints" = 1
+            "/api/v1/moonshot/recipes" = 1
+            "/api/v1/moonshot/cookbooks" = 1
+            "/api/v1/moonshot/metrics" = 1
+            "/api/v1/moonshot/prompt-templates" = 1
+            "/api/v1/moonshot/datasets" = 200
+            "/api/v1/moonshot/attack-modules" = 1
+        }
+        foreach ($entry in $resourceChecks.GetEnumerator()) {
+            $resourceUri = "http://127.0.0.1:$($ready.port)$($entry.Key)"
+            try {
+                $resource = Invoke-RestMethod -Uri $resourceUri -Headers @{
+                    "X-Oxo-Desktop-Token" = $token
+                } -TimeoutSec 30
+            }
+            catch {
+                $detail = $_.ErrorDetails.Message
+                if ([string]::IsNullOrWhiteSpace($detail)) { $detail = $_.Exception.Message }
+                throw "Bundled Moonshot resource request failed for $($entry.Key): $detail"
+            }
+            $resourceCount = if ($null -eq $resource) { 0 } else { $resource.Count }
+            if ($null -eq $resourceCount) { $resourceCount = 1 }
+            if ($resourceCount -lt $entry.Value) {
+                throw "Bundled Moonshot resource $($entry.Key) returned $resourceCount item(s); expected at least $($entry.Value)."
+            }
+        }
     }
     finally {
         if (!$process.HasExited) { $process.Kill() }
