@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import zipfile
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core import paths as paths_module
 from app.core.paths import AppPaths, SOURCE_ROOT
 from app.main import create_app
 
@@ -87,6 +89,49 @@ def test_desktop_asset_upgrade_repairs_old_json_without_losing_user_values(
     assert cookbook_path.read_text(encoding="utf-8").endswith("\n")
     assert json.loads(cookbook_path.read_text(encoding="utf-8"))["recipes"] == ["supported"]
     assert json.loads(marker_path.read_text(encoding="utf-8"))["assetVersion"] == "0.2.1"
+
+
+def test_desktop_asset_upgrade_removes_only_exact_mispackaged_preview_assets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    resource_root = tmp_path / "resources"
+    app_home = tmp_path / "user" / "Oxo Tracker"
+    resource_root.mkdir()
+    with zipfile.ZipFile(resource_root / "moonshot-data.zip", "w") as archive:
+        archive.writestr("datasets/example.json", '{"name":"bundled"}')
+
+    moonshot_root = app_home / "data" / "moonshot-data"
+    exact_path = moonshot_root / "connectors-endpoints" / "preview-test.json"
+    edited_path = moonshot_root / "prompt-templates" / "edited-test.json"
+    exact_path.parent.mkdir(parents=True)
+    edited_path.parent.mkdir(parents=True)
+    exact_payload = b'{"name":"mistaken-preview-asset"}'
+    exact_path.write_bytes(exact_payload)
+    edited_path.write_bytes(b'{"name":"user-edited"}')
+    marker_path = moonshot_root / ".oxo-desktop-assets.json"
+    marker_path.write_text('{"assetVersion":"0.2.1"}', encoding="utf-8")
+    monkeypatch.setattr(
+        paths_module,
+        "MISPACKAGED_V0_2_1_ASSET_SHA256",
+        {
+            "connectors-endpoints/preview-test.json": frozenset(
+                {hashlib.sha256(exact_payload).hexdigest()}
+            ),
+            "prompt-templates/edited-test.json": frozenset(
+                {hashlib.sha256(b'{"name":"original-preview"}').hexdigest()}
+            ),
+        },
+    )
+
+    monkeypatch.setenv("OXO_DESKTOP_MODE", "1")
+    monkeypatch.setenv("OXO_RESOURCE_ROOT", str(resource_root))
+    monkeypatch.setenv("OXO_APP_HOME", str(app_home))
+    AppPaths.from_environment().prepare_desktop_assets("0.2.2")
+
+    assert not exact_path.exists()
+    assert edited_path.read_bytes() == b'{"name":"user-edited"}'
+    assert json.loads(marker_path.read_text(encoding="utf-8"))["assetVersion"] == "0.2.2"
 
 
 def test_desktop_asset_archive_rejects_path_traversal(

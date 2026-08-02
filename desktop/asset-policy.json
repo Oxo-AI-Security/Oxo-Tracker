@@ -14,6 +14,14 @@
     "attack-modules/textfooler_attack.py",
     "attack-modules/toxic_sentence_generator.py"
   ],
+  "excludedUserAssets": [
+    "connectors-endpoints/chat.json",
+    "connectors-endpoints/quinn-test.json",
+    "connectors-endpoints/test-sse.json",
+    "prompt-templates/Oxo-quinn-test.json",
+    "prompt-templates/Oxo-quinn-test2.json",
+    "prompt-templates/Oxo-zi-fu-jian-ge-rao-guo.json"
+  ],
   "excludedRecipes": [
     "challenging-toxicity-prompts-completion.json",
     "genderbias-text2image-prompts.json",

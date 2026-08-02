@@ -321,11 +321,9 @@ foreach ($folder in @("bookmarks", "databases", "reports", "results", "runners")
     New-Item -ItemType Directory -Path $outputFolder -Force | Out-Null
     New-Item -ItemType File -Path (Join-Path $outputFolder "placeholder") -Force | Out-Null
 }
-foreach ($relative in $policy.excludedAssets) {
-    $target = [IO.Path]::GetFullPath((Join-Path $StagedAssets $relative))
-    Assert-WithinDirectory -Path $target -Parent $StagedAssets
-    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force }
-}
+& (Join-Path $PSScriptRoot "remove-desktop-excluded-assets.ps1") `
+    -StagedAssets $StagedAssets `
+    -PolicyPath $PolicyPath
 foreach ($name in $policy.excludedRecipes) {
     $target = [IO.Path]::GetFullPath((Join-Path $StagedAssets "recipes\$name"))
     Assert-WithinDirectory -Path $target -Parent $StagedAssets

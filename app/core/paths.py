@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -21,6 +22,26 @@ UNSUPPORTED_DESKTOP_RECIPE_IDS: Final = frozenset(
         "sg-university-tutorial-questions-legal",
     }
 )
+MISPACKAGED_V0_2_1_ASSET_SHA256: Final = {
+    "connectors-endpoints/chat.json": frozenset(
+        {"c24b568da7e57c81d57dbe914e7a16ffb375859fe6223f2ccb80425dec67177d"}
+    ),
+    "connectors-endpoints/quinn-test.json": frozenset(
+        {"58b54566e21c7d60deabac3c63b3fb486e3ed7cd4794614fffd922140e99544c"}
+    ),
+    "connectors-endpoints/test-sse.json": frozenset(
+        {"67837b4803d44affac5ece252156be8dd6b48b6d587bb4d4399fac46923668dc"}
+    ),
+    "prompt-templates/Oxo-quinn-test.json": frozenset(
+        {"3c7367c358b2b926e4e82bd081e4b99086efd1293f57e5b83900e2360e621e77"}
+    ),
+    "prompt-templates/Oxo-quinn-test2.json": frozenset(
+        {"9429afb4e7c2605051bc1082b798248fd8e0aa83b52131c8c50b6b89688def32"}
+    ),
+    "prompt-templates/Oxo-zi-fu-jian-ge-rao-guo.json": frozenset(
+        {"d668d0feb3d53472353d72f6cb69ad241b8f78f33c12d378fd80eb14b0777f8b"}
+    ),
+}
 
 
 def _environment_path(name: str, default: Path) -> Path:
@@ -94,7 +115,8 @@ class AppPaths:
         self.ensure_writable_directories()
         self.moonshot_data_root.mkdir(parents=True, exist_ok=True)
         marker = self.moonshot_data_root / ".oxo-desktop-assets.json"
-        if _marker_version(marker) == asset_version:
+        previous_asset_version = _marker_version(marker)
+        if previous_asset_version == asset_version:
             return
 
         if self.moonshot_archive.is_file():
@@ -109,7 +131,10 @@ class AppPaths:
                     f"Bundled Moonshot archive was not found: {self.moonshot_archive}"
                 )
 
-        _repair_desktop_json_assets(self.moonshot_data_root)
+        _repair_desktop_json_assets(
+            self.moonshot_data_root,
+            remove_mispackaged_preview_assets=previous_asset_version in {"0.2.0", "0.2.1"},
+        )
         marker.write_text(
             json.dumps({"assetVersion": asset_version}, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -158,8 +183,13 @@ def _copy_missing(source: Path, destination: Path) -> None:
             shutil.copy2(path, target)
 
 
-def _repair_desktop_json_assets(root: Path) -> None:
+def _repair_desktop_json_assets(
+    root: Path, *, remove_mispackaged_preview_assets: bool = False
+) -> None:
     """Apply semantic-preserving repairs needed by older desktop archives."""
+
+    if remove_mispackaged_preview_assets:
+        _remove_known_mispackaged_assets(root)
 
     # Windows PowerShell 5.1 wrote the v0.2.0 endpoint files with a UTF-8 BOM,
     # while Moonshot's JSON loader expects plain UTF-8. Removing only those
@@ -202,6 +232,18 @@ def _repair_desktop_json_assets(root: Path) -> None:
                 + "\n"
             ).encode("utf-8"),
         )
+
+
+def _remove_known_mispackaged_assets(root: Path) -> None:
+    """Remove exact Preview artifacts without deleting user-edited copies."""
+
+    for relative, packaged_hashes in MISPACKAGED_V0_2_1_ASSET_SHA256.items():
+        path = root / relative
+        if not path.is_file():
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest in packaged_hashes:
+            path.unlink()
 
 
 def _atomic_write_bytes(path: Path, payload: bytes) -> None:

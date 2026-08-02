@@ -82,6 +82,14 @@ def walk_sensitive_values(value: Any, location: str = "root") -> list[str]:
     return findings
 
 
+def assert_excluded_paths_absent(
+    staged: Path, relative_paths: list[str], category: str
+) -> None:
+    for relative in relative_paths:
+        if (staged / relative).exists():
+            raise RuntimeError(f"Excluded {category} remains in desktop package: {relative}")
+
+
 def verify(source: Path, staged: Path, policy_path: Path, manifest_path: Path) -> None:
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
     source_manifest = dataset_manifest(source)
@@ -94,9 +102,8 @@ def verify(source: Path, staged: Path, policy_path: Path, manifest_path: Path) -
     if source_manifest != staged_manifest:
         raise RuntimeError("Staged Moonshot datasets do not exactly match the approved source set")
 
-    for relative in policy["excludedAssets"]:
-        if (staged / relative).exists():
-            raise RuntimeError(f"Unsupported local-model asset remains: {relative}")
+    assert_excluded_paths_absent(staged, policy["excludedAssets"], "local-model asset")
+    assert_excluded_paths_absent(staged, policy.get("excludedUserAssets", []), "user asset")
     for name in policy["excludedRecipes"]:
         if (staged / "recipes" / name).exists():
             raise RuntimeError(f"Unsupported local-model recipe remains: {name}")
