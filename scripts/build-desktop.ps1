@@ -413,7 +413,17 @@ $tauriArguments = @("run", "tauri", "--", "build", "--bundles", "nsis", "--confi
 if ($UsePortableMsvc) {
     $tauriArguments += @("--target", "x86_64-pc-windows-msvc")
 }
-Invoke-Checked -FilePath "npm" -Arguments $tauriArguments -WorkingDirectory $FrontendRoot
+$tauriBuildStartedAt = [DateTime]::UtcNow.AddSeconds(-2)
+$tauriBuildError = $null
+try {
+    Invoke-Checked -FilePath "npm" -Arguments $tauriArguments -WorkingDirectory $FrontendRoot
+}
+catch {
+    # Some Windows CLI versions can finish the fresh NSIS installer and then
+    # fail while creating its updater signature. A deterministic signer
+    # fallback below may recover that specific post-bundle failure.
+    $tauriBuildError = $_
+}
 
 $bundleRoot = if ($UsePortableMsvc) {
     Join-Path $TauriRoot "target\x86_64-pc-windows-msvc\release\bundle\nsis"
@@ -421,10 +431,23 @@ $bundleRoot = if ($UsePortableMsvc) {
 else {
     Join-Path $TauriRoot "target\release\bundle\nsis"
 }
-$installer = Get-ChildItem -LiteralPath $bundleRoot -Filter "*-setup.exe" -File |
+$installer = Get-ChildItem -LiteralPath $bundleRoot -Filter "*_${Version}_x64-setup.exe" -File |
+    Where-Object { $_.LastWriteTimeUtc -ge $tauriBuildStartedAt } |
     Sort-Object LastWriteTimeUtc -Descending |
     Select-Object -First 1
-if (!$installer) { throw "Tauri did not produce an NSIS installer" }
+if (!$installer) {
+    if ($tauriBuildError) { throw $tauriBuildError }
+    throw "Tauri did not produce a fresh NSIS installer for $Version"
+}
+if ($hasUpdaterPublicKey -and !(Test-Path -LiteralPath "$($installer.FullName).sig" -PathType Leaf)) {
+    Write-Warning "Tauri did not emit the updater signature during bundling; signing the fresh installer explicitly."
+    Invoke-Checked -FilePath "npm" -Arguments @(
+        "run", "tauri", "--", "signer", "sign", $installer.FullName
+    ) -WorkingDirectory $FrontendRoot
+}
+if ($tauriBuildError) {
+    Write-Warning "Tauri bundling returned an error after producing the installer; explicit updater signing recovered the release."
+}
 $releaseInstaller = Join-Path $ReleaseDirectory "Oxo-Tracker_${Version}_x64-setup.exe"
 Copy-Item -LiteralPath $installer.FullName -Destination $releaseInstaller -Force
 if ((Get-Item -LiteralPath $releaseInstaller).Length -gt 350MB) {
