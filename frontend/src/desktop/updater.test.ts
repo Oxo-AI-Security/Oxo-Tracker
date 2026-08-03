@@ -3,6 +3,7 @@ import {
   compareVersions,
   hasPendingCachedUpdate,
   shouldCheckForUpdateOnStartup,
+  shouldShowUpdateNotice,
   type CachedUpdateState,
 } from './updater'
 
@@ -30,5 +31,12 @@ describe('desktop updater state', () => {
     expect(shouldCheckForUpdateOnStartup(null, '0.1.0')).toBe(true)
     expect(shouldCheckForUpdateOnStartup(cache('0.1.0'), '0.1.0')).toBe(true)
     expect(shouldCheckForUpdateOnStartup(cache('0.0.9'), '0.1.0')).toBe(true)
+  })
+
+  it('shows an update notice once per application session', () => {
+    expect(shouldShowUpdateNotice(true, false)).toBe(true)
+    expect(shouldShowUpdateNotice(true, true)).toBe(false)
+    expect(shouldShowUpdateNotice(false, false)).toBe(false)
+    expect(shouldShowUpdateNotice(true, false)).toBe(true)
   })
 })

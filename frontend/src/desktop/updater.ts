@@ -66,6 +66,13 @@ export function shouldCheckForUpdateOnStartup(cache: CachedUpdateState | null, c
   return !hasPendingCachedUpdate(cache, currentVersion)
 }
 
+export function shouldShowUpdateNotice(
+  hasPendingUpdate: boolean,
+  acknowledgedThisSession: boolean,
+) {
+  return hasPendingUpdate && !acknowledgedThisSession
+}
+
 export function loadCachedUpdateState(storage: Storage = window.localStorage): CachedUpdateState | null {
   try {
     const raw = storage.getItem(UPDATE_CACHE_KEY)

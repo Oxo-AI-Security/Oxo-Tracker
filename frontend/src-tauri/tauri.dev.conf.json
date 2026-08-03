@@ -3,5 +3,11 @@
   "bundle": {
     "externalBin": [],
     "resources": {}
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": []
+    }
   }
 }

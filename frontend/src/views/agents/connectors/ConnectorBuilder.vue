@@ -5,7 +5,6 @@
         <div>
           <p class="eyebrow">{{ $t('auto.e9215b5d7bc9') }}</p>
           <h2>{{ editingId ? $t('auto.5b2d286ab27f') : $t('auto.3a50517fa1b3') }}</h2>
-          <span>{{ $t('auto.5786331714fa') }}</span>
         </div>
         <div class="endpoint-heading-actions">
           <n-button v-if="isConfigurableApp" class="connector-ai-button" type="primary" secondary round :loading="aiGenerating" :disabled="permissionDenied" @click="openAIAssistant">
@@ -23,7 +22,6 @@
             <div>
               <p class="eyebrow">{{ $t('auto.cbf56f96dd38') }}</p>
               <strong>{{ form.connector_type }}</strong>
-              <span>{{ $t('auto.239da6e2821f') }}</span>
             </div>
             <div v-if="isConfigurableApp" class="connector-template-actions">
               <n-button :type="activeProtocol === 'http' ? 'primary' : 'default'" secondary round @click="loadTemplate('http')">{{ $t('auto.f63532ff1093') }}</n-button>
@@ -54,7 +52,7 @@
                 </div>
                 <div>
                   <b>2</b>
-                  <strong>{{ $t('auto.ab3a4f269e31') }}</strong>
+                  <strong>{{ $t('auto.081e8f274703') }}</strong>
                   <span>{{ $t('auto.d935c22a9606') }}</span>
                   <code>Authorization: Bearer &lt;token&gt;</code>
                 </div>
@@ -118,7 +116,7 @@
               </div>
             </n-tab-pane>
 
-            <n-tab-pane name="auth" tab="Auth">
+            <n-tab-pane name="headers" tab="Headers">
               <div class="connector-form-card connector-headers-card">
                 <div class="connector-default-head">
                   <div>
@@ -127,40 +125,6 @@
                   </div>
                   <n-tag round type="info">{{ headerEntries.length }} {{ $t('auto.f9ac14b63a75') }}</n-tag>
                 </div>
-                <section class="connector-auth-panel">
-                  <div class="connector-section-heading">
-                    <div>
-                      <strong>{{ $t('auto.ee1acfa55eb1') }}</strong>
-                      <span>{{ $t('auto.9a3a67dc21e4') }}</span>
-                    </div>
-                  </div>
-                  <div class="connector-header-presets" :aria-label="$t('auto.41390aa9057f')">
-                    <button type="button" :class="{ active: form.params.connector_config.auth.type === 'bearer' }" @click="applyHeaderPreset('bearer')"><strong>{{ $t('auto.398e3e4864a3') }}</strong><span>{{ $t('auto.b4e71c87b167') }}</span></button>
-                    <button type="button" :class="{ active: form.params.connector_config.auth.type === 'api-key' }" @click="applyHeaderPreset('x-api-key')"><strong>{{ $t('auto.47acd2028cf8') }}</strong><span>{{ $t('auto.5a6a2fd701b8') }}</span></button>
-                    <button type="button" :class="{ active: form.params.connector_config.auth.type === 'cookie' }" @click="applyHeaderPreset('cookie')"><strong>{{ $t('auto.e4f81994fed0') }}</strong><span>{{ $t('auto.8fa2a80f7a4a') }}</span></button>
-                  </div>
-                  <n-form class="connector-auth-form" label-placement="top">
-                    <div class="connector-auth-fields">
-                      <n-form-item :label="$t('auto.121193db7a5f')">
-                        <n-select
-                          :value="form.params.connector_config.auth.type"
-                          :options="authOptions"
-                          @update:value="setAuthType(String($event))"
-                        />
-                      </n-form-item>
-                      <n-form-item v-if="usesAuthHeader" :label="$t('auto.37d8ce784d80')">
-                        <n-input v-model:value="form.params.connector_config.auth.headerName" :placeholder="defaultAuthHeader" />
-                      </n-form-item>
-                      <n-form-item v-if="form.params.connector_config.auth.type === 'basic'" :label="$t('auto.84c29015de33')">
-                        <n-input v-model:value="form.params.connector_config.auth.username" autocomplete="username" />
-                      </n-form-item>
-                      <n-form-item v-if="form.params.connector_config.auth.type !== 'none'" :label="authSecretLabel">
-                        <n-input v-model:value="form.token" type="password" show-password-on="click" autocomplete="new-password" :placeholder="$t('auto.77983c64e365')" />
-                      </n-form-item>
-                    </div>
-                  </n-form>
-                </section>
-
                 <section class="connector-custom-headers-panel">
                   <div class="connector-section-heading connector-section-heading-with-count">
                     <div>
@@ -171,7 +135,14 @@
                   </div>
                   <n-form class="connector-custom-header-form" label-placement="top">
                     <n-form-item :label="$t('auto.37d8ce784d80')"><n-input v-model:value="customHeaderName" placeholder="x-tenant-id" /></n-form-item>
-                    <n-form-item :label="$t('auto.f6169e2ce081')"><n-input v-model:value="customHeaderValue" :placeholder="$t('auto.88cea605f1c9')" /></n-form-item>
+                    <n-form-item :label="$t('auto.f6169e2ce081')">
+                      <n-input
+                        v-model:value="customHeaderValue"
+                        :type="isSensitiveHeaderName(customHeaderName) ? 'password' : 'text'"
+                        show-password-on="click"
+                        :placeholder="$t('auto.88cea605f1c9')"
+                      />
+                    </n-form-item>
                     <n-button type="primary" secondary round :disabled="!customHeaderName.trim()" @click="addCustomHeader">{{ $t('auto.42b949077d2f') }}</n-button>
                   </n-form>
                   <div class="connector-header-list">
@@ -187,11 +158,13 @@
                             v-if="editingHeaderName === header.name"
                             v-model:value="editingHeaderValue"
                             size="small"
+                            :type="isSensitiveHeaderName(header.name) ? 'password' : 'text'"
+                            show-password-on="click"
                             @blur="saveHeaderEdit"
                             @keyup.enter="saveHeaderEdit"
                             @keyup.esc="cancelHeaderEdit"
                           />
-                          <span v-else class="connector-header-editable-value" :title="$t('auto.1b1ef72c442d')" @dblclick="startHeaderEdit(header.name, header.value)">{{ header.value }}</span>
+                          <span v-else class="connector-header-editable-value" :title="$t('auto.1b1ef72c442d')" @dblclick="startHeaderEdit(header.name, header.value)">{{ displayHeaderValue(header.name, header.value) }}</span>
                         </div>
                         <n-button quaternary circle size="small" @click="removeHeader(header.name)">x</n-button>
                       </article>
@@ -261,7 +234,10 @@
                               <p class="eyebrow">{{ $t('auto.e48882e558ed') }}</p>
                               <strong>{{ httpInputTitle }}</strong>
                             </div>
-                            <n-button secondary round size="small" @click="markPromptSelection">{{ $t('auto.bf958ba7624d') }}</n-button>
+                            <n-button class="connector-selection-action" secondary round size="small" @mousedown.prevent @click="markPromptSelection">
+                              <template #icon><n-icon><LocateOutline /></n-icon></template>
+                              {{ $t('auto.bf958ba7624d') }}
+                            </n-button>
                           </div>
                           <n-form class="connector-mapping-controls" label-placement="top">
                             <div class="connector-inline-fields connector-method-row">
@@ -290,9 +266,12 @@
                             class="connector-token-editor"
                             contenteditable="true"
                             spellcheck="false"
-                            :data-placeholder="'input=hi&role=user'"
+                            :data-placeholder="keyValueBodyPlaceholder"
                             v-html="renderPromptTokens(keyValueBodyText)"
                             @click="handleTokenEditorClick"
+                            @pointerup="rememberInputSelection"
+                            @keyup="rememberInputSelection"
+                            @input="handleInputEditorInput"
                             @blur="syncKeyValueEditorAndBody"
                           ></div>
                           <div
@@ -303,6 +282,9 @@
                             spellcheck="false"
                             v-html="renderPromptTokens(form.params.connector_config.request.bodyTemplate)"
                             @click="handleTokenEditorClick"
+                            @pointerup="rememberInputSelection"
+                            @keyup="rememberInputSelection"
+                            @input="handleInputEditorInput"
                             @blur="syncRequestBodyEditor"
                           ></div>
                         </div>
@@ -316,7 +298,10 @@
                               <p class="eyebrow">{{ $t('auto.e48882e558ed') }}</p>
                               <strong>{{ streamInputTitle }}</strong>
                             </div>
-                            <n-button secondary round size="small" @click="markPromptSelection">{{ $t('auto.bf958ba7624d') }}</n-button>
+                            <n-button class="connector-selection-action" secondary round size="small" @mousedown.prevent @click="markPromptSelection">
+                              <template #icon><n-icon><LocateOutline /></n-icon></template>
+                              {{ $t('auto.bf958ba7624d') }}
+                            </n-button>
                           </div>
                           <n-form class="connector-mapping-controls" label-placement="top">
                             <div class="connector-inline-fields connector-method-row">
@@ -337,9 +322,12 @@
                             class="connector-token-editor"
                             contenteditable="true"
                             spellcheck="false"
-                            :data-placeholder="'input=hi&role=user'"
+                            :data-placeholder="keyValueBodyPlaceholder"
                             v-html="renderPromptTokens(keyValueBodyText)"
                             @click="handleTokenEditorClick"
+                            @pointerup="rememberInputSelection"
+                            @keyup="rememberInputSelection"
+                            @input="handleInputEditorInput"
                             @blur="syncKeyValueEditorAndBody"
                           ></div>
                           <div
@@ -350,6 +338,9 @@
                             spellcheck="false"
                             v-html="renderPromptTokens(form.params.connector_config.stream.bodyTemplate || '')"
                             @click="handleTokenEditorClick"
+                            @pointerup="rememberInputSelection"
+                            @keyup="rememberInputSelection"
+                            @input="handleInputEditorInput"
                             @blur="syncRequestBodyEditor"
                           ></div>
                         </div>
@@ -363,7 +354,10 @@
                               <p class="eyebrow">{{ $t('auto.e48882e558ed') }}</p>
                               <strong>{{ $t('auto.1c45f755ae96') }}</strong>
                             </div>
-                            <n-button secondary round size="small" @click="markPromptSelection">{{ $t('auto.bf958ba7624d') }}</n-button>
+                            <n-button class="connector-selection-action" secondary round size="small" @mousedown.prevent @click="markPromptSelection">
+                              <template #icon><n-icon><LocateOutline /></n-icon></template>
+                              {{ $t('auto.bf958ba7624d') }}
+                            </n-button>
                           </div>
                           <n-form class="connector-mapping-controls" label-placement="top">
                             <n-form-item :label="$t('auto.471b4c7c17f0')">
@@ -377,6 +371,9 @@
                             spellcheck="false"
                             v-html="renderPromptTokens(form.params.connector_config.websocket.messageTemplate)"
                             @click="handleTokenEditorClick"
+                            @pointerup="rememberInputSelection"
+                            @keyup="rememberInputSelection"
+                            @input="handleInputEditorInput"
                             @blur="syncRequestBodyEditor"
                           ></div>
                         </div>
@@ -402,7 +399,10 @@
                           <n-tag v-if="testResult?.rawResponse" type="success" round size="small">{{ $t('auto.8e8bc0ca4aa7') }}</n-tag>
                           <n-button v-if="hasSsePreview" secondary round size="small" @click="streamDetailsOpen = true">
                             <template #icon><n-icon><ListOutline /></n-icon></template> {{ $t('auto.b1552353cb01') }} </n-button>
-                          <n-button secondary round size="small" @click="markOutputSelection">{{ $t('auto.39caadf5acae') }}</n-button>
+                          <n-button class="connector-selection-action" secondary round size="small" @mousedown.prevent @click="markOutputSelection">
+                            <template #icon><n-icon><CheckmarkCircleOutline /></n-icon></template>
+                            {{ $t('auto.39caadf5acae') }}
+                          </n-button>
                         </div>
                       </div>
                       <div v-if="hasSsePreview" class="connector-stream-summary">
@@ -421,6 +421,9 @@
                         spellcheck="false"
                         v-html="renderOutputTokens(sampleResponse)"
                         @click="handleTokenEditorClick"
+                        @pointerup="rememberOutputSelection"
+                        @keyup="rememberOutputSelection"
+                        @input="handleOutputEditorInput"
                         @blur="syncResponseEditor"
                       ></div>
                     </div>
@@ -552,11 +555,11 @@ import { translateSource } from '../../../i18n'
 
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { NTabPane, NTabs, useMessage, useNotification } from 'naive-ui'
-import { ChevronDownOutline, CloseOutline, CodeSlashOutline, CopyOutline, ListOutline, SparklesOutline } from '@vicons/ionicons5'
+import { CheckmarkCircleOutline, ChevronDownOutline, CloseOutline, CodeSlashOutline, CopyOutline, ListOutline, LocateOutline, SparklesOutline } from '@vicons/ionicons5'
 import { useRoute, useRouter } from 'vue-router'
 import GlassPanel from '../../../components/GlassPanel.vue'
-import { CONFIGURABLE_CONNECTOR, applyTemplate, connectorService, currentUser, defaultConnectorConfig, endpointToConfig, normalizePromptMessageTemplate } from '../../../services/connectorService'
-import type { AuthType, ConnectorAIConfigureResult, ConnectorConfig, ConnectorProtocol, ConnectorTestResult } from '../../../types/connector'
+import { CONFIGURABLE_CONNECTOR, applyTemplate, connectorService, currentUser, defaultConnectorConfig, endpointToConfig, migrateConnectorProtocol, normalizePromptMessageTemplate } from '../../../services/connectorService'
+import type { ConnectorAIConfigureResult, ConnectorConfig, ConnectorProtocol, ConnectorTestResult } from '../../../types/connector'
 import { useMoonshotStore } from '../../../stores/moonshot'
 import { useSettingsStore } from '../../../stores/settings'
 import { buildSseResponsePreview, formatSseEventData } from '../../../utils/sseResponse'
@@ -580,7 +583,7 @@ const aiGenerating = ref(false)
 const AI_REQUEST_PLACEHOLDER = `Paste request information in any format. Include as much as possible:
 
 1. Endpoint URL and protocol (HTTP, SSE, or WebSocket)
-2. Method, headers, query parameters, authentication, and request body
+2. Method, all request headers (including Authorization, API keys, or Cookie), query parameters, and request body
 3. Which value should be replaced by the user's input
 4. A safe test input
 5. A successful response example and the field containing the answer
@@ -598,11 +601,15 @@ const queryParamsText = ref('{\n  "prompt": "{{ prompt }}"\n}')
 const formFieldsText = ref('{\n  "message": "{{ prompt }}"\n}')
 const keyValueBodyText = ref('input=hi&role=user')
 const defaultParamsText = ref('{}')
-const sampleResponse = ref('{\n  "blocked": false,\n  "response": "Hi! How can I assist you today?"\n}')
+const DEFAULT_SAMPLE_RESPONSE = '{\n  "blocked": false,\n  "response": "Hi! How can I assist you today?"\n}'
+const sampleResponse = ref(DEFAULT_SAMPLE_RESPONSE)
 const sseResponsePreview = ref<SseResponsePreview | null>(null)
 const streamDetailsOpen = ref(false)
 const outputTokenLabel = ref('response')
 const promptToken = '{{ prompt }}'
+type SavedEditorSelection = { editor: HTMLElement; range: Range }
+let savedInputSelection: SavedEditorSelection | null = null
+let savedOutputSelection: SavedEditorSelection | null = null
 const customHeaderName = ref('')
 const customHeaderValue = ref('')
 const editingHeaderName = ref('')
@@ -623,31 +630,29 @@ const activeRequestConfig = computed(() => {
 })
 const isHttpGet = computed(() => form.params.connector_config.transport === 'http' && form.params.connector_config.request?.method === 'GET')
 const isHttpFormBody = computed(() => form.params.connector_config.transport === 'http' && form.params.connector_config.request?.bodyType === 'form')
+const isHttpMultipartBody = computed(() => form.params.connector_config.transport === 'http' && form.params.connector_config.request?.bodyType === 'multipart')
 const isSseGet = computed(() => form.params.connector_config.transport === 'sse' && form.params.connector_config.stream?.method === 'GET')
 const isSseFormBody = computed(() => form.params.connector_config.transport === 'sse' && form.params.connector_config.stream?.bodyType === 'form')
+const isSseMultipartBody = computed(() => form.params.connector_config.transport === 'sse' && form.params.connector_config.stream?.bodyType === 'multipart')
 const isWebSocket = computed(() => form.params.connector_config.transport === 'websocket')
-const isHttpKeyValueBody = computed(() => isHttpGet.value || isHttpFormBody.value)
-const isSseKeyValueBody = computed(() => isSseGet.value || isSseFormBody.value)
+const isMultipartBody = computed(() => isHttpMultipartBody.value || isSseMultipartBody.value)
+const isHttpKeyValueBody = computed(() => isHttpGet.value || isHttpFormBody.value || isHttpMultipartBody.value)
+const isSseKeyValueBody = computed(() => isSseGet.value || isSseFormBody.value || isSseMultipartBody.value)
 const isKeyValueEditorActive = computed(() => isHttpKeyValueBody.value || isSseKeyValueBody.value)
+const keyValueBodyPlaceholder = computed(() => isMultipartBody.value ? '{\n  "message": "{{ prompt }}"\n}' : 'input=hi&role=user')
 const httpInputTitle = computed(() => {
   if (isHttpGet.value) return 'Paste the full URL Query Params'
+  if (isHttpMultipartBody.value) return 'Configure multipart form-data fields as JSON'
   if (isHttpFormBody.value) return 'Paste the full Form Body'
   return 'Paste the full request body'
 })
 const streamInputTitle = computed(() => {
   if (isSseGet.value) return 'Paste the full URL Query Params'
+  if (isSseMultipartBody.value) return 'Configure multipart form-data fields as JSON'
   if (isSseFormBody.value) return 'Paste the full Form Body'
   return 'Paste the full stream request body'
 })
 const headerEntries = computed(() => Object.entries(parseHeadersText()).map(([name, value]) => ({ name, value })))
-const usesAuthHeader = computed(() => ['bearer', 'api-key', 'cookie'].includes(form.params.connector_config.auth.type))
-const defaultAuthHeader = computed(() => {
-  const type = form.params.connector_config.auth.type
-  if (type === 'api-key') return 'x-api-key'
-  if (type === 'cookie') return 'Cookie'
-  return 'Authorization'
-})
-const authSecretLabel = computed(() => form.params.connector_config.auth.type === 'basic' ? 'Password' : 'Token / API Key')
 const activeAIModelLabel = computed(() => {
   const ai = settingsStore.ai
   if (!ai) return 'Loading AI model…'
@@ -669,16 +674,10 @@ const canGenerateWithAI = computed(() => (
 
 const methodOptions = ['GET', 'POST', 'PUT', 'PATCH'].map((value) => ({ label: value, value }))
 const sseMethodOptions = ['GET', 'POST'].map((value) => ({ label: value, value }))
-const authOptions = [
-  { label: 'None', value: 'none' },
-  { label: translateSource('auto.398e3e4864a3'), value: 'bearer' },
-  { label: translateSource('auto.47acd2028cf8'), value: 'api-key' },
-  { label: 'Cookie', value: 'cookie' },
-  { label: translateSource('auto.767641352dbb'), value: 'basic' },
-]
 const bodyTypeOptions = [
   { label: translateSource('auto.05ae0b33808b'), value: 'json' },
   { label: translateSource('auto.27fed83377a0'), value: 'form' },
+  { label: 'Multipart form-data', value: 'multipart' },
   { label: translateSource('auto.38de4727d19e'), value: 'raw' },
   { label: translateSource('auto.0621557856e0'), value: 'none' },
 ]
@@ -791,6 +790,7 @@ async function applyAIConfiguration(result: ConnectorAIConfigureResult) {
       const responseConfig = result.config?.params.connector_config.response
       const selected = responseConfig?.selectedText || result.testResult.extractedResponse
       sampleResponse.value = insertGeneratedOutputToken(formatted, selected)
+      form.params.connector_config.response.sampleResponse = sampleResponse.value
       outputTokenLabel.value = responseConfig?.path?.split('.').at(-1) || 'response'
     }
   }
@@ -839,9 +839,12 @@ function setHttpBodyType(bodyType: string) {
   const request = form.params.connector_config.request
   if (!request) return
   request.bodyType = bodyType as typeof request.bodyType
-  if (bodyType === 'form') {
+  syncBodyTypeContentType(bodyType)
+  if (bodyType === 'form' || bodyType === 'multipart') {
     request.formFields ||= { input: 'hi', role: 'user' }
-    keyValueBodyText.value = toQueryString(request.formFields) || 'input=hi&role=user'
+    keyValueBodyText.value = bodyType === 'multipart'
+      ? JSON.stringify(request.formFields, null, 2)
+      : toQueryString(request.formFields) || 'input=hi&role=user'
   }
 }
 
@@ -866,31 +869,31 @@ function setSseBodyType(bodyType: string) {
   const stream = form.params.connector_config.stream
   if (!stream) return
   stream.bodyType = bodyType as typeof stream.bodyType
-  if (bodyType === 'form') {
+  syncBodyTypeContentType(bodyType)
+  if (bodyType === 'form' || bodyType === 'multipart') {
     stream.formFields ||= { input: 'hi', role: 'user' }
-    keyValueBodyText.value = toQueryString(stream.formFields) || 'input=hi&role=user'
+    keyValueBodyText.value = bodyType === 'multipart'
+      ? JSON.stringify(stream.formFields, null, 2)
+      : toQueryString(stream.formFields) || 'input=hi&role=user'
   } else if (!stream.bodyTemplate) {
     stream.bodyTemplate = bodyType === 'raw' ? '{{ prompt }}' : '{"message":"{{ prompt }}"}'
   }
 }
 
-function setAuthType(type: string) {
-  const auth = form.params.connector_config.auth
-  auth.type = type as AuthType
-  auth.headerName = type === 'api-key' ? 'x-api-key' : type === 'cookie' ? 'Cookie' : type === 'none' || type === 'basic' ? undefined : 'Authorization'
-}
-
-function applyHeaderPreset(kind: 'bearer' | 'x-api-key' | 'cookie') {
-  if (kind === 'bearer') {
-    setAuthType('bearer')
+function syncBodyTypeContentType(bodyType: string) {
+  const carrier = activeRequestConfig.value
+  if (!carrier) return
+  carrier.headers ||= {}
+  const headerName = Object.keys(carrier.headers).find((name) => name.toLowerCase() === 'content-type') || 'content-type'
+  const contentTypes: Record<string, string> = {
+    json: 'application/json',
+    form: 'application/x-www-form-urlencoded',
+    multipart: 'multipart/form-data',
+    raw: 'text/plain; charset=utf-8',
   }
-  if (kind === 'x-api-key') {
-    setAuthType('api-key')
-  }
-  if (kind === 'cookie') {
-    setAuthType('cookie')
-  }
-  message.success(translateSource('auto.fe26f52c7caf'))
+  const contentType = contentTypes[bodyType]
+  if (contentType) carrier.headers[headerName] = contentType
+  syncHeadersText()
 }
 
 function addCustomHeader() {
@@ -930,6 +933,17 @@ function cancelHeaderEdit() {
   editingHeaderValue.value = ''
 }
 
+function isSensitiveHeaderName(name: string) {
+  return ['authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'x-api-key', 'api-key', 'x-auth-token']
+    .includes(name.trim().toLowerCase())
+}
+
+function displayHeaderValue(name: string, value: string) {
+  if (!isSensitiveHeaderName(name)) return value
+  const scheme = value.trim().match(/^([A-Za-z][A-Za-z0-9_-]*)\s+/)?.[1]
+  return scheme ? `${scheme} ••••••••` : '••••••••'
+}
+
 async function saveConnector() {
   if (!canSave.value) return
   if (isConfigurableApp.value) {
@@ -966,13 +980,24 @@ async function fetchResponse() {
   syncHeaders()
   syncQueryParams()
   syncFormFields()
+  const uriProtocol = protocolOverrideFromUri(form.uri, activeProtocol.value)
+  if (uriProtocol && uriProtocol !== activeProtocol.value) {
+    switchProtocolPreservingConfiguration(uriProtocol)
+    message.info(`${uriProtocol === 'websocket' ? 'WebSocket' : 'HTTP'} URL detected. The connector type was updated automatically.`)
+  }
   if (!validateConnectorConfiguration()) return
   testing.value = true
   requestPreviewOpen.value = false
   try {
     testResult.value = await connectorService.testConnector(form, testPrompt.value)
     if (testResult.value.rawResponse) {
+      const detectedProtocol = testResult.value.detectedTransport
+      if (detectedProtocol && detectedProtocol !== activeProtocol.value) {
+        switchProtocolPreservingConfiguration(detectedProtocol)
+        message.info(`${detectedProtocol === 'sse' ? 'SSE stream' : detectedProtocol.toUpperCase()} response detected. The connector type was updated automatically.`)
+      }
       sampleResponse.value = prepareResponseSample(testResult.value.rawResponse)
+      form.params.connector_config.response.sampleResponse = sampleResponse.value
       outputTokenLabel.value = 'response'
       form.params.connector_config.response.path = ''
       form.params.connector_config.response.type =
@@ -1000,6 +1025,24 @@ async function fetchResponse() {
   }
 }
 
+function switchProtocolPreservingConfiguration(protocol: ConnectorProtocol) {
+  Object.assign(form, migrateConnectorProtocol(form, protocol))
+  sseResponsePreview.value = null
+  streamDetailsOpen.value = false
+  syncAllTextFields()
+}
+
+function protocolOverrideFromUri(uri: string, currentProtocol: ConnectorProtocol): ConnectorProtocol | null {
+  try {
+    const scheme = new URL(uri.trim()).protocol.toLowerCase()
+    if (scheme === 'ws:' || scheme === 'wss:') return 'websocket'
+    if (currentProtocol === 'websocket' && (scheme === 'http:' || scheme === 'https:')) return 'http'
+  } catch {
+    return null
+  }
+  return null
+}
+
 function validateConnectorConfiguration() {
   const protocol = form.params.connector_config.transport
   let parsedUrl: URL
@@ -1014,18 +1057,6 @@ function validateConnectorConfiguration() {
   if (!allowedSchemes.includes(parsedUrl.protocol)) {
     message.error(protocol === 'websocket' ? 'WebSocket URLs must use ws:// or wss://.' : 'HTTP and SSE URLs must use http:// or https://.')
     activeTab.value = 'basic'
-    return false
-  }
-
-  const auth = form.params.connector_config.auth
-  if (auth.type !== 'none' && !form.token.trim()) {
-    message.error(auth.type === 'basic' ? 'Enter the Basic Auth password.' : 'Enter the authentication token or API key.')
-    activeTab.value = 'auth'
-    return false
-  }
-  if (auth.type === 'basic' && !auth.username?.trim()) {
-    message.error(translateSource('auto.7093a8f12c84'))
-    activeTab.value = 'auth'
     return false
   }
 
@@ -1077,9 +1108,27 @@ function syncAllTextFields() {
     syncHeadersText()
     syncQueryParamsText()
     syncFormFieldsText()
+    restoreResponseMappingSample()
   } else {
     syncDefaultParamsText()
   }
+}
+
+function restoreResponseMappingSample() {
+  const response = form.params.connector_config.response
+  sampleResponse.value = response.sampleResponse || DEFAULT_SAMPLE_RESPONSE
+  if (response.type === 'event-data' && !response.path) {
+    outputTokenLabel.value = 'data'
+    return
+  }
+  const pathLabel = response.path?.split('.').filter(Boolean).at(-1)
+  if (pathLabel) {
+    outputTokenLabel.value = pathLabel
+    return
+  }
+  const selected = response.selectedText || ''
+  const rawSample = selected ? sampleResponse.value.replace(/\{\{\s*output\s*\}\}/, selected) : sampleResponse.value
+  outputTokenLabel.value = selected ? inferOutputLabel(rawSample, selected) : 'response'
 }
 
 function syncEditorFields() {
@@ -1148,11 +1197,12 @@ function syncQueryParams() {
 
 function syncFormFieldsText() {
   formFieldsText.value = JSON.stringify(activeFormFields(), null, 2)
-  if (isHttpFormBody.value || isSseFormBody.value) keyValueBodyText.value = toQueryString(activeFormFields()) || 'input=hi&role=user'
+  if (isMultipartBody.value) keyValueBodyText.value = formFieldsText.value
+  else if (isHttpFormBody.value || isSseFormBody.value) keyValueBodyText.value = toQueryString(activeFormFields()) || 'input=hi&role=user'
 }
 
 function syncFormFields() {
-  if (isHttpFormBody.value || isSseFormBody.value) return
+  if (isHttpFormBody.value || isSseFormBody.value || isMultipartBody.value) return
   const carrier = activeRequestConfig.value
   if (!carrier || !('formFields' in carrier)) return
   try {
@@ -1172,6 +1222,18 @@ function syncKeyValueBody() {
     formFieldsText.value = keyValueBodyText.value
     const carrier = activeRequestConfig.value
     if (carrier && 'formFields' in carrier) carrier.formFields = parseQueryString(keyValueBodyText.value)
+    return
+  }
+  if (isMultipartBody.value) {
+    formFieldsText.value = keyValueBodyText.value
+    const carrier = activeRequestConfig.value
+    if (carrier && 'formFields' in carrier) {
+      try {
+        carrier.formFields = parseJsonObject(keyValueBodyText.value)
+      } catch {
+        message.error(translateSource('auto.b284b0142020'))
+      }
+    }
   }
 }
 
@@ -1254,6 +1316,7 @@ function syncResponseEditor() {
   const editor = responseBodyRef.value
   if (!editor) return
   sampleResponse.value = editorText(editor)
+  form.params.connector_config.response.sampleResponse = sampleResponse.value
 }
 
 function renderPromptTokens(value: string) {
@@ -1288,19 +1351,66 @@ function inferTokenLabel(value: string, index: number) {
   return 'message'
 }
 
-function insertPromptToken(editor: HTMLElement) {
+function rememberInputSelection(event: Event) {
+  rememberEditorSelection(event.currentTarget as HTMLElement, 'input')
+}
+
+function rememberOutputSelection(event: Event) {
+  rememberEditorSelection(event.currentTarget as HTMLElement, 'output')
+}
+
+function handleInputEditorInput(event: Event) {
+  rememberInputSelection(event)
+  const editor = event.currentTarget as HTMLElement
+  if (editor === queryParamsRef.value) syncKeyValueEditorAndBody()
+  else syncRequestBodyEditor()
+}
+
+function handleOutputEditorInput(event: Event) {
+  rememberOutputSelection(event)
+  syncResponseEditor()
+}
+
+function rememberEditorSelection(editor: HTMLElement, kind: 'input' | 'output') {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || !selectionInsideEditor(selection, editor)) return
+  const saved = { editor, range: selection.getRangeAt(0).cloneRange() }
+  if (kind === 'input') savedInputSelection = saved
+  else savedOutputSelection = saved
+}
+
+function selectionInsideEditor(selection: Selection, editor: HTMLElement) {
+  return Boolean(selection.anchorNode && selection.focusNode && editor.contains(selection.anchorNode) && editor.contains(selection.focusNode))
+}
+
+function editorRange(editor: HTMLElement, saved: SavedEditorSelection | null) {
+  const selection = window.getSelection()
+  if (selection?.rangeCount && selectionInsideEditor(selection, editor)) return selection.getRangeAt(0).cloneRange()
+  if (saved?.editor === editor && editor.contains(saved.range.startContainer) && editor.contains(saved.range.endContainer)) return saved.range.cloneRange()
+  const range = document.createRange()
+  range.selectNodeContents(editor)
+  range.collapse(false)
+  return range
+}
+
+function applyEditorRange(editor: HTMLElement, range: Range, kind: 'input' | 'output') {
   editor.focus()
   const selection = window.getSelection()
-  if (!selection || selection.rangeCount === 0 || !editor.contains(selection.anchorNode)) {
-    editor.append(document.createTextNode(promptToken))
-    return
-  }
-  const range = selection.getRangeAt(0)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+  const saved = { editor, range: range.cloneRange() }
+  if (kind === 'input') savedInputSelection = saved
+  else savedOutputSelection = saved
+}
+
+function insertPromptToken(editor: HTMLElement) {
+  const range = editorRange(editor, savedInputSelection)
   range.deleteContents()
-  range.insertNode(document.createTextNode(promptToken))
-  range.collapse(false)
-  selection.removeAllRanges()
-  selection.addRange(range)
+  const token = document.createTextNode(promptToken)
+  range.insertNode(token)
+  range.setStartAfter(token)
+  range.collapse(true)
+  applyEditorRange(editor, range, 'input')
 }
 
 function editorText(editor: HTMLElement) {
@@ -1350,15 +1460,15 @@ function setActiveBodyTemplate(value: string) {
 function markOutputSelection() {
   const target = responseBodyRef.value
   if (!target) return
-  const selection = window.getSelection()
-  const selected = selection && selection.rangeCount > 0 && target.contains(selection.anchorNode)
-    ? selection.toString()
-    : ''
+  const rawSample = editorText(target)
+  sampleResponse.value = rawSample
+  const range = editorRange(target, savedOutputSelection)
+  const selected = range.toString()
   if (!selected) {
     message.warning(translateSource('auto.c20511988f83'))
     return
   }
-  const location = inferResponseLocation(sampleResponse.value, selected)
+  const location = inferResponseLocation(rawSample, selected)
   if (activeProtocol.value === 'sse' && sseResponsePreview.value?.mode === 'event-data') {
     form.params.connector_config.response.type = 'event-data'
     form.params.connector_config.response.path = ''
@@ -1381,23 +1491,20 @@ function markOutputSelection() {
     form.params.connector_config.response.prefix = location.prefix
     form.params.connector_config.response.suffix = location.suffix
     form.params.connector_config.response.selectedText = selected
-    outputTokenLabel.value = inferOutputLabel(sampleResponse.value, selected)
+    outputTokenLabel.value = inferOutputLabel(rawSample, selected)
     message.success(translateSource('auto.eb5c696fb628'))
   }
-  insertOutputToken(target)
-  sampleResponse.value = editorText(target)
+  insertOutputToken(target, range)
+  syncResponseEditor()
 }
 
-function insertOutputToken(editor: HTMLElement) {
-  editor.focus()
-  const selection = window.getSelection()
-  if (!selection || selection.rangeCount === 0 || !editor.contains(selection.anchorNode)) return
-  const range = selection.getRangeAt(0)
+function insertOutputToken(editor: HTMLElement, range: Range) {
   range.deleteContents()
-  range.insertNode(document.createTextNode('{{ output }}'))
-  range.collapse(false)
-  selection.removeAllRanges()
-  selection.addRange(range)
+  const token = document.createTextNode('{{ output }}')
+  range.insertNode(token)
+  range.setStartAfter(token)
+  range.collapse(true)
+  applyEditorRange(editor, range, 'output')
 }
 
 function findJsonPathBySelection(rawJson: string, selected: string) {

@@ -57,6 +57,30 @@
 
       <article class="settings-row-card">
         <div class="settings-row-main">
+          <span class="settings-row-icon settings-row-icon--scale">
+            <n-icon size="22"><ResizeOutline /></n-icon>
+          </span>
+          <div>
+            <strong>{{ t('settings.scaleTitle') }}</strong>
+            <span>{{ t('settings.scaleDescription') }}</span>
+          </div>
+        </div>
+        <div class="theme-toggle settings-scale-toggle" role="group" :aria-label="t('settings.scaleTitle')">
+          <button
+            v-for="scale in scaleOptions"
+            :key="scale"
+            type="button"
+            :disabled="scaleSaving"
+            :class="{ active: settings.uiScale === scale }"
+            @click="changeUiScale(scale)"
+          >
+            {{ scale }}%
+          </button>
+        </div>
+      </article>
+
+      <article class="settings-row-card">
+        <div class="settings-row-main">
           <span class="settings-row-icon settings-row-icon--language">
             <n-icon size="22"><LanguageOutline /></n-icon>
           </span>
@@ -81,16 +105,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ChevronForwardOutline, ColorPaletteOutline, GitNetworkOutline, LanguageOutline, SparklesOutline } from '@vicons/ionicons5'
+import { ChevronForwardOutline, ColorPaletteOutline, GitNetworkOutline, LanguageOutline, ResizeOutline, SparklesOutline } from '@vicons/ionicons5'
 import { useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../stores/settings'
-import type { AppSettings } from '../types/moonshot'
+import type { AppSettings, UiScale } from '../types/moonshot'
 
 const settings = useSettingsStore()
 const { t } = useI18n()
 const message = useMessage()
 const localeSaving = ref(false)
+const scaleSaving = ref(false)
+const scaleOptions: UiScale[] = [80, 90, 100, 110]
 const activeProviderLabel = computed(() => {
   const id = settings.ai?.activeProvider
   if (!id) return t('common.notConfigured')
@@ -111,6 +137,18 @@ async function changeLocale(locale: AppSettings['locale']) {
     message.error(t('settings.languageSaveFailed'))
   } finally {
     localeSaving.value = false
+  }
+}
+
+async function changeUiScale(scale: UiScale) {
+  if (scaleSaving.value || scale === settings.uiScale) return
+  scaleSaving.value = true
+  try {
+    await settings.setUiScale(scale)
+  } catch {
+    message.error(t('settings.scaleSaveFailed'))
+  } finally {
+    scaleSaving.value = false
   }
 }
 </script>

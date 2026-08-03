@@ -61,17 +61,20 @@
             <button
               type="button"
               class="settings-entry product-details-entry"
-              :aria-label="collapsed ? t('productInfo.label') : undefined"
+              :aria-label="productDetailsButtonLabel"
               @click="openProductDetails"
             >
-              <n-icon size="20"><InformationCircleOutline /></n-icon>
+              <span class="product-details-entry__icon">
+                <n-icon size="20"><InformationCircleOutline /></n-icon>
+                <span
+                  v-if="updateNoticeVisible"
+                  class="product-details-entry__notice-dot"
+                  aria-hidden="true"
+                />
+              </span>
               <span v-if="!collapsed">{{ t('productInfo.label') }}</span>
-              <span
-                v-if="!collapsed"
-                class="product-details-entry__badge"
-                :class="{ 'product-details-entry__badge--update': cachedUpdatePending }"
-              >
-                {{ cachedUpdatePending ? t('productInfo.updateBadge') : t('productInfo.preview') }}
+              <span v-if="!collapsed" class="product-details-entry__badge">
+                {{ t('productInfo.preview') }}
               </span>
             </button>
           </div>
@@ -204,7 +207,6 @@
           <div class="product-details-heading">
             <span class="product-details-preview-badge"><i /> {{ t('productInfo.previewRelease') }}</span>
             <h2 id="product-details-title">Oxo Tracker</h2>
-            <p>{{ t('productInfo.subtitle') }}</p>
           </div>
           <div class="product-details-version">
             <small>{{ t('productInfo.currentVersion') }}</small>
@@ -216,7 +218,6 @@
           <span><n-icon><SparklesOutline /></n-icon></span>
           <div>
             <strong>{{ t('productInfo.introTitle') }}</strong>
-            <p>{{ t('productInfo.introDescription') }}</p>
           </div>
         </div>
 
@@ -278,27 +279,6 @@
           </div>
         </section>
 
-        <div class="product-details-grid">
-          <article>
-            <span><n-icon><LayersOutline /></n-icon></span>
-            <small>{{ t('productInfo.releaseChannel') }}</small>
-            <strong>{{ t('productInfo.preview') }}</strong>
-            <p>{{ t('productInfo.previewDescription') }}</p>
-          </article>
-          <article>
-            <span><n-icon><DesktopOutline /></n-icon></span>
-            <small>{{ t('productInfo.application') }}</small>
-            <strong>{{ desktopWindowControls ? t('productInfo.desktopClient') : t('productInfo.developmentClient') }}</strong>
-            <p>{{ t('productInfo.applicationDescription') }}</p>
-          </article>
-          <article>
-            <span><n-icon><ShieldCheckmarkOutline /></n-icon></span>
-            <small>{{ t('productInfo.securityFocus') }}</small>
-            <strong>{{ t('productInfo.aiAssurance') }}</strong>
-            <p>{{ t('productInfo.securityDescription') }}</p>
-          </article>
-        </div>
-
         <footer class="product-details-footer">
           <p><strong>{{ t('productInfo.previewNotice') }}</strong> {{ t('productInfo.previewNoticeText') }}</p>
           <button type="button" @click="productDetailsOpen = false">{{ t('productInfo.gotIt') }}</button>
@@ -319,16 +299,13 @@ import {
   AnalyticsOutline,
   CubeOutline,
   CloseOutline,
-  DesktopOutline,
   FlashOutline,
   ChevronBackOutline,
   InformationCircleOutline,
-  LayersOutline,
   LibraryOutline,
   RefreshOutline,
   RocketOutline,
   SettingsOutline,
-  ShieldCheckmarkOutline,
   SparklesOutline,
   TimeOutline,
 } from '@vicons/ionicons5'
@@ -340,6 +317,7 @@ import {
   loadCachedUpdateState,
   saveCachedUpdateState,
   shouldCheckForUpdateOnStartup,
+  shouldShowUpdateNotice,
   type CachedUpdateState,
 } from '../desktop/updater'
 import { useMoonshotStore } from '../stores/moonshot'
@@ -368,6 +346,7 @@ const updateNotes = ref('')
 const updateCheckedAt = ref('')
 const updateError = ref('')
 const updateProgress = ref<number | null>(null)
+const updateNoticeAcknowledged = ref(false)
 const exiting = ref(false)
 let desktopWindow: TauriWindow | null = null
 let removeWindowResizeListener: UnlistenFn | undefined
@@ -381,6 +360,14 @@ const cachedUpdatePending = computed(() => (
     notes: updateNotes.value,
     pubDate: null,
   }, productVersion.value) : false
+))
+const updateNoticeVisible = computed(() => (
+  shouldShowUpdateNotice(cachedUpdatePending.value, updateNoticeAcknowledged.value)
+))
+const productDetailsButtonLabel = computed(() => (
+  updateNoticeVisible.value
+    ? `${t('productInfo.label')} · ${t('productInfo.updateBadge')}`
+    : t('productInfo.label')
 ))
 const hasActiveJobs = computed(() => store.jobs.some((job) => (
   ['queued', 'running', 'running_with_errors', 'paused'].includes(job.status)
@@ -580,6 +567,7 @@ async function checkProductUpdate() {
 }
 
 function openProductDetails() {
+  updateNoticeAcknowledged.value = true
   productDetailsOpen.value = true
   void checkProductUpdate()
 }

@@ -1,7 +1,6 @@
 export type ConnectorProtocol = 'http' | 'sse' | 'websocket'
 export type ConnectorSource = 'built-in' | 'user-created'
-export type AuthType = 'none' | 'bearer' | 'api-key' | 'cookie' | 'basic'
-export type RequestBodyType = 'json' | 'form' | 'raw' | 'none'
+export type RequestBodyType = 'json' | 'form' | 'multipart' | 'raw' | 'none'
 
 export interface ConnectorOwner {
   id: string
@@ -10,15 +9,6 @@ export interface ConnectorOwner {
 }
 
 export interface CurrentUser extends ConnectorOwner {}
-
-export interface AuthConfig {
-  type: AuthType
-  secretRef?: string
-  headerName?: string
-  username?: string
-  usernameRef?: string
-  passwordRef?: string
-}
 
 export interface HttpRequestConfig {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH'
@@ -57,6 +47,8 @@ export interface ResponseExtractConfig {
   prefix?: string
   suffix?: string
   selectedText?: string
+  /** UI mapping sample, including the {{ output }} marker selected by the user. */
+  sampleResponse?: string
 }
 
 export interface ConnectorConfig {
@@ -77,7 +69,6 @@ export interface ConnectorConfig {
     connector_config: {
       description?: string
       transport: ConnectorProtocol
-      auth: AuthConfig
       request?: HttpRequestConfig
       stream?: SseStreamConfig
       websocket?: WebSocketConfig
@@ -123,6 +114,9 @@ export interface ConnectorTestResult {
   requestPreview: string
   rawResponse: string
   extractedResponse: string
+  httpStatus?: number
+  responseContentType?: string
+  detectedTransport?: ConnectorProtocol
   error?: string
 }
 

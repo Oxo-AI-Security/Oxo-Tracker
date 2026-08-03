@@ -1,4 +1,5 @@
 from functools import lru_cache
+from inspect import signature
 from pathlib import Path
 import shutil
 from typing import Awaitable, Callable, Any
@@ -10,6 +11,10 @@ from moonshot.api import (
     api_get_all_recipe,
     api_set_environment_variables,
 )
+from moonshot.src.configs.env_variables import EnvVariables
+from moonshot.src.runners.runner_type import RunnerType
+from moonshot.src.runs.run import Run
+from moonshot.src.storage.storage import Storage
 
 from app.core.config import get_moonshot_env
 from app.core.paths import APP_HOME
@@ -108,11 +113,68 @@ class MoonshotClient:
         )
         if on_runner_created:
             await on_runner_created(runner)
-        await runner.run_cookbooks(
-            cookbooks=cookbooks,
-            prompt_selection_percentage=prompt_selection_percentage,
-            cookbook_prompt_selection_percentages=cookbook_prompt_selection_percentages or {},
-            random_seed=random_seed,
-            system_prompt=system_prompt,
-        )
+        percentages = cookbook_prompt_selection_percentages or {}
+        run_cookbooks_parameters = signature(runner.run_cookbooks).parameters
+        if "cookbook_prompt_selection_percentages" in run_cookbooks_parameters:
+            await runner.run_cookbooks(
+                cookbooks=cookbooks,
+                prompt_selection_percentage=prompt_selection_percentage,
+                cookbook_prompt_selection_percentages=percentages,
+                random_seed=random_seed,
+                system_prompt=system_prompt,
+            )
+        elif percentages:
+            await _run_cookbooks_with_per_cookbook_percentages(
+                runner,
+                cookbooks=cookbooks,
+                prompt_selection_percentage=prompt_selection_percentage,
+                cookbook_prompt_selection_percentages=percentages,
+                random_seed=random_seed,
+                system_prompt=system_prompt,
+            )
+        else:
+            await runner.run_cookbooks(
+                cookbooks=cookbooks,
+                prompt_selection_percentage=prompt_selection_percentage,
+                random_seed=random_seed,
+                system_prompt=system_prompt,
+            )
         return {"runner_id": runner.id, "status": "completed"}
+
+
+async def _run_cookbooks_with_per_cookbook_percentages(
+    runner: Any,
+    *,
+    cookbooks: list[str],
+    prompt_selection_percentage: int,
+    cookbook_prompt_selection_percentages: dict[str, int],
+    random_seed: int,
+    system_prompt: str,
+) -> None:
+    """Run extended cookbook arguments without patching the bundled Moonshot package."""
+    async with runner.current_operation_lock:
+        operation = Run(
+            runner.id,
+            RunnerType.BENCHMARK,
+            {
+                "cookbooks": cookbooks,
+                "prompt_selection_percentage": prompt_selection_percentage,
+                "cookbook_prompt_selection_percentages": cookbook_prompt_selection_percentages,
+                "random_seed": random_seed,
+                "system_prompt": system_prompt,
+                "runner_processing_module": "benchmarking",
+                "result_processing_module": "benchmarking-result",
+            },
+            runner.database_instance,
+            runner.endpoints,
+            Storage.get_filepath(EnvVariables.RESULTS.name, runner.id, "json", True),
+            runner.progress_callback_func,
+        )
+        runner.current_operation = operation
+
+    try:
+        await operation.run()
+    finally:
+        async with runner.current_operation_lock:
+            if runner.current_operation is operation:
+                runner.current_operation = None

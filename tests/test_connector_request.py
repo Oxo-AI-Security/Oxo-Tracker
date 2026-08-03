@@ -1,4 +1,3 @@
-import base64
 import importlib.util
 import json
 from io import BytesIO
@@ -9,9 +8,10 @@ from app.api.routes import moonshot_explicit
 
 
 class _Response:
-    def __init__(self, body: bytes, status: int = 200) -> None:
+    def __init__(self, body: bytes, status: int = 200, content_type: str = "") -> None:
         self._body = BytesIO(body)
         self.status = status
+        self.headers = {"Content-Type": content_type} if content_type else {}
 
     def __enter__(self):
         return self
@@ -36,6 +36,29 @@ def test_json_prompt_is_escaped_before_request() -> None:
     assert json.loads(body) == {"message": 'say "hello"'}
 
 
+def test_multipart_prompt_uses_matching_generated_boundary() -> None:
+    request_config = {
+        "bodyType": "multipart",
+        "formFields": {
+            "industry": "consumer",
+            "requirement": "{{ prompt }}",
+            "fileUp": "",
+        },
+    }
+    body = moonshot_explicit._build_connector_body(request_config, "safe test")
+    headers = {"Content-Type": "multipart/form-data; boundary=stale-browser-boundary"}
+
+    moonshot_explicit._apply_content_type(headers, request_config, body)
+
+    content_type = headers["Content-Type"]
+    boundary = content_type.split("boundary=", 1)[1]
+    assert body is not None
+    assert f"--{boundary}\r\n".encode() in body
+    assert b'name="requirement"\r\n\r\nsafe test\r\n' in body
+    assert b'name="fileUp"\r\n\r\n\r\n' in body
+    assert b"stale-browser-boundary" not in body
+
+
 def test_sse_reader_collects_events_until_done() -> None:
     response = _Response(
         b'data: {"delta":"Hel"}\n\n'
@@ -49,6 +72,12 @@ def test_sse_reader_collects_events_until_done() -> None:
     assert '"Hel"' in raw
     assert '"lo"' in raw
     assert "ignored" not in raw
+
+
+def test_transport_detection_uses_response_content_type_and_event_framing() -> None:
+    assert moonshot_explicit._detect_connector_transport("http", "text/event-stream; charset=utf-8") == "sse"
+    assert moonshot_explicit._detect_connector_transport("http", "application/octet-stream", "data: hello\n\n") == "sse"
+    assert moonshot_explicit._detect_connector_transport("sse", "application/json", '{"answer":"ok"}') == "http"
 
 
 def test_sse_json_path_joins_streamed_answer_fragments() -> None:
@@ -82,19 +111,6 @@ def test_legacy_sse_event_data_with_path_decodes_answer_fragments() -> None:
     assert extracted == "Hello"
 
 
-def test_basic_auth_uses_username_and_token_as_password() -> None:
-    headers: dict[str, str] = {}
-
-    moonshot_explicit._apply_connector_auth(
-        headers,
-        {"type": "basic", "username": "alice"},
-        "secret",
-    )
-
-    encoded = base64.b64encode(b"alice:secret").decode("ascii")
-    assert headers["Authorization"] == f"Basic {encoded}"
-
-
 def test_http_fetch_sends_real_request_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = {}
 
@@ -112,16 +128,14 @@ def test_http_fetch_sends_real_request_configuration(monkeypatch: pytest.MonkeyP
             "test_prompt": "hello",
             "config": {
                 "uri": "https://example.test/chat",
-                "token": "token-1",
                 "params": {
                     "timeout": 30,
                     "connector_config": {
                         "transport": "http",
-                        "auth": {"type": "bearer"},
                         "request": {
                             "method": "POST",
                             "bodyType": "json",
-                            "headers": {},
+                            "headers": {"Authorization": "Bearer token-1"},
                             "queryParams": {"version": "v1"},
                             "bodyTemplate": '{"message":"{{ prompt }}"}',
                         },
@@ -183,3 +197,31 @@ def test_loopback_connector_rejects_redirect_to_public_host() -> None:
             {},
             "https://example.com/redirected",
         )
+
+
+def test_runtime_asset_builds_multipart_body_with_matching_boundary() -> None:
+    asset = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "integrations"
+        / "moonshot"
+        / "assets"
+        / "configurable-app-connector.py"
+    )
+    spec = importlib.util.spec_from_file_location("configurable_app_connector_asset_multipart", asset)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    connector = object.__new__(module.ConfigurableAppConnector)
+    request_config = {
+        "bodyType": "multipart",
+        "formFields": {"message": "{{ prompt }}"},
+    }
+    body = connector._build_body(request_config, "hello")
+    headers = {"content-type": "multipart/form-data; boundary=old"}
+
+    connector._apply_content_type(headers, request_config, body)
+
+    boundary = headers["content-type"].split("boundary=", 1)[1]
+    assert f"--{boundary}\r\n".encode() in body
+    assert b'name="message"\r\n\r\nhello\r\n' in body

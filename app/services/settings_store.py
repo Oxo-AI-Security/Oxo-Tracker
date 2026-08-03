@@ -17,6 +17,7 @@ from app.core.paths import DATA_ROOT
 SETTINGS_DIR = DATA_ROOT / "settings"
 SETTINGS_FILE = SETTINGS_DIR / "app-settings.yaml"
 LEGACY_SETTINGS_FILE = SETTINGS_DIR / "app-settings.json"
+UI_SCALE_OPTIONS = {80, 90, 100, 110}
 
 PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
     "qwen": {
@@ -194,6 +195,7 @@ def _default_settings() -> dict[str, Any]:
     return {
         "theme": "light",
         "locale": "en-US",
+        "uiScale": 100,
         "ai": {
             "activeProvider": "qwen",
             "providers": {
@@ -302,6 +304,13 @@ class SettingsStore:
             normalized["theme"] = settings["theme"]
         if settings.get("locale") in {"en-US", "zh-CN"}:
             normalized["locale"] = settings["locale"]
+        ui_scale = settings.get("uiScale")
+        if (
+            isinstance(ui_scale, int)
+            and not isinstance(ui_scale, bool)
+            and ui_scale in UI_SCALE_OPTIONS
+        ):
+            normalized["uiScale"] = ui_scale
 
         source_ai = settings.get("ai") if isinstance(settings.get("ai"), dict) else {}
         active = source_ai.get("activeProvider")
@@ -381,6 +390,15 @@ class SettingsStore:
             if changes["locale"] not in {"en-US", "zh-CN"}:
                 raise ValueError("Locale must be en-US or zh-CN")
             current["locale"] = changes["locale"]
+        if "uiScale" in changes:
+            ui_scale = changes["uiScale"]
+            if (
+                not isinstance(ui_scale, int)
+                or isinstance(ui_scale, bool)
+                or ui_scale not in UI_SCALE_OPTIONS
+            ):
+                raise ValueError("UI scale must be one of: 80, 90, 100, 110")
+            current["uiScale"] = ui_scale
 
         ai_changes = changes.get("ai")
         if isinstance(ai_changes, dict):

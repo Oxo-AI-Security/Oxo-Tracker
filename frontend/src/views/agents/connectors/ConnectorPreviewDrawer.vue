@@ -48,14 +48,6 @@
         </section>
 
         <section>
-          <p class="eyebrow">{{ $t('auto.258ab6cf6656') }}</p>
-          <dl class="connector-preview-grid">
-            <div><dt>{{ $t('auto.72dc5381324e') }}</dt><dd>{{ connector.config.params.connector_config.auth.type }}</dd></div>
-            <div><dt>{{ $t('auto.99ae668a98ca') }}</dt><dd>{{ secretSummary }}</dd></div>
-          </dl>
-        </section>
-
-        <section>
           <p class="eyebrow">{{ $t('auto.e6bafc838fb4') }}</p>
           <pre>{{ requestConfig }}</pre>
         </section>
@@ -93,7 +85,6 @@ const message = useMessage()
 
 const requestConfig = computed(() => JSON.stringify(props.connector?.config.params.connector_config.request || props.connector?.config.params.connector_config.stream || props.connector?.config.params.connector_config.websocket || {}, null, 2))
 const responseConfig = computed(() => JSON.stringify(props.connector?.config.params.connector_config.response || {}, null, 2))
-const secretSummary = computed(() => props.connector?.config.params.connector_config.auth.secretRef || (props.connector?.config.token ? 'Configured secret (hidden)' : 'None'))
 const maskedConfig = computed(() => {
   if (!props.connector?.config) return {}
   return {

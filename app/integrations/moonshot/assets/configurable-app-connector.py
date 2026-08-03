@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import ipaddress
 import json
 import socket
@@ -68,7 +69,7 @@ class ConfigurableAppConnector(Connector):
         body = self._build_body(request_config, prompt)
         headers = dict(request_config.get("headers") or {})
         self._apply_content_type(headers, request_config, body)
-        self._apply_auth(headers)
+        self._apply_legacy_auth(headers)
         req = request.Request(
             url,
             data=body,
@@ -101,7 +102,7 @@ class ConfigurableAppConnector(Connector):
         replacement = json.dumps(prompt, ensure_ascii=False)[1:-1]
         message = message_template.replace("{{ prompt }}", replacement).replace("{{prompt}}", replacement)
         headers = dict(request_config.get("headers") or {})
-        self._apply_auth(headers)
+        self._apply_legacy_auth(headers)
         async with websockets.connect(url, extra_headers=headers or None) as websocket:
             await websocket.send(message)
             response = await websocket.recv()
@@ -126,6 +127,8 @@ class ConfigurableAppConnector(Connector):
                 for key, value in (request_config.get("formFields") or {}).items()
             }
             return urlencode(fields).encode("utf-8")
+        if body_type == "multipart":
+            return self._build_multipart_body(request_config, prompt)
         body_template = (
             request_config.get("bodyTemplate")
             or request_config.get("messageTemplate")
@@ -136,15 +139,43 @@ class ConfigurableAppConnector(Connector):
             "utf-8"
         )
 
-    def _apply_auth(self, headers: dict) -> None:
+    def _multipart_boundary(self, request_config: dict) -> str:
+        fields = request_config.get("formFields") or {}
+        fingerprint = json.dumps(fields, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return f"----OxoTrackerBoundary{hashlib.sha256(fingerprint).hexdigest()[:24]}"
+
+    def _build_multipart_body(self, request_config: dict, prompt: str) -> bytes:
+        boundary = self._multipart_boundary(request_config)
+        chunks = []
+        for raw_name, raw_value in (request_config.get("formFields") or {}).items():
+            name = str(raw_name).replace("\r", "").replace("\n", "").replace('"', "\\\"")
+            value = str(raw_value).replace("{{ prompt }}", prompt).replace("{{prompt}}", prompt)
+            chunks.extend(
+                [
+                    f"--{boundary}\r\n".encode("ascii"),
+                    f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"),
+                    value.encode("utf-8"),
+                    b"\r\n",
+                ]
+            )
+        chunks.append(f"--{boundary}--\r\n".encode("ascii"))
+        return b"".join(chunks)
+
+    def _apply_legacy_auth(self, headers: dict) -> None:
+        # Compatibility for endpoints saved before credentials became ordinary request headers.
         auth = self.config.get("auth") or {}
         auth_type = str(auth.get("type") or "none")
+        header_name = auth.get("headerName") or (
+            "x-api-key" if auth_type == "api-key" else "Cookie" if auth_type == "cookie" else "Authorization"
+        )
+        if any(str(name).lower() == str(header_name).lower() for name in headers):
+            return
         if auth_type == "bearer" and self.token:
-            headers[auth.get("headerName") or "Authorization"] = f"Bearer {self.token}"
+            headers[header_name] = f"Bearer {self.token}"
         elif auth_type == "api-key" and self.token:
-            headers[auth.get("headerName") or "x-api-key"] = self.token
+            headers[header_name] = self.token
         elif auth_type == "cookie" and self.token:
-            headers[auth.get("headerName") or "Cookie"] = self.token
+            headers[header_name] = self.token
         elif auth_type == "basic":
             username = str(auth.get("username") or "")
             if username or self.token:
@@ -155,6 +186,13 @@ class ConfigurableAppConnector(Connector):
         if body is None:
             return
         body_type = request_config.get("bodyType") or "json"
+        if body_type == "multipart":
+            self._set_header_case_insensitive(
+                headers,
+                "content-type",
+                f"multipart/form-data; boundary={self._multipart_boundary(request_config)}",
+            )
+            return
         content_type = {
             "form": "application/x-www-form-urlencoded",
             "raw": "text/plain; charset=utf-8",
@@ -162,6 +200,13 @@ class ConfigurableAppConnector(Connector):
         }.get(body_type)
         if content_type:
             headers.setdefault("content-type", content_type)
+
+    def _set_header_case_insensitive(self, headers: dict, name: str, value: str) -> None:
+        existing = next((key for key in headers if str(key).lower() == name.lower()), None)
+        if existing is None:
+            headers[name] = value
+        else:
+            headers[existing] = value
 
     def _read_response_body(self, response) -> str:
         if self.config.get("transport") != "sse":

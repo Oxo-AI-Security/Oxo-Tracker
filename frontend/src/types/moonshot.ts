@@ -267,12 +267,16 @@ export interface AIConnectionTestResult {
 export interface AppSettings {
   theme: 'light' | 'dark'
   locale: 'en-US' | 'zh-CN'
+  uiScale: UiScale
   ai: AISettings
 }
+
+export type UiScale = 80 | 90 | 100 | 110
 
 export interface AppSettingsUpdate {
   theme?: AppSettings['theme']
   locale?: AppSettings['locale']
+  uiScale?: UiScale
   ai?: {
     activeProvider: string
     provider?: string

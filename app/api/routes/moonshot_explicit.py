@@ -1,5 +1,5 @@
 import asyncio
-import base64
+import hashlib
 import json
 import shutil
 import time
@@ -217,9 +217,6 @@ def test_connector(data: dict[str, Any] = Body(...)):
         body = _build_connector_body(request_config, str(prompt))
         headers = dict(request_config.get("headers") or {})
         _apply_content_type(headers, request_config, body)
-        auth = connector_config.get("auth") or {}
-        token = str(config.get("token") or "")
-        _apply_connector_auth(headers, auth, token)
         timeout_value = float(params.get("timeout") or 30)
         if timeout_value > 1000:
             timeout_value /= 1000
@@ -228,11 +225,23 @@ def test_connector(data: dict[str, Any] = Body(...)):
             method = "WEBSOCKET"
             raw = asyncio.run(_send_websocket_once(url, headers, body.decode("utf-8") if body is not None else ""))
             status_code = 101
+            response_content_type = ""
+            detected_transport = "websocket"
         else:
             method = request_config.get("method") or ("GET" if body is None else "POST")
             req = urllib_request.Request(url, data=body, headers=headers, method=method)
             with open_with_current_network_settings(req, timeout) as response:
-                raw = _read_connector_response_body(response, transport)
+                response_content_type = _response_content_type(response)
+                detected_transport = _detect_connector_transport(
+                    transport,
+                    response_content_type,
+                )
+                raw = _read_connector_response_body(response, detected_transport)
+                detected_transport = _detect_connector_transport(
+                    transport,
+                    response_content_type,
+                    raw,
+                )
                 status_code = response.status
         extracted = _extract_connector_response(raw, connector_config.get("response") or {})
         return {
@@ -250,6 +259,8 @@ def test_connector(data: dict[str, Any] = Body(...)):
             "rawResponse": raw,
             "extractedResponse": extracted,
             "httpStatus": status_code,
+            "responseContentType": response_content_type,
+            "detectedTransport": detected_transport,
         }
     except HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
@@ -492,25 +503,17 @@ def _validate_connector_url(url: str, transport: str) -> None:
         raise ValueError(f"Request URL must start with {expected} for {transport.upper()}.")
 
 
-def _apply_connector_auth(headers: dict[str, Any], auth: dict[str, Any], token: str) -> None:
-    auth_type = str(auth.get("type") or "none")
-    if auth_type == "bearer" and token:
-        headers[auth.get("headerName") or "Authorization"] = f"Bearer {token}"
-    elif auth_type == "api-key" and token:
-        headers[auth.get("headerName") or "x-api-key"] = token
-    elif auth_type == "cookie" and token:
-        headers[auth.get("headerName") or "Cookie"] = token
-    elif auth_type == "basic":
-        username = str(auth.get("username") or "")
-        if username or token:
-            encoded = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
-            headers["Authorization"] = f"Basic {encoded}"
-
-
 def _apply_content_type(headers: dict[str, Any], request_config: dict[str, Any], body: bytes | None) -> None:
     if body is None:
         return
     body_type = request_config.get("bodyType") or "json"
+    if body_type == "multipart":
+        _set_header_case_insensitive(
+            headers,
+            "content-type",
+            f"multipart/form-data; boundary={_multipart_boundary(request_config)}",
+        )
+        return
     content_type = {
         "form": "application/x-www-form-urlencoded",
         "raw": "text/plain; charset=utf-8",
@@ -540,6 +543,8 @@ def _build_connector_body(request_config: dict[str, Any], prompt: str) -> bytes 
             for key, value in (request_config.get("formFields") or {}).items()
         }
         return urlencode(fields).encode("utf-8")
+    if body_type == "multipart":
+        return _build_multipart_body(request_config, prompt)
     body_template = (
         request_config.get("bodyTemplate")
         or request_config.get("messageTemplate")
@@ -547,6 +552,38 @@ def _build_connector_body(request_config: dict[str, Any], prompt: str) -> bytes 
     )
     replacement = json.dumps(prompt, ensure_ascii=False)[1:-1] if body_type == "json" else prompt
     return body_template.replace("{{ prompt }}", replacement).replace("{{prompt}}", replacement).encode("utf-8")
+
+
+def _multipart_boundary(request_config: dict[str, Any]) -> str:
+    fields = request_config.get("formFields") or {}
+    fingerprint = json.dumps(fields, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"----OxoTrackerBoundary{hashlib.sha256(fingerprint).hexdigest()[:24]}"
+
+
+def _build_multipart_body(request_config: dict[str, Any], prompt: str) -> bytes:
+    boundary = _multipart_boundary(request_config)
+    chunks: list[bytes] = []
+    for raw_name, raw_value in (request_config.get("formFields") or {}).items():
+        name = str(raw_name).replace("\r", "").replace("\n", "").replace('"', "\\\"")
+        value = str(raw_value).replace("{{ prompt }}", prompt).replace("{{prompt}}", prompt)
+        chunks.extend(
+            [
+                f"--{boundary}\r\n".encode("ascii"),
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"),
+                value.encode("utf-8"),
+                b"\r\n",
+            ]
+        )
+    chunks.append(f"--{boundary}--\r\n".encode("ascii"))
+    return b"".join(chunks)
+
+
+def _set_header_case_insensitive(headers: dict[str, Any], name: str, value: str) -> None:
+    existing = next((key for key in headers if str(key).lower() == name.lower()), None)
+    if existing is None:
+        headers[name] = value
+    else:
+        headers[existing] = value
 
 
 def _read_connector_response_body(response: Any, transport: str) -> str:
@@ -569,6 +606,36 @@ def _read_connector_response_body(response: Any, transport: str) -> str:
         if decoded.strip() == "data: [DONE]":
             break
     return "".join(lines)
+
+
+def _response_content_type(response: Any) -> str:
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return ""
+    try:
+        return str(headers.get("Content-Type") or "").strip()
+    except (AttributeError, TypeError):
+        return ""
+
+
+def _detect_connector_transport(
+    configured_transport: str,
+    content_type: str = "",
+    raw_response: str = "",
+) -> str:
+    if configured_transport == "websocket":
+        return "websocket"
+    normalized_content_type = content_type.lower()
+    if "text/event-stream" in normalized_content_type:
+        return "sse"
+    if raw_response and any(
+        line.startswith(("data:", "event:", "id:", "retry:"))
+        for line in raw_response.lstrip("\ufeff").splitlines()
+    ):
+        return "sse"
+    if raw_response and configured_transport == "sse":
+        return "http"
+    return configured_transport
 
 
 async def _send_websocket_once(url: str, headers: dict[str, Any], message: str) -> str:

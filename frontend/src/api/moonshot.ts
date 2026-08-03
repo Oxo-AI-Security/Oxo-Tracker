@@ -56,6 +56,9 @@ export const moonshotApi = {
       requestPreview: string
       rawResponse: string
       extractedResponse: string
+      httpStatus?: number
+      responseContentType?: string
+      detectedTransport?: 'http' | 'sse' | 'websocket'
       error?: string
     }>('/api/v1/moonshot/connectors/test', { config, test_prompt: testPrompt })
     return data

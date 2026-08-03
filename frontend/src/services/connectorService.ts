@@ -27,6 +27,10 @@ export const connectorService = {
 
   async saveConnector(config: ConnectorConfig) {
     config.params.connector_config.description = config.description || ''
+    if (config.connector_type === CONFIGURABLE_CONNECTOR) {
+      delete (config.params.connector_config as ConnectorConfig['params']['connector_config'] & { auth?: unknown }).auth
+      config.token = ''
+    }
     normalizeResponseConfig(config.params.connector_config.response)
     normalizePromptTemplates(config)
     const payload: EndpointCreatePayload = {
@@ -94,7 +98,6 @@ export function defaultConnectorConfig(protocol: ConnectorProtocol = 'http', con
       timeout: 30,
       connector_config: {
         transport: protocol,
-        auth: { type: 'none' },
         request: protocol === 'http' ? { method: 'POST', path: '', headers: { 'content-type': 'application/json' }, queryParams: {}, bodyType: 'json', formFields: {}, bodyTemplate: '{"message":"{{ prompt }}"}' } : undefined,
         stream: protocol === 'sse' ? { path: '', method: 'GET', headers: { accept: 'text/event-stream' }, queryParams: { prompt: '{{ prompt }}' }, bodyType: 'none', formFields: {}, bodyTemplate: '', eventField: 'data' } : undefined,
         websocket: protocol === 'websocket' ? { path: '', headers: {}, queryParams: {}, messageTemplate: '{"message":"{{ prompt }}"}', responseMessageField: 'message' } : undefined,
@@ -106,12 +109,94 @@ export function defaultConnectorConfig(protocol: ConnectorProtocol = 'http', con
 
 export function applyTemplate(config: ConnectorConfig, protocol: ConnectorProtocol) {
   const next = defaultConnectorConfig(protocol, config.connector_type)
-  return { ...config, uri: next.uri, params: next.params }
+  return { ...config, uri: next.uri, token: config.connector_type === CONFIGURABLE_CONNECTOR ? '' : config.token, params: next.params }
+}
+
+export function migrateConnectorProtocol(config: ConnectorConfig, protocol: ConnectorProtocol): ConnectorConfig {
+  const current = config.params.connector_config
+  if (current.transport === protocol) return config
+
+  const source = current.transport === 'http'
+    ? current.request
+    : current.transport === 'sse'
+      ? current.stream
+      : current.websocket
+  const headers = { ...(source?.headers || {}) }
+  const queryParams = { ...(source?.queryParams || {}) }
+  const path = source?.path || ''
+  const bodyTemplate = source && 'bodyTemplate' in source
+    ? source.bodyTemplate || ''
+    : source && 'messageTemplate' in source
+      ? source.messageTemplate
+      : ''
+  const messageTemplate = bodyTemplate || '{"message":"{{ prompt }}"}'
+  const bodyType = source && 'bodyType' in source ? source.bodyType || 'json' : 'json'
+  const formFields = source && 'formFields' in source ? { ...(source.formFields || {}) } : {}
+  const sourceMethod = source && 'method' in source ? source.method : undefined
+  const uri = migrateConnectorUriScheme(config.uri, protocol)
+
+  return {
+    ...config,
+    uri,
+    params: {
+      ...config.params,
+      connector_config: {
+        description: current.description,
+        transport: protocol,
+        request: protocol === 'http'
+          ? {
+              method: sourceMethod === 'PUT' || sourceMethod === 'PATCH' ? sourceMethod : sourceMethod === 'GET' ? 'GET' : 'POST',
+              path,
+              headers,
+              queryParams,
+              bodyType,
+              formFields,
+              bodyTemplate: messageTemplate,
+            }
+          : undefined,
+        stream: protocol === 'sse'
+          ? {
+              path,
+              method: sourceMethod === 'GET' ? 'GET' : 'POST',
+              headers,
+              queryParams,
+              bodyType,
+              formFields,
+              bodyTemplate: messageTemplate,
+              eventField: current.stream?.eventField || 'data',
+              dataPrefix: current.stream?.dataPrefix,
+            }
+          : undefined,
+        websocket: protocol === 'websocket'
+          ? {
+              path,
+              headers,
+              queryParams,
+              messageTemplate,
+              responseMessageField: current.websocket?.responseMessageField || 'message',
+            }
+          : undefined,
+        response: { ...current.response },
+      },
+    },
+  }
+}
+
+function migrateConnectorUriScheme(uri: string, protocol: ConnectorProtocol) {
+  const trimmed = uri.trim()
+  if (protocol === 'websocket') {
+    if (trimmed.startsWith('https://')) return `wss://${trimmed.slice('https://'.length)}`
+    if (trimmed.startsWith('http://')) return `ws://${trimmed.slice('http://'.length)}`
+    return uri
+  }
+  if (trimmed.startsWith('wss://')) return `https://${trimmed.slice('wss://'.length)}`
+  if (trimmed.startsWith('ws://')) return `http://${trimmed.slice('ws://'.length)}`
+  return uri
 }
 
 export function endpointToConfig(endpoint: ConnectorEndpointItem): ConnectorConfig {
   const params = endpoint.connector_type === CONFIGURABLE_CONNECTOR
-    ? normalizeParams(endpoint.params)
+    ? normalizeParams(endpoint.params, endpoint.token)
     : (endpoint.params as ConnectorConfig['params'])
   const meta = readMeta()[endpoint.id]
   return {
@@ -120,7 +205,7 @@ export function endpointToConfig(endpoint: ConnectorEndpointItem): ConnectorConf
     description: typeof params.connector_config?.description === 'string' ? params.connector_config.description : '',
     connector_type: endpoint.connector_type,
     uri: endpoint.uri,
-    token: endpoint.token || '',
+    token: endpoint.connector_type === CONFIGURABLE_CONNECTOR ? '' : endpoint.token || '',
     model: endpoint.model || '',
     source: meta?.source || (endpoint.connector_type === CONFIGURABLE_CONNECTOR ? 'user-created' : 'built-in'),
     ownerId: meta?.ownerId || (endpoint.connector_type === CONFIGURABLE_CONNECTOR ? currentUser.id : 'system'),
@@ -169,13 +254,19 @@ function toConnectorGroup(type: string, endpoints: ConnectorEndpointItem[]): Con
   }
 }
 
-function normalizeParams(params: Record<string, unknown>) {
+interface LegacyAuthConfig {
+  type?: string
+  headerName?: string
+  username?: string
+}
+
+function normalizeParams(params: Record<string, unknown>, legacyToken = '') {
   if (params.connector_config) {
     const normalized = params as ConnectorConfig['params']
     const config = normalized.connector_config
     const timeout = Number(normalized.timeout || 30)
     normalized.timeout = timeout > 1000 ? Math.max(1, Math.round(timeout / 1000)) : Math.max(1, timeout)
-    config.auth ||= { type: 'none' }
+    migrateLegacyAuthToHeaders(config, legacyToken)
     config.response ||= { type: 'json-path', path: '$.output' }
     normalizeResponseConfig(config.response)
     if (config.request) {
@@ -199,6 +290,30 @@ function normalizeParams(params: Record<string, unknown>) {
     return normalized
   }
   return defaultConnectorConfig('http').params
+}
+
+function migrateLegacyAuthToHeaders(config: ConnectorConfig['params']['connector_config'], token: string) {
+  const legacyCarrier = config as ConnectorConfig['params']['connector_config'] & { auth?: LegacyAuthConfig }
+  const auth = legacyCarrier.auth
+  delete legacyCarrier.auth
+  if (!auth || !token) return
+  const request = config.transport === 'http' ? config.request : config.transport === 'sse' ? config.stream : config.websocket
+  if (!request) return
+  request.headers ||= {}
+  const type = String(auth.type || 'none').toLowerCase()
+  const headerName = auth.headerName || (type === 'api-key' ? 'x-api-key' : type === 'cookie' ? 'Cookie' : 'Authorization')
+  const hasHeader = Object.keys(request.headers).some((name) => name.toLowerCase() === headerName.toLowerCase())
+  if (hasHeader) return
+  if (type === 'bearer') request.headers[headerName] = `Bearer ${token}`
+  else if (type === 'api-key' || type === 'cookie') request.headers[headerName] = token
+  else if (type === 'basic') request.headers.Authorization = `Basic ${encodeBasicCredential(`${auth.username || ''}:${token}`)}`
+}
+
+function encodeBasicCredential(value: string) {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
 }
 
 function normalizeResponseConfig(response: ConnectorConfig['params']['connector_config']['response']) {
