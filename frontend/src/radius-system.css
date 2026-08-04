@@ -107,7 +107,6 @@
 .evaluator-picker-card,
 .ai-provider-card,
 .ai-config-panel,
-.tcp-forwarder-card,
 .connector-builder-card,
 .connector-form-card,
 .report-card,
@@ -142,7 +141,6 @@
 .payload-pipeline,
 .wizard-footer,
 .connector-directory-heading,
-.tcp-forwarder-script-preview > div,
 [class$="-section"],
 [class*="-section "],
 [class$="-toolbar"],
@@ -169,7 +167,6 @@ input,
 select,
 textarea,
 code,
-.tcp-forwarder-run-command,
 [class$="-item"],
 [class*="-item "] {
   border-radius: var(--radius-compact) !important;

@@ -280,11 +280,16 @@ class ConfigurableAppConnector(Connector):
 
     def _read_json_path(self, data, path: str):
         current = data
+        if str(path).strip() in {"", "$"}:
+            return current
         for part in path.replace("$.", "").split("."):
             if isinstance(current, dict):
                 current = current.get(part)
             elif isinstance(current, list) and part.isdigit():
-                current = current[int(part)]
+                index = int(part)
+                if index >= len(current):
+                    return None
+                current = current[index]
             else:
                 return None
         return current

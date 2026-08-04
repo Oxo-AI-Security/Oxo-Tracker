@@ -11,7 +11,6 @@ import HistoryView from '../views/HistoryView.vue'
 import JobRunView from '../views/JobRunView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import AISettingsView from '../views/AISettingsView.vue'
-import TCPForwarderView from '../views/TCPForwarderView.vue'
 import ConnectorList from '../views/agents/connectors/ConnectorList.vue'
 import ConnectorBuilder from '../views/agents/connectors/ConnectorBuilder.vue'
 import ConnectorEndpoints from '../views/agents/connectors/ConnectorEndpoints.vue'
@@ -52,7 +51,6 @@ const router = createRouter({
         { path: 'history', name: 'history', component: HistoryView, meta: { breadcrumbs: [{ label: 'History', labelKey: 'route.history' }] } },
         { path: 'settings', name: 'settings', component: SettingsView, meta: { breadcrumbs: [{ label: 'Settings', labelKey: 'route.settings' }] } },
         { path: 'settings/ai', name: 'ai-settings', component: AISettingsView, meta: { breadcrumbs: [...settingsBreadcrumb, { label: 'AI settings', labelKey: 'route.aiSettings' }] } },
-        { path: 'settings/tcp-forwarder', name: 'tcp-forwarder', component: TCPForwarderView, meta: { breadcrumbs: [...settingsBreadcrumb, { label: 'TCP port forwarder', labelKey: 'route.tcpForwarder' }] } },
       ],
     },
   ],

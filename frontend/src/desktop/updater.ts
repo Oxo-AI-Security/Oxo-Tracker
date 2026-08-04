@@ -16,6 +16,11 @@ export interface UpdateDownloadProgress {
   finished: boolean
 }
 
+interface DesktopUpdateDependencies {
+  prepareForInstall: () => Promise<void>
+  relaunch: () => Promise<void>
+}
+
 interface ParsedVersion {
   core: [number, number, number]
   prerelease: Array<number | string>
@@ -111,10 +116,11 @@ export async function checkForDesktopUpdate(): Promise<Update | null> {
 export async function downloadInstallAndRelaunch(
   update: Update,
   onProgress: (progress: UpdateDownloadProgress) => void,
+  dependencies?: DesktopUpdateDependencies,
 ) {
   let downloadedBytes = 0
   let totalBytes: number | null = null
-  await update.downloadAndInstall((event) => {
+  await update.download((event) => {
     if (event.event === 'Started') {
       totalBytes = event.data.contentLength ?? null
     } else if (event.event === 'Progress') {
@@ -130,6 +136,21 @@ export async function downloadInstallAndRelaunch(
       finished,
     })
   })
-  const { relaunch } = await import('@tauri-apps/plugin-process')
-  await relaunch()
+
+  const runtime = dependencies ?? {
+    prepareForInstall: async () => {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('prepare_desktop_update')
+    },
+    relaunch: async () => {
+      const { relaunch } = await import('@tauri-apps/plugin-process')
+      await relaunch()
+    },
+  }
+
+  await runtime.prepareForInstall()
+  await update.install()
+  // The Windows updater exits the current process while installing. This is
+  // retained for platforms where install() returns after replacing the app.
+  await runtime.relaunch()
 }

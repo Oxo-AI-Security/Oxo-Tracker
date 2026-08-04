@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import shutil
 import time
 from pathlib import Path
@@ -24,6 +25,7 @@ from app.services.redteam_task_agent_service import (
 )
 
 router = APIRouter(prefix="/moonshot", tags=["Moonshot Explicit API"])
+logger = logging.getLogger(__name__)
 REDTEAM_DATA_DIR = Path("data/redteam_sessions")
 
 
@@ -277,6 +279,7 @@ def ai_configure_connector(data: dict[str, Any] = Body(...)) -> dict[str, Any]:
     partial_config: dict[str, Any] | None = None
     test_prompt = "Hello"
     ai_service: ConnectorAIService | None = None
+    current_stage = "analysis"
     try:
         ai_service = ConnectorAIService()
         draft = ai_service.generate_draft(request_information)
@@ -295,6 +298,7 @@ def ai_configure_connector(data: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 "model": ai_service.model,
             }
 
+        current_stage = "request"
         test_result = test_connector({"config": partial_config, "test_prompt": test_prompt})
         if test_result.get("status") != "success":
             reason = str(test_result.get("error") or "The target request failed.")
@@ -311,16 +315,26 @@ def ai_configure_connector(data: dict[str, Any] = Body(...)) -> dict[str, Any]:
             }
 
         raw_response = str(test_result.get("rawResponse") or "")
+        current_stage = "response"
         try:
             response_mapping = ai_service.infer_response(
                 raw_response=raw_response,
                 extracted_hint=str(test_result.get("extractedResponse") or ""),
             )
-        except ConnectorAIError as error:
+        except Exception as error:
+            if not isinstance(error, ConnectorAIError):
+                logger.exception("Connector AI response-field inference failed")
             return {
                 "status": "partial",
                 "stage": "response",
-                "message": str(error),
+                "message": (
+                    str(error)
+                    if isinstance(error, ConnectorAIError)
+                    else (
+                        "The request succeeded, but the response field could not be "
+                        "identified automatically."
+                    )
+                ),
                 "missingInformation": [
                     "Provide a representative successful response body or identify the field that contains the assistant answer."
                 ],
@@ -331,8 +345,27 @@ def ai_configure_connector(data: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 "model": ai_service.model,
             }
 
-        partial_config["params"]["connector_config"]["response"] = response_mapping
-        extracted = _extract_connector_response(raw_response, response_mapping)
+        try:
+            partial_config["params"]["connector_config"]["response"] = response_mapping
+            extracted = _extract_connector_response(raw_response, response_mapping)
+        except Exception:
+            logger.exception("Connector AI response mapping could not be applied")
+            return {
+                "status": "partial",
+                "stage": "response",
+                "message": (
+                    "The request succeeded, but the proposed response mapping was not "
+                    "valid for the returned data."
+                ),
+                "missingInformation": [
+                    "Select the exact response value in Output Mapping to finish the connector."
+                ],
+                "config": partial_config,
+                "testPrompt": test_prompt,
+                "testResult": test_result,
+                "provider": ai_service.provider,
+                "model": ai_service.model,
+            }
         test_result["extractedResponse"] = extracted
         if extracted and not response_mapping.get("selectedText"):
             response_mapping["selectedText"] = extracted
@@ -374,11 +407,28 @@ def ai_configure_connector(data: dict[str, Any] = Body(...)) -> dict[str, Any]:
             "model": ai_service.model if ai_service else "",
         }
     except Exception:
+        logger.exception("Connector AI configuration failed during %s", current_stage)
+        stage_messages = {
+            "request": (
+                "The request configuration was generated, but the target request could "
+                "not be completed."
+            ),
+            "response": (
+                "The target responded, but its answer field could not be configured "
+                "automatically."
+            ),
+        }
         return {
             "status": "error",
-            "stage": "analysis",
-            "message": "AI configuration stopped unexpectedly. The fields already generated have been kept.",
-            "missingInformation": ["Try again or add a complete cURL example and a successful response sample."],
+            "stage": current_stage,
+            "message": stage_messages.get(
+                current_stage,
+                "The request information could not be analyzed. Existing fields were kept.",
+            ),
+            "missingInformation": [
+                "Review the generated fields and provide a representative successful "
+                "response sample if response mapping is still needed."
+            ],
             "config": partial_config,
             "testPrompt": test_prompt,
             "provider": ai_service.provider if ai_service else "",
@@ -453,11 +503,16 @@ def _extract_text_fragment(raw: str, response_config: dict[str, Any]) -> str | N
 
 def _read_json_path(data: Any, path: str) -> Any:
     current = data
+    if path.strip() in {"", "$"}:
+        return current
     for part in path.replace("$.", "").split("."):
         if isinstance(current, dict):
             current = current.get(part)
         elif isinstance(current, list) and part.isdigit():
-            current = current[int(part)]
+            index = int(part)
+            if index >= len(current):
+                return None
+            current = current[index]
         else:
             return None
     return current

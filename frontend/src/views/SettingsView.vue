@@ -19,22 +19,6 @@
         </div>
       </RouterLink>
 
-      <RouterLink to="/settings/tcp-forwarder" class="settings-row-card settings-row-card--link">
-        <div class="settings-row-main">
-          <span class="settings-row-icon settings-row-icon--network">
-            <n-icon size="22"><GitNetworkOutline /></n-icon>
-          </span>
-          <div>
-            <strong>{{ t('settings.tcpTitle') }}</strong>
-            <span>{{ t('settings.tcpDescription') }}</span>
-          </div>
-        </div>
-        <div class="settings-row-action">
-          <span class="settings-tool-label">{{ t('settings.generateScript') }}</span>
-          <n-icon size="20"><ChevronForwardOutline /></n-icon>
-        </div>
-      </RouterLink>
-
       <article class="settings-row-card">
         <div class="settings-row-main">
           <span class="settings-row-icon">
@@ -105,7 +89,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ChevronForwardOutline, ColorPaletteOutline, GitNetworkOutline, LanguageOutline, ResizeOutline, SparklesOutline } from '@vicons/ionicons5'
+import { ChevronForwardOutline, ColorPaletteOutline, LanguageOutline, ResizeOutline, SparklesOutline } from '@vicons/ionicons5'
 import { useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../stores/settings'

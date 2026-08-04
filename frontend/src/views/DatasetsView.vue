@@ -192,9 +192,93 @@
     <GlassPanel v-else class="dataset-form-panel">
       <div class="builder-header">
         <h2>{{ editingId ? $t('auto.da3340593420') : $t('auto.ffd841185e30') }}</h2>
-        <n-button circle quaternary @click="mode = 'list'">
-          <template #icon><n-icon><CloseOutline /></n-icon></template>
-        </n-button>
+        <div class="dataset-builder-header-actions">
+          <span class="dataset-excel-mode-badge">
+            <small>{{ excelUi.templateMode }}</small>
+            <strong>{{ form.mode === 'exact' ? excelUi.exact : excelUi.judge }}</strong>
+          </span>
+          <input
+            ref="excelFileInput"
+            class="dataset-excel-file-input"
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            @change="importExcelFile"
+          />
+          <n-popover
+            raw
+            trigger="click"
+            placement="bottom-end"
+            :show="templatePickerOpen"
+            :show-arrow="false"
+            @update:show="templatePickerOpen = $event"
+          >
+            <template #trigger>
+              <button
+                class="dataset-excel-action dataset-excel-action--template"
+                type="button"
+                :disabled="downloadingTemplate || importingExcel"
+              >
+                <span class="dataset-excel-action-icon"><n-icon><CloudDownloadOutline /></n-icon></span>
+                <span>
+                  <strong>{{ excelUi.downloadTemplate }}</strong>
+                  <small>{{ excelUi.chooseFormat }}</small>
+                </span>
+                <n-icon class="dataset-excel-action-chevron"><ChevronDownOutline /></n-icon>
+              </button>
+            </template>
+
+            <section class="dataset-template-picker">
+              <header class="dataset-template-picker__header">
+                <span><n-icon><CloudDownloadOutline /></n-icon></span>
+                <div>
+                  <strong>{{ excelUi.chooseTemplate }}</strong>
+                  <small>{{ excelUi.chooseTemplateHint }}</small>
+                </div>
+              </header>
+              <div class="dataset-template-picker__options">
+                <button type="button" :disabled="downloadingTemplate" @click="downloadExcelTemplate('exact')">
+                  <span class="dataset-template-picker__number">01</span>
+                  <span class="dataset-template-picker__copy">
+                    <strong>{{ excelUi.exactColumns }}</strong>
+                    <small>{{ excelUi.exactTemplateHint }}</small>
+                    <span class="dataset-template-picker__schema">
+                      <i>{{ excelUi.inputColumn }}</i><b>+</b><i>{{ excelUi.expectedColumn }}</i>
+                    </span>
+                    <em>{{ excelUi.examplesIncluded }}</em>
+                  </span>
+                  <span class="dataset-template-picker__download"><n-icon><CloudDownloadOutline /></n-icon></span>
+                </button>
+                <button type="button" :disabled="downloadingTemplate" @click="downloadExcelTemplate('judge')">
+                  <span class="dataset-template-picker__number is-blue">02</span>
+                  <span class="dataset-template-picker__copy">
+                    <strong>{{ excelUi.inputOnly }}</strong>
+                    <small>{{ excelUi.inputOnlyTemplateHint }}</small>
+                    <span class="dataset-template-picker__schema is-blue">
+                      <i>{{ excelUi.inputColumn }}</i>
+                    </span>
+                    <em>{{ excelUi.examplesIncluded }}</em>
+                  </span>
+                  <span class="dataset-template-picker__download is-blue"><n-icon><CloudDownloadOutline /></n-icon></span>
+                </button>
+              </div>
+            </section>
+          </n-popover>
+          <button
+            class="dataset-excel-action dataset-excel-action--import"
+            type="button"
+            :disabled="downloadingTemplate || importingExcel"
+            @click="openExcelPicker"
+          >
+            <span class="dataset-excel-action-icon"><n-icon><CloudUploadOutline /></n-icon></span>
+            <span>
+              <strong>{{ importingExcel ? excelUi.checking : excelUi.importExcel }}</strong>
+              <small>{{ excelUi.validateFirst }}</small>
+            </span>
+          </button>
+          <n-button circle quaternary @click="mode = 'list'">
+            <template #icon><n-icon><CloseOutline /></n-icon></template>
+          </n-button>
+        </div>
       </div>
 
       <div class="dataset-form-grid">
@@ -279,6 +363,27 @@
             <template #icon><n-icon><AddOutline /></n-icon></template> {{ $t('auto.f648af13b3a1') }} </n-button>
         </div>
 
+        <div
+          v-if="excelImportReport"
+          class="dataset-import-report"
+          :class="`dataset-import-report--${excelImportReport.kind}`"
+          role="status"
+        >
+          <span class="dataset-import-report-icon">
+            <n-icon><CheckmarkCircleOutline v-if="excelImportReport.kind === 'success'" /><AlertCircleOutline v-else /></n-icon>
+          </span>
+          <div>
+            <strong>{{ excelImportReport.title }}</strong>
+            <p>{{ excelImportReport.summary }}</p>
+            <ul v-if="excelImportReport.details.length">
+              <li v-for="detail in excelImportReport.details" :key="detail">{{ detail }}</li>
+            </ul>
+          </div>
+          <button type="button" :aria-label="excelUi.dismissReport" @click="excelImportReport = null">
+            <n-icon><CloseOutline /></n-icon>
+          </button>
+        </div>
+
         <div class="dataset-edit-list">
           <article v-for="(example, index) in form.examples" :key="example.localId" class="dataset-edit-row">
             <header>
@@ -321,10 +426,15 @@ import { translateSource } from '../i18n'
 
 import { computed, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
+import { useI18n } from 'vue-i18n'
 import {
   AddOutline,
+  AlertCircleOutline,
+  CheckmarkCircleOutline,
   CloseOutline,
   ChevronDownOutline,
+  CloudDownloadOutline,
+  CloudUploadOutline,
   FileTrayStackedOutline,
   SearchOutline,
   TrashOutline,
@@ -334,12 +444,21 @@ import { http } from '../api/http'
 import { moonshotApi } from '../api/moonshot'
 import { useMoonshotStore } from '../stores/moonshot'
 import type { DatasetCreatePayload, DatasetExample, DatasetRecord, DatasetUpdatePayload } from '../types/moonshot'
+import {
+  DatasetExcelValidationError,
+  createDatasetTemplateBuffer,
+  datasetTemplateFileName,
+  parseDatasetWorkbook,
+  type DatasetExcelMode,
+} from '../utils/datasetExcel'
 
 type Mode = 'list' | 'form' | 'detail'
 type DatasetMode = 'exact' | 'judge'
 type EditableExample = { localId: string; input: string; target: string }
+type ExcelImportReport = { kind: 'success' | 'error'; title: string; summary: string; details: string[] }
 
 const message = useMessage()
+const { locale } = useI18n()
 const store = useMoonshotStore()
 const mode = ref<Mode>('list')
 const search = ref('')
@@ -354,6 +473,79 @@ const detailPageSize = 25
 const editingId = ref('')
 const submitting = ref(false)
 const policyGuideOpen = ref(false)
+const excelFileInput = ref<HTMLInputElement | null>(null)
+const downloadingTemplate = ref(false)
+const templatePickerOpen = ref(false)
+const importingExcel = ref(false)
+const excelImportReport = ref<ExcelImportReport | null>(null)
+
+const excelCopy = {
+  'zh-CN': {
+    templateMode: '模板类型',
+    exact: '确切答案',
+    judge: 'AI 法官',
+    downloadTemplate: '下载 Excel 模板',
+    chooseFormat: '选择两种模板格式',
+    chooseTemplate: '选择数据集模板',
+    chooseTemplateHint: '下载适合当前数据结构的 Excel 文件。',
+    exactColumns: '输入 + 预期答案',
+    judgeColumns: '仅输入 · 策略在界面选择',
+    inputOnly: '仅输入',
+    exactTemplateHint: '适用于答案匹配、分类标签等确切结果。',
+    inputOnlyTemplateHint: '适用于 AI 法官或仅需批量提示词的测试。',
+    inputColumn: '输入',
+    expectedColumn: '预期答案',
+    examplesIncluded: '包含 3 条独立示例，不会混入导入数据',
+    importExcel: '导入 Excel',
+    checking: '正在检查…',
+    validateFirst: '校验通过后再导入',
+    dismissReport: '关闭导入检查结果',
+    downloadSuccess: 'Excel 模板已下载',
+    downloadFailure: '模板生成失败，请稍后重试。',
+    fileTooLarge: 'Excel 文件不能超过 10 MB。',
+    wrongExtension: '请选择 .xlsx 格式的 Excel 文件。',
+    importSuccessTitle: '格式检查通过，数据已导入',
+    importSuccessSummary: (name: string, count: number) => `${name} · ${count} 行测试数据已写入下方表单。`,
+    importFailureTitle: 'Excel 格式检查未通过',
+    importFailureSummary: (name: string) => `${name} 未导入，请修正以下问题后重试。`,
+    importFailureFallback: '无法读取或校验该 Excel 文件。',
+    rowLabel: (row?: number) => row ? `第 ${row} 行` : '工作簿',
+  },
+  'en-US': {
+    templateMode: 'Template mode',
+    exact: 'Exact answer',
+    judge: 'AI judge',
+    downloadTemplate: 'Download Excel template',
+    chooseFormat: 'Choose from two formats',
+    chooseTemplate: 'Choose a dataset template',
+    chooseTemplateHint: 'Download the Excel structure that matches your data.',
+    exactColumns: 'Input + Expected answer',
+    judgeColumns: 'Input only · policy stays here',
+    inputOnly: 'Input only',
+    exactTemplateHint: 'For exact answers, labels, and deterministic results.',
+    inputOnlyTemplateHint: 'For AI judge policies or prompt-only test batches.',
+    inputColumn: 'Input',
+    expectedColumn: 'Expected answer',
+    examplesIncluded: 'Includes 3 separate examples that are never imported',
+    importExcel: 'Import Excel',
+    checking: 'Validating…',
+    validateFirst: 'Validate before import',
+    dismissReport: 'Dismiss import validation result',
+    downloadSuccess: 'Excel template downloaded',
+    downloadFailure: 'Unable to generate the template. Try again.',
+    fileTooLarge: 'The Excel file must be 10 MB or smaller.',
+    wrongExtension: 'Choose an Excel file in .xlsx format.',
+    importSuccessTitle: 'Validation passed and data imported',
+    importSuccessSummary: (name: string, count: number) => `${name} · ${count} test rows were added to the form below.`,
+    importFailureTitle: 'Excel validation failed',
+    importFailureSummary: (name: string) => `${name} was not imported. Fix the following issues and try again.`,
+    importFailureFallback: 'Unable to read or validate this Excel file.',
+    rowLabel: (row?: number) => row ? `Row ${row}` : 'Workbook',
+  },
+} as const
+
+const excelUi = computed(() => excelCopy[locale.value === 'zh-CN' ? 'zh-CN' : 'en-US'])
+const excelLocale = computed(() => locale.value === 'zh-CN' ? 'zh-CN' : 'en-US')
 
 const datasetScopeOptions = [
   { label: translateSource('auto.ccf1384cbc9e'), value: 'all' },
@@ -600,6 +792,8 @@ function resetForm() {
   form.policyTarget = 'vcr'
   form.examples = [newExample()]
   editingId.value = ''
+  excelImportReport.value = null
+  if (excelFileInput.value) excelFileInput.value.value = ''
 }
 
 function openCreate() {
@@ -623,6 +817,7 @@ async function openEdit(dataset: DatasetRecord) {
     input: example.input,
     target: example.target,
   }))
+  excelImportReport.value = null
   mode.value = 'form'
 }
 
@@ -651,6 +846,98 @@ function removeExample(index: number) {
 
 function setMode(nextMode: DatasetMode) {
   form.mode = nextMode
+  excelImportReport.value = null
+}
+
+function openExcelPicker() {
+  excelFileInput.value?.click()
+}
+
+async function downloadExcelTemplate(templateMode: DatasetExcelMode) {
+  downloadingTemplate.value = true
+  try {
+    const bytes = await createDatasetTemplateBuffer(templateMode, excelLocale.value)
+    const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+    const blob = new Blob([data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = datasetTemplateFileName(templateMode, excelLocale.value)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    templatePickerOpen.value = false
+    message.success(excelUi.value.downloadSuccess)
+  } catch (error) {
+    console.error('Unable to generate dataset Excel template', error)
+    message.error(excelUi.value.downloadFailure)
+  } finally {
+    downloadingTemplate.value = false
+  }
+}
+
+async function importExcelFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  excelImportReport.value = null
+  if (!file.name.toLowerCase().endsWith('.xlsx')) {
+    excelImportReport.value = {
+      kind: 'error',
+      title: excelUi.value.importFailureTitle,
+      summary: excelUi.value.importFailureSummary(file.name),
+      details: [excelUi.value.wrongExtension],
+    }
+    input.value = ''
+    return
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    excelImportReport.value = {
+      kind: 'error',
+      title: excelUi.value.importFailureTitle,
+      summary: excelUi.value.importFailureSummary(file.name),
+      details: [excelUi.value.fileTooLarge],
+    }
+    input.value = ''
+    return
+  }
+
+  importingExcel.value = true
+  try {
+    const rows = await parseDatasetWorkbook(await file.arrayBuffer(), form.mode)
+    form.examples = rows.map((row) => ({
+      localId: crypto.randomUUID(),
+      input: row.input,
+      target: row.target,
+    }))
+    excelImportReport.value = {
+      kind: 'success',
+      title: excelUi.value.importSuccessTitle,
+      summary: excelUi.value.importSuccessSummary(file.name, rows.length),
+      details: form.mode === 'judge'
+        ? [`${excelUi.value.judge} · ${targetLabel(form.policyTarget)}`]
+        : [`${excelUi.value.exact} · ${excelUi.value.exactColumns}`],
+    }
+    message.success(excelUi.value.importSuccessTitle)
+  } catch (error) {
+    const details = error instanceof DatasetExcelValidationError
+      ? error.issues.slice(0, 8).map((issue) => `${excelUi.value.rowLabel(issue.row)}：${issue.message}`)
+      : [error instanceof Error ? error.message : excelUi.value.importFailureFallback]
+    excelImportReport.value = {
+      kind: 'error',
+      title: excelUi.value.importFailureTitle,
+      summary: excelUi.value.importFailureSummary(file.name),
+      details,
+    }
+    message.error(excelUi.value.importFailureTitle)
+  } finally {
+    importingExcel.value = false
+    input.value = ''
+  }
 }
 
 function targetForExample(example: EditableExample) {

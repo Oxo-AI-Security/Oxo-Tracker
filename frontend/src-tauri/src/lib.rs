@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
     net::{SocketAddr, TcpStream},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     time::Duration,
 };
 use tauri::{Manager, RunEvent, WindowEvent};
@@ -31,6 +34,7 @@ struct ReadyPayload {
 struct DesktopState {
     bootstrap: Mutex<Option<DesktopBootstrap>>,
     child: Mutex<Option<CommandChild>>,
+    sidecar_running: AtomicBool,
     startup_error: Mutex<Option<String>>,
 }
 
@@ -48,6 +52,27 @@ async fn desktop_bootstrap(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     Err("Desktop API did not become ready within 90 seconds".into())
+}
+
+#[tauri::command]
+async fn prepare_desktop_update(state: tauri::State<'_, DesktopState>) -> Result<(), String> {
+    let child = state.child.lock().map_err(lock_error)?.take();
+    let Some(child) = child else {
+        return Ok(());
+    };
+
+    child
+        .kill()
+        .map_err(|error| format!("Failed to stop the desktop backend before updating: {error}"))?;
+
+    for _ in 0..100 {
+        if !state.sidecar_running.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    Err("Desktop backend did not exit before the update installer started".into())
 }
 
 fn lock_error<T>(error: std::sync::PoisonError<T>) -> String {
@@ -91,6 +116,9 @@ fn start_sidecar(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
         .lock()
         .map_err(lock_error)?
         .replace(child);
+    app.state::<DesktopState>()
+        .sidecar_running
+        .store(true, Ordering::Release);
 
     let handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
@@ -155,11 +183,17 @@ fn start_sidecar(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
                 CommandEvent::Error(error) if !ready => {
                     record_startup_error(&handle, format!("Sidecar process error: {error}"));
                 }
-                CommandEvent::Terminated(status) if !ready => {
-                    record_startup_error(
-                        &handle,
-                        format!("Sidecar exited during startup: {status:?}"),
-                    );
+                CommandEvent::Terminated(status) => {
+                    handle
+                        .state::<DesktopState>()
+                        .sidecar_running
+                        .store(false, Ordering::Release);
+                    if !ready {
+                        record_startup_error(
+                            &handle,
+                            format!("Sidecar exited during startup: {status:?}"),
+                        );
+                    }
                     break;
                 }
                 _ => {}
@@ -274,7 +308,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(DesktopState::default())
-        .invoke_handler(tauri::generate_handler![desktop_bootstrap])
+        .invoke_handler(tauri::generate_handler![
+            desktop_bootstrap,
+            prepare_desktop_update
+        ])
         .setup(start_sidecar)
         .build(tauri::generate_context!())
         .expect("failed to build Oxo Tracker desktop application");

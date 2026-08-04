@@ -116,7 +116,6 @@ export default {
     history: 'History',
     settings: 'Settings',
     aiSettings: 'AI settings',
-    tcpForwarder: 'TCP port forwarder',
   },
   jobRun: {
     taskId: 'Task ID',
@@ -168,9 +167,6 @@ export default {
   settings: {
     aiTitle: 'AI settings',
     aiDescription: 'Choose the single LLM provider and model used by this workspace.',
-    tcpTitle: 'TCP port forwarder',
-    tcpDescription: 'Generate a relay script when Oxo Tracker cannot directly reach an AI service.',
-    generateScript: 'Generate script',
     themeTitle: 'Theme settings',
     themeDescription: 'Choose how Oxo Tracker looks across this workspace.',
     scaleTitle: 'Interface size',
@@ -181,6 +177,20 @@ export default {
     english: 'English',
     chinese: '中文',
     languageSaveFailed: 'Language setting could not be saved.',
+  },
+  redTeamPreview: {
+    originalLabel: 'Original prompt',
+    transformedLabel: 'Attack output',
+    appliedTitle: 'Attack transformation applied',
+    charswapApplied: 'Charswap modified {count} English words in this prompt.',
+    transformationApplied: 'The selected attack module changed the final prompt.',
+    appliedBadge: 'Applied',
+    noEligibleTextTitle: 'No eligible English text',
+    charswapRequirement: 'Charswap needs an English word with at least four letters. This attack leaves the current prompt unchanged.',
+    noTransformationTitle: 'No transformation available',
+    noTransformationDetail: 'This attack module does not define a visible prompt transformation for the current input.',
+    notAppliedBadge: 'Not applied',
+    highlightHint: 'Changed characters are highlighted below.',
   },
   payloadFlow: {
     datasets: {
@@ -252,6 +262,10 @@ export default {
     },
   },
   taskAgent: {
+    controls: {
+      managedTitle: 'Managed by Attack Agent',
+      managedDetail: 'Manual prompt transformations are paused for this run.',
+    },
     detail: {
       idle: 'Ready to begin the automated interaction.',
       paused: 'The background task is checkpointed and will remain unchanged until resumed.',

@@ -225,3 +225,4 @@ def test_runtime_asset_builds_multipart_body_with_matching_boundary() -> None:
     boundary = headers["content-type"].split("boundary=", 1)[1]
     assert f"--{boundary}\r\n".encode() in body
     assert b'name="message"\r\n\r\nhello\r\n' in body
+    assert connector._read_json_path({"items": []}, "$.items.4.answer") is None

@@ -116,7 +116,6 @@ export default {
     history: '历史记录',
     settings: '设置',
     aiSettings: 'AI 设置',
-    tcpForwarder: 'TCP 端口转发',
   },
   jobRun: {
     taskId: '任务标识',
@@ -168,9 +167,6 @@ export default {
   settings: {
     aiTitle: 'AI 设置',
     aiDescription: '选择此工作区使用的唯一大语言模型提供商和模型。',
-    tcpTitle: 'TCP 端口转发',
-    tcpDescription: '当 Oxo Tracker 无法直接访问 AI 服务时，生成中继脚本。',
-    generateScript: '生成脚本',
     themeTitle: '主题设置',
     themeDescription: '选择 Oxo Tracker 在此工作区中的显示外观。',
     scaleTitle: '界面大小',
@@ -181,6 +177,20 @@ export default {
     english: 'English',
     chinese: '中文',
     languageSaveFailed: '无法保存语言设置。',
+  },
+  redTeamPreview: {
+    originalLabel: '原始提示词',
+    transformedLabel: '攻击转换结果',
+    appliedTitle: '已应用攻击转换',
+    charswapApplied: 'Charswap 已修改此提示词中的 {count} 个英文单词。',
+    transformationApplied: '所选攻击模块已修改最终提示词。',
+    appliedBadge: '已应用',
+    noEligibleTextTitle: '没有可转换的英文文本',
+    charswapRequirement: 'Charswap 需要至少包含一个长度不小于 4 的英文单词；当前提示词不会被此攻击修改。',
+    noTransformationTitle: '没有可用的转换效果',
+    noTransformationDetail: '此攻击模块没有为当前输入定义可见的提示词转换。',
+    notAppliedBadge: '未应用',
+    highlightHint: '下方已高亮显示发生变化的字符。',
   },
   payloadFlow: {
     datasets: {
@@ -252,6 +262,10 @@ export default {
     },
   },
   taskAgent: {
+    controls: {
+      managedTitle: '由 Attack Agent 接管',
+      managedDetail: '本次运行期间已暂停手动提示词转换。',
+    },
     detail: {
       idle: '已准备开始自动交互。',
       paused: '后台任务已保存检查点，恢复前将保持不变。',
