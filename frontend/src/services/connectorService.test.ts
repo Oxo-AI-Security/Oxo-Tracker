@@ -88,6 +88,46 @@ describe('configurable connector request headers', () => {
     expect(config.params.connector_config.response.sampleResponse).toBe(sampleResponse)
   })
 
+  it('migrates a legacy selected response fragment to its JSON path', () => {
+    const sampleResponse =
+      '{"history_metadata":{"title":"Initial Greeting"}}\n' +
+      '{"choices":[{"messages":[{"content":"{{ output }}"}]}]}'
+    const endpoint: ConnectorEndpointItem = {
+      id: 'legacy-mapped-endpoint',
+      name: 'Legacy mapped endpoint',
+      connector_type: CONFIGURABLE_CONNECTOR,
+      uri: 'https://example.test/chat',
+      token: '',
+      model: '',
+      max_calls_per_second: 1,
+      max_concurrency: 1,
+      params: {
+        timeout: 30,
+        connector_config: {
+          transport: 'http',
+          request: {
+            method: 'POST',
+            path: '',
+            headers: { 'content-type': 'application/json' },
+            bodyType: 'json',
+            bodyTemplate: '{"message":"{{ prompt }}"}',
+          },
+          response: {
+            type: 'text-fragment',
+            path: '',
+            selectedText: 'Old answer',
+            sampleResponse,
+          },
+        },
+      },
+    }
+
+    const config = endpointToConfig(endpoint)
+
+    expect(config.params.connector_config.response.type).toBe('json-path')
+    expect(config.params.connector_config.response.path).toBe('$.choices.0.messages.0.content')
+  })
+
   it('preserves manually entered request data when switching an HTTP response to SSE', () => {
     const config = defaultConnectorConfig('http')
     config.uri = 'https://example.test/events'

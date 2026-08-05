@@ -4986,7 +4986,7 @@ function appendBackgroundTurnMessages(
     }
     return
   }
-  if (animate) {
+  if (animate && !isStructuredResponsePayload(turn.raw_response)) {
     if (!taskAgentRevealTokens.has(assistantId)) {
       const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`
       taskAgentRevealTokens.set(assistantId, token)
@@ -6062,7 +6062,17 @@ async function sendPromptToMessage(runnerId: string, userPrompt: string, prepare
   try {
     const response = await moonshotApi.sendRedTeamPrompt(runnerId, userPrompt, preparedPrompt)
     const normalized = normalizeAssistantResponse(response)
-    await typeAssistantMessage(messageId, normalized.content, normalized.rawResponse)
+    if (isStructuredResponsePayload(response) || isStructuredResponsePayload(normalized.rawResponse)) {
+      updateRedTeamMessage(messageId, {
+        status: 'done',
+        content: normalized.content || 'No response content.',
+        rawResponse: normalized.rawResponse,
+      })
+      persistSessions()
+      await scrollChatToBottom()
+    } else {
+      await typeAssistantMessage(messageId, normalized.content, normalized.rawResponse)
+    }
     return normalized
   } catch (error) {
     updateRedTeamMessage(messageId, {
@@ -7283,6 +7293,11 @@ function normalizeAssistantResponse(response: unknown) {
     content: extractAssistantText(response) || String(response ?? '') || 'No response content.',
     rawResponse: formatRawResponse(response),
   }
+}
+
+function isStructuredResponsePayload(value: unknown) {
+  if (value != null && typeof value === 'object') return true
+  return typeof value === 'string' && looksLikeJson(value)
 }
 
 function displayAssistantContent(content: string) {

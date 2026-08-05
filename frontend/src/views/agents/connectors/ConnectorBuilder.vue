@@ -1,6 +1,6 @@
 <template>
   <div class="connector-shell">
-    <GlassPanel class="connector-builder-panel">
+    <GlassPanel class="connector-builder-panel" :class="{ 'connector-builder-panel--ai-generating': aiGenerating }">
       <div class="section-heading">
         <div>
           <p class="eyebrow">{{ $t('auto.e9215b5d7bc9') }}</p>
@@ -9,10 +9,25 @@
         <div class="endpoint-heading-actions">
           <n-button v-if="isConfigurableApp" class="connector-ai-button" type="primary" secondary round :loading="aiGenerating" :disabled="permissionDenied" @click="openAIAssistant">
             <template #icon><n-icon><SparklesOutline /></n-icon></template> {{ $t('auto.153f90c699c4') }} </n-button>
-          <n-button secondary round :disabled="aiGenerating" @click="goBack">{{ $t('auto.b52b36b7269f') }}</n-button>
+          <n-button secondary round @click="goBack">{{ $t('auto.b52b36b7269f') }}</n-button>
           <n-button type="primary" round :disabled="!canSave || aiGenerating" @click="saveConnector">{{ $t('auto.924a634371f5') }}</n-button>
         </div>
       </div>
+
+      <section v-if="aiGenerating" class="connector-ai-workbench-status" role="status" aria-live="polite">
+        <span class="connector-ai-workbench-status__orb" aria-hidden="true">
+          <n-icon><SparklesOutline /></n-icon>
+        </span>
+        <div class="connector-ai-workbench-status__copy">
+          <p>AI CONFIGURATION IN PROGRESS</p>
+          <strong>正在分析、组装并验证端点配置</strong>
+          <span>任务已在后台运行；您可以离开此页面，完成后返回即可继续编辑。</span>
+        </div>
+        <div class="connector-ai-workbench-status__steps" aria-hidden="true">
+          <span>解析请求</span><i></i><span>验证响应</span><i></i><span>生成映射</span>
+        </div>
+        <n-tag round type="info">后台生成中</n-tag>
+      </section>
 
       <n-alert v-if="permissionDenied" type="error" :title="$t('auto.d016004473e0')"> {{ $t('auto.3733a93841a4') }} </n-alert>
 
@@ -553,17 +568,19 @@
 <script setup lang="ts">
 import { translateSource } from '../../../i18n'
 
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { NTabPane, NTabs, useMessage, useNotification } from 'naive-ui'
 import { CheckmarkCircleOutline, ChevronDownOutline, CloseOutline, CodeSlashOutline, CopyOutline, ListOutline, LocateOutline, SparklesOutline } from '@vicons/ionicons5'
 import { useRoute, useRouter } from 'vue-router'
 import GlassPanel from '../../../components/GlassPanel.vue'
 import { CONFIGURABLE_CONNECTOR, applyTemplate, connectorService, currentUser, defaultConnectorConfig, endpointToConfig, migrateConnectorProtocol, normalizePromptMessageTemplate } from '../../../services/connectorService'
+import { getConnectorAIJob, markConnectorAIJobConsumed, startConnectorAIJob } from '../../../services/connectorAiJobService'
 import type { ConnectorAIConfigureResult, ConnectorConfig, ConnectorProtocol, ConnectorTestResult } from '../../../types/connector'
 import { useMoonshotStore } from '../../../stores/moonshot'
 import { useSettingsStore } from '../../../stores/settings'
 import { buildSseResponsePreview, formatSseEventData } from '../../../utils/sseResponse'
 import type { SseResponsePreview } from '../../../utils/sseResponse'
+import { parseJsonDocuments } from '../../../utils/responseExtractor'
 
 const route = useRoute()
 const router = useRouter()
@@ -579,7 +596,9 @@ const permissionDenied = ref(false)
 const testing = ref(false)
 const requestPreviewOpen = ref(false)
 const aiModalOpen = ref(false)
-const aiGenerating = ref(false)
+const builderReady = ref(false)
+const applyingAIResult = ref(false)
+const handledAIJobId = ref('')
 const AI_REQUEST_PLACEHOLDER = `Paste request information in any format. Include as much as possible:
 
 1. Endpoint URL and protocol (HTTP, SSE, or WebSocket)
@@ -615,6 +634,10 @@ const customHeaderValue = ref('')
 const editingHeaderName = ref('')
 const editingHeaderValue = ref('')
 const activeProtocol = computed(() => form.params.connector_config.transport)
+const currentEndpointId = computed(() => String(route.query.endpointId || ''))
+const aiJobKey = computed(() => currentEndpointId.value || `draft:${String(route.query.connector_type || form.connector_type || CONFIGURABLE_CONNECTOR)}`)
+const activeAIJob = computed(() => getConnectorAIJob(aiJobKey.value))
+const aiGenerating = computed(() => activeAIJob.value?.status === 'running' || applyingAIResult.value)
 const hasSsePreview = computed(() => activeProtocol.value === 'sse' && Boolean(sseResponsePreview.value?.events.length))
 const outputMappingTitle = computed(() => (
   hasSsePreview.value
@@ -685,37 +708,77 @@ const bodyTypeOptionsWithoutNone = bodyTypeOptions.filter((option) => option.val
 const canSave = computed(() => form.name.trim() && (isConfigurableApp.value ? form.uri.trim() : true) && !permissionDenied.value && !aiGenerating.value)
 
 onMounted(async () => {
-  const draft = window.sessionStorage.getItem('oxo-connector-draft')
-  if (draft && !editingId.value) {
-    Object.assign(form, JSON.parse(draft))
+  try {
+    const draft = window.sessionStorage.getItem('oxo-connector-draft')
+    if (draft && !editingId.value) {
+      Object.assign(form, JSON.parse(draft))
+      syncAllTextFields()
+      window.sessionStorage.removeItem('oxo-connector-draft')
+      return
+    }
+    const connectorType = String(route.query.connector_type || '')
+    if (!editingId.value) {
+      if (connectorType) form.connector_type = connectorType
+      if (connectorType && connectorType !== CONFIGURABLE_CONNECTOR) applyDefaultEndpointTemplate(connectorType)
+      syncAllTextFields()
+      return
+    }
+    const connector = await connectorService.getConnector(editingId.value)
+    if (!connector) {
+      permissionDenied.value = true
+      message.error(translateSource('auto.3a8ba6524410'))
+      return
+    }
+    const endpointId = currentEndpointId.value
+    const endpoint = endpointId ? connector.endpoints?.find((item) => item.id === endpointId) : undefined
+    if (endpointId && !endpoint) {
+      permissionDenied.value = true
+      message.error(translateSource('auto.0ae7c5427163'))
+      return
+    }
+    Object.assign(form, endpoint ? endpointToConfig(endpoint) : connector.config)
+    if (form.connector_type !== CONFIGURABLE_CONNECTOR && !endpoint) applyDefaultEndpointTemplate(form.connector_type)
     syncAllTextFields()
-    window.sessionStorage.removeItem('oxo-connector-draft')
-    return
+  } finally {
+    builderReady.value = true
   }
-  const connectorType = String(route.query.connector_type || '')
-  if (!editingId.value) {
-    if (connectorType) form.connector_type = connectorType
-    if (connectorType && connectorType !== CONFIGURABLE_CONNECTOR) applyDefaultEndpointTemplate(connectorType)
-    syncAllTextFields()
-    return
-  }
-  const connector = await connectorService.getConnector(editingId.value)
-  if (!connector) {
-    permissionDenied.value = true
-    message.error(translateSource('auto.3a8ba6524410'))
-    return
-  }
-  const endpointId = String(route.query.endpointId || '')
-  const endpoint = endpointId ? connector.endpoints?.find((item) => item.id === endpointId) : undefined
-  if (endpointId && !endpoint) {
-    permissionDenied.value = true
-    message.error(translateSource('auto.0ae7c5427163'))
-    return
-  }
-  Object.assign(form, endpoint ? endpointToConfig(endpoint) : connector.config)
-  if (form.connector_type !== CONFIGURABLE_CONNECTOR && !endpoint) applyDefaultEndpointTemplate(form.connector_type)
-  syncAllTextFields()
 })
+
+watch(
+  () => [builderReady.value, activeAIJob.value?.id, activeAIJob.value?.status] as const,
+  async ([ready, jobId, status]) => {
+    const job = activeAIJob.value
+    if (!ready || !job || !jobId || status === 'running' || handledAIJobId.value === jobId) return
+    handledAIJobId.value = jobId
+    if (job.result) {
+      applyingAIResult.value = true
+      try {
+        await applyAIConfiguration(job.result)
+        if (job.result.status === 'completed') {
+          activeTab.value = 'request'
+          message.success(`AI configured and verified this endpoint with ${job.result.model || 'the active model'}.`, {
+            duration: 7000,
+            closable: true,
+          })
+        } else {
+          notifyAIConfigurationFailure(job.result)
+        }
+      } finally {
+        applyingAIResult.value = false
+        markConnectorAIJobConsumed(aiJobKey.value)
+      }
+      return
+    }
+    notification.error({
+      title: translateSource('auto.c4f696a040a2'),
+      content: job.error || 'AI configuration failed. Existing fields were kept.',
+      duration: 14000,
+      keepAliveOnHover: true,
+    })
+    markConnectorAIJobConsumed(aiJobKey.value)
+  },
+  { immediate: true },
+)
 
 function setProtocol(protocol: ConnectorProtocol) {
   Object.assign(form, applyTemplate(form, protocol))
@@ -742,7 +805,7 @@ async function openAIAssistant() {
   aiModalOpen.value = true
 }
 
-async function generateWithAI() {
+function generateWithAI() {
   if (!canGenerateWithAI.value) {
     if (!aiModelConfigured.value) {
       message.error(translateSource('auto.0080cf9d127b'))
@@ -751,30 +814,16 @@ async function generateWithAI() {
     }
     return
   }
-  aiGenerating.value = true
-  try {
-    const result = await connectorService.configureWithAI(aiRequestInfo.value)
-    await applyAIConfiguration(result)
-    aiModalOpen.value = false
-    if (result.status === 'completed') {
-      activeTab.value = 'request'
-      message.success(`AI configured and verified this endpoint with ${result.model || 'the active model'}.`, {
-        duration: 7000,
-        closable: true,
-      })
-    } else {
-      notifyAIConfigurationFailure(result)
-    }
-  } catch (error) {
-    notification.error({
-      title: translateSource('auto.c4f696a040a2'),
-      content: error instanceof Error ? error.message : 'AI configuration failed. Existing fields were kept.',
-      duration: 14000,
-      keepAliveOnHover: true,
-    })
-  } finally {
-    aiGenerating.value = false
-  }
+  const requestInformation = aiRequestInfo.value.trim()
+  aiModalOpen.value = false
+  handledAIJobId.value = ''
+  void startConnectorAIJob({
+    key: aiJobKey.value,
+    endpointId: currentEndpointId.value || undefined,
+    endpointName: form.name || currentEndpointId.value || 'New endpoint',
+    requestInformation,
+  })
+  message.info('AI 配置已在后台开始生成，当前端点已锁定。')
 }
 
 async function applyAIConfiguration(result: ConnectorAIConfigureResult) {
@@ -1509,23 +1558,22 @@ function insertOutputToken(editor: HTMLElement, range: Range) {
 
 function findJsonPathBySelection(rawJson: string, selected: string) {
   const normalized = selected.trim().replace(/^"|"$/g, '')
-  try {
-    const parsed = JSON.parse(rawJson)
-    return findPath(parsed, normalized)
-  } catch {
-    for (const line of rawJson.split(/\r?\n/)) {
-      if (!line.startsWith('data:')) continue
-      const payload = line.slice(5).trim()
-      if (!payload || payload === '[DONE]') continue
-      try {
-        const path = findPath(JSON.parse(payload), normalized)
-        if (path) return path
-      } catch {
-        continue
-      }
-    }
-    return undefined
+  for (const parsed of [...parseJsonDocuments(rawJson)].reverse()) {
+    const path = findPath(parsed, normalized)
+    if (path) return path
   }
+  for (const line of rawJson.split(/\r?\n/)) {
+    if (!line.startsWith('data:')) continue
+    const payload = line.slice(5).trim()
+    if (!payload || payload === '[DONE]') continue
+    try {
+      const path = findPath(JSON.parse(payload), normalized)
+      if (path) return path
+    } catch {
+      continue
+    }
+  }
+  return undefined
 }
 
 function inferResponseLocation(raw: string, selected: string) {

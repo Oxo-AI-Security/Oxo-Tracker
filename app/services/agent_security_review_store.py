@@ -164,6 +164,15 @@ class AgentSecurityReviewStore:
     def get_project(self, project_id: str) -> dict[str, Any]:
         return self.enrich_project(project_id, read_json(self.project_dir(project_id) / "project.json", {}))
 
+    def save_canvas(self, project_id: str, canvas: dict[str, Any]) -> dict[str, Any]:
+        path = self.project_dir(project_id)
+        write_json(path / "canvas.json", canvas or {"nodes": [], "edges": []})
+        return self.get_canvas(project_id)
+
+    def get_canvas(self, project_id: str) -> dict[str, Any]:
+        path = self.project_dir(project_id)
+        return read_json(path / "canvas.json", {"nodes": [], "edges": []})
+
     def enrich_project(self, project_id: str, project: dict[str, Any]) -> dict[str, Any]:
         path = self.project_dir(project_id)
         return {

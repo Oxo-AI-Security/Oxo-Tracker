@@ -571,6 +571,21 @@ def test_response_mapping_normalizes_sse_event_data_with_json_path() -> None:
     assert mapping["path"] == "$.content"
 
 
+def test_response_mapping_finds_selected_value_in_concatenated_json_documents() -> None:
+    raw = (
+        '{"history_metadata":{"title":"Initial Greeting"}}\n'
+        '{"choices":[{"messages":[{"role":"assistant","content":"Final answer"}]}]}'
+    )
+
+    mapping = normalize_response_mapping(
+        {"type": "text", "selectedText": "Final answer"},
+        raw,
+    )
+
+    assert mapping["type"] == "json-path"
+    assert mapping["path"] == "$.choices.0.messages.0.content"
+
+
 def test_ai_configure_route_runs_request_and_maps_output(monkeypatch: pytest.MonkeyPatch) -> None:
     draft = _draft()
 

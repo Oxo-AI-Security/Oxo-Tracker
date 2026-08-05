@@ -50,9 +50,13 @@
 
         <div v-if="viewMode === 'custom' && filteredCustomEndpoints.length" class="connector-card-grid">
           <article
-            v-for="{ endpoint, config } in filteredCustomEndpoints"
+            v-for="{ endpoint, config, aiJob } in filteredCustomEndpoints"
             :key="endpoint.id"
             class="connector-type-card connector-type-card--custom connector-endpoint-card"
+            :class="{
+              'connector-endpoint-card--ai-running': aiJob?.status === 'running',
+              'connector-endpoint-card--ai-ready': aiJob?.status === 'completed' && !aiJob.consumedAt,
+            }"
             role="button"
             tabindex="0"
             :aria-label="`Edit ${endpoint.name || endpoint.id}`"
@@ -64,6 +68,15 @@
                 {{ initials(endpoint.name || endpoint.id) }}
               </span>
               <n-tag round type="success">{{ protocolLabel(config.params.connector_config.transport) }}</n-tag>
+            </div>
+            <div v-if="aiJob?.status === 'running'" class="connector-card-ai-status" role="status">
+              <span><n-icon><SparklesOutline /></n-icon></span>
+              <div><strong>AI 正在生成配置</strong><small>后台分析与响应映射进行中</small></div>
+              <i aria-hidden="true"></i>
+            </div>
+            <div v-else-if="aiJob?.status === 'completed' && !aiJob.consumedAt" class="connector-card-ai-status connector-card-ai-status--ready">
+              <span><n-icon><CheckmarkCircleOutline /></n-icon></span>
+              <div><strong>AI 配置已生成</strong><small>点击进入并查看生成结果</small></div>
             </div>
             <strong class="connector-card-title">{{ endpoint.name || endpoint.id }}</strong>
             <p>{{ config.description || $t('auto.ac98a487503f') }}</p>
@@ -131,10 +144,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { NButtonGroup } from 'naive-ui'
-import { AddOutline, CreateOutline, SearchOutline } from '@vicons/ionicons5'
+import { AddOutline, CheckmarkCircleOutline, CreateOutline, SearchOutline, SparklesOutline } from '@vicons/ionicons5'
 import { useRouter } from 'vue-router'
 import GlassPanel from '../../../components/GlassPanel.vue'
 import { CONFIGURABLE_CONNECTOR, connectorService, endpointToConfig } from '../../../services/connectorService'
+import { getConnectorAIJob } from '../../../services/connectorAiJobService'
 import type { ConnectorListItem, ConnectorProtocol } from '../../../types/connector'
 
 type ConnectorViewMode = 'custom' | 'default'
@@ -147,7 +161,11 @@ const viewMode = ref<ConnectorViewMode>('custom')
 const defaultConnectors = computed(() => connectors.value.filter((connector) => connector.source !== 'user-created'))
 const customEndpoints = computed(() => {
   const connector = connectors.value.find((item) => item.id === CONFIGURABLE_CONNECTOR)
-  return (connector?.endpoints || []).map((endpoint) => ({ endpoint, config: endpointToConfig(endpoint) }))
+  return (connector?.endpoints || []).map((endpoint) => ({
+    endpoint,
+    config: endpointToConfig(endpoint),
+    aiJob: getConnectorAIJob(endpoint.id),
+  }))
 })
 const filteredCustomEndpoints = computed(() => {
   const keyword = search.value.trim().toLowerCase()

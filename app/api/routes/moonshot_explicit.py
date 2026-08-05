@@ -453,18 +453,25 @@ def _request_failure_suggestions(reason: str) -> list[str]:
 
 
 def _extract_connector_response(raw: str, response_config: dict[str, Any]) -> str:
-    if response_config.get("type") == "text":
+    response_type = response_config.get("type")
+    if response_type == "text":
         return raw
-    if response_config.get("type") == "text-fragment":
-        extracted = _extract_text_fragment(raw, response_config)
-        return extracted if extracted is not None else raw
+    if response_type == "text-fragment":
+        inferred_path = _json_path_from_output_sample(
+            str(response_config.get("sampleResponse") or "")
+        )
+        if inferred_path:
+            response_config = {**response_config, "type": "json-path", "path": inferred_path}
+        else:
+            extracted = _extract_text_fragment(raw, response_config)
+            return extracted if extracted is not None else raw
     # A saved JSON path is more specific than the legacy event-data type.
     # Prefer it so each SSE payload is decoded before its answer is joined.
-    if response_config.get("type") == "event-data" and not response_config.get("path"):
+    if response_type == "event-data" and not response_config.get("path"):
         payloads = _event_payloads(raw)
         return "".join(payloads) if payloads else raw
-    parsed = _parse_json_or_event_payload(raw)
     event_payloads = _event_payloads(raw)
+    json_documents = _json_documents(raw)
     for path in (response_config.get("path"), response_config.get("fallbackPath")):
         if not path:
             continue
@@ -478,11 +485,11 @@ def _extract_connector_response(raw: str, response_config: dict[str, Any]) -> st
                 streamed_values.append(str(value))
         if streamed_values:
             return "".join(streamed_values)
-        if parsed is not None:
+        for parsed in reversed(json_documents):
             value = _read_json_path(parsed, path)
             if value is not None:
-                return str(value)
-    return raw if parsed is None else ""
+                return _stringify_extracted_value(value)
+    return raw if not json_documents else ""
 
 
 def _extract_text_fragment(raw: str, response_config: dict[str, Any]) -> str | None:
@@ -519,15 +526,67 @@ def _read_json_path(data: Any, path: str) -> Any:
 
 
 def _parse_json_or_event_payload(raw: str) -> Any | None:
-    try:
-        return json.loads(raw)
-    except Exception:
-        pass
+    documents = _json_documents(raw)
+    if documents:
+        return documents[-1]
     for payload in _event_payloads(raw):
         try:
             return json.loads(payload)
         except Exception:
             continue
+    return None
+
+
+def _json_documents(raw: str) -> list[Any]:
+    decoder = json.JSONDecoder()
+    documents: list[Any] = []
+    cursor = 0
+    while cursor < len(raw):
+        while cursor < len(raw) and raw[cursor].isspace():
+            cursor += 1
+        if cursor >= len(raw):
+            break
+        try:
+            value, end = decoder.raw_decode(raw, cursor)
+        except (TypeError, ValueError):
+            return []
+        documents.append(value)
+        cursor = end
+    return documents
+
+
+def _stringify_extracted_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    return str(value)
+
+
+def _json_path_from_output_sample(sample: str) -> str | None:
+    def walk(value: Any, path: str = "$") -> str | None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                found = walk(child, f"{path}.{key}")
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                found = walk(child, f"{path}.{index}")
+                if found:
+                    return found
+        elif "{{ output }}" in str(value):
+            return path
+        return None
+
+    for document in reversed(_json_documents(sample)):
+        found = walk(document)
+        if found:
+            return found
     return None
 
 

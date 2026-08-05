@@ -204,15 +204,13 @@
             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             @change="importExcelFile"
           />
-          <n-popover
-            raw
+          <n-dropdown
             trigger="click"
             placement="bottom-end"
-            :show="templatePickerOpen"
-            :show-arrow="false"
-            @update:show="templatePickerOpen = $event"
+            :options="templateDownloadOptions"
+            :disabled="downloadingTemplate || importingExcel"
+            @select="handleTemplateDownload"
           >
-            <template #trigger>
               <button
                 class="dataset-excel-action dataset-excel-action--template"
                 type="button"
@@ -220,49 +218,12 @@
               >
                 <span class="dataset-excel-action-icon"><n-icon><CloudDownloadOutline /></n-icon></span>
                 <span>
-                  <strong>{{ excelUi.downloadTemplate }}</strong>
+                  <strong>{{ downloadingTemplate ? excelUi.savingTemplate : excelUi.downloadTemplate }}</strong>
                   <small>{{ excelUi.chooseFormat }}</small>
                 </span>
                 <n-icon class="dataset-excel-action-chevron"><ChevronDownOutline /></n-icon>
               </button>
-            </template>
-
-            <section class="dataset-template-picker">
-              <header class="dataset-template-picker__header">
-                <span><n-icon><CloudDownloadOutline /></n-icon></span>
-                <div>
-                  <strong>{{ excelUi.chooseTemplate }}</strong>
-                  <small>{{ excelUi.chooseTemplateHint }}</small>
-                </div>
-              </header>
-              <div class="dataset-template-picker__options">
-                <button type="button" :disabled="downloadingTemplate" @click="downloadExcelTemplate('exact')">
-                  <span class="dataset-template-picker__number">01</span>
-                  <span class="dataset-template-picker__copy">
-                    <strong>{{ excelUi.exactColumns }}</strong>
-                    <small>{{ excelUi.exactTemplateHint }}</small>
-                    <span class="dataset-template-picker__schema">
-                      <i>{{ excelUi.inputColumn }}</i><b>+</b><i>{{ excelUi.expectedColumn }}</i>
-                    </span>
-                    <em>{{ excelUi.examplesIncluded }}</em>
-                  </span>
-                  <span class="dataset-template-picker__download"><n-icon><CloudDownloadOutline /></n-icon></span>
-                </button>
-                <button type="button" :disabled="downloadingTemplate" @click="downloadExcelTemplate('judge')">
-                  <span class="dataset-template-picker__number is-blue">02</span>
-                  <span class="dataset-template-picker__copy">
-                    <strong>{{ excelUi.inputOnly }}</strong>
-                    <small>{{ excelUi.inputOnlyTemplateHint }}</small>
-                    <span class="dataset-template-picker__schema is-blue">
-                      <i>{{ excelUi.inputColumn }}</i>
-                    </span>
-                    <em>{{ excelUi.examplesIncluded }}</em>
-                  </span>
-                  <span class="dataset-template-picker__download is-blue"><n-icon><CloudDownloadOutline /></n-icon></span>
-                </button>
-              </div>
-            </section>
-          </n-popover>
+          </n-dropdown>
           <button
             class="dataset-excel-action dataset-excel-action--import"
             type="button"
@@ -423,9 +384,10 @@
 
 <script setup lang="ts">
 import { translateSource } from '../i18n'
+import { isDesktopRuntime } from '../desktop/bootstrap'
 
 import { computed, reactive, ref, watch } from 'vue'
-import { useMessage } from 'naive-ui'
+import { NDropdown, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import {
   AddOutline,
@@ -475,7 +437,6 @@ const submitting = ref(false)
 const policyGuideOpen = ref(false)
 const excelFileInput = ref<HTMLInputElement | null>(null)
 const downloadingTemplate = ref(false)
-const templatePickerOpen = ref(false)
 const importingExcel = ref(false)
 const excelImportReport = ref<ExcelImportReport | null>(null)
 
@@ -483,8 +444,12 @@ const excelCopy = {
   'zh-CN': {
     templateMode: '模板类型',
     exact: '确切答案',
-    judge: 'AI 法官',
+    judge: 'AI 法官政策',
     downloadTemplate: '下载 Excel 模板',
+    savingTemplate: '正在保存模板…',
+    saveTemplateTitle: '选择 Excel 模板保存位置',
+    downloadStarted: '模板已开始下载，请查看浏览器下载目录。',
+    downloadSuccess: (path: string) => `模板已保存到：${path}`,
     chooseFormat: '选择两种模板格式',
     chooseTemplate: '选择数据集模板',
     chooseTemplateHint: '下载适合当前数据结构的 Excel 文件。',
@@ -500,7 +465,6 @@ const excelCopy = {
     checking: '正在检查…',
     validateFirst: '校验通过后再导入',
     dismissReport: '关闭导入检查结果',
-    downloadSuccess: 'Excel 模板已下载',
     downloadFailure: '模板生成失败，请稍后重试。',
     fileTooLarge: 'Excel 文件不能超过 10 MB。',
     wrongExtension: '请选择 .xlsx 格式的 Excel 文件。',
@@ -514,8 +478,12 @@ const excelCopy = {
   'en-US': {
     templateMode: 'Template mode',
     exact: 'Exact answer',
-    judge: 'AI judge',
+    judge: 'AI judge policy',
     downloadTemplate: 'Download Excel template',
+    savingTemplate: 'Saving template…',
+    saveTemplateTitle: 'Choose where to save the Excel template',
+    downloadStarted: 'The template download has started. Check your browser downloads.',
+    downloadSuccess: (path: string) => `Template saved to: ${path}`,
     chooseFormat: 'Choose from two formats',
     chooseTemplate: 'Choose a dataset template',
     chooseTemplateHint: 'Download the Excel structure that matches your data.',
@@ -531,7 +499,6 @@ const excelCopy = {
     checking: 'Validating…',
     validateFirst: 'Validate before import',
     dismissReport: 'Dismiss import validation result',
-    downloadSuccess: 'Excel template downloaded',
     downloadFailure: 'Unable to generate the template. Try again.',
     fileTooLarge: 'The Excel file must be 10 MB or smaller.',
     wrongExtension: 'Choose an Excel file in .xlsx format.',
@@ -546,6 +513,10 @@ const excelCopy = {
 
 const excelUi = computed(() => excelCopy[locale.value === 'zh-CN' ? 'zh-CN' : 'en-US'])
 const excelLocale = computed(() => locale.value === 'zh-CN' ? 'zh-CN' : 'en-US')
+const templateDownloadOptions = computed(() => [
+  { label: excelUi.value.exact, key: 'exact' },
+  { label: excelUi.value.judge, key: 'judge' },
+])
 
 const datasetScopeOptions = [
   { label: translateSource('auto.ccf1384cbc9e'), value: 'all' },
@@ -853,30 +824,56 @@ function openExcelPicker() {
   excelFileInput.value?.click()
 }
 
+function handleTemplateDownload(key: string | number) {
+  if (key === 'exact' || key === 'judge') {
+    void downloadExcelTemplate(key)
+  }
+}
+
 async function downloadExcelTemplate(templateMode: DatasetExcelMode) {
   downloadingTemplate.value = true
   try {
     const bytes = await createDatasetTemplateBuffer(templateMode, excelLocale.value)
     const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
-    const blob = new Blob([data], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = datasetTemplateFileName(templateMode, excelLocale.value)
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-    templatePickerOpen.value = false
-    message.success(excelUi.value.downloadSuccess)
+    const fileName = datasetTemplateFileName(templateMode, excelLocale.value)
+    const savedPath = await saveDatasetTemplate(data, fileName)
+    if (savedPath === null) return
+    message.success(savedPath ? excelUi.value.downloadSuccess(savedPath) : excelUi.value.downloadStarted)
   } catch (error) {
     console.error('Unable to generate dataset Excel template', error)
     message.error(excelUi.value.downloadFailure)
   } finally {
     downloadingTemplate.value = false
   }
+}
+
+async function saveDatasetTemplate(data: ArrayBuffer, fileName: string): Promise<string | null> {
+  if (isDesktopRuntime()) {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const selectedPath = await save({
+      title: excelUi.value.saveTemplateTitle,
+      defaultPath: fileName,
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
+    })
+    if (!selectedPath) return null
+
+    const { writeFile } = await import('@tauri-apps/plugin-fs')
+    await writeFile(selectedPath, new Uint8Array(data))
+    return selectedPath
+  }
+
+  const blob = new Blob([data], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+  return ''
 }
 
 async function importExcelFile(event: Event) {

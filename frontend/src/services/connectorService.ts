@@ -1,6 +1,7 @@
 import { moonshotApi } from '../api/moonshot'
 import type { ConnectorAIConfigureResult, ConnectorConfig, ConnectorEndpointItem, ConnectorListItem, ConnectorProtocol, ConnectorTestResult, CurrentUser } from '../types/connector'
 import type { EndpointCreatePayload } from '../types/moonshot'
+import { findJsonPathContaining } from '../utils/responseExtractor'
 
 const META_KEY = 'oxo-connector-endpoint-meta'
 export const CONFIGURABLE_CONNECTOR = 'configurable-app-connector'
@@ -318,6 +319,16 @@ function encodeBasicCredential(value: string) {
 
 function normalizeResponseConfig(response: ConnectorConfig['params']['connector_config']['response']) {
   if (response.type === 'event-data' && response.path?.trim()) response.type = 'json-path'
+  if (response.type === 'text-fragment' && response.sampleResponse) {
+    const inferredPath = findJsonPathContaining(response.sampleResponse, '{{ output }}')
+    if (inferredPath) {
+      response.type = 'json-path'
+      response.path = inferredPath
+      response.fallbackPath = undefined
+      response.prefix = undefined
+      response.suffix = undefined
+    }
+  }
 }
 
 function normalizePromptTemplates(config: ConnectorConfig) {

@@ -1223,9 +1223,8 @@ def _deduplicate(values: list[str]) -> list[str]:
 
 
 def _heuristic_json_path(raw_response: str) -> str | None:
-    try:
-        parsed = json.loads(raw_response)
-    except json.JSONDecodeError:
+    documents = _json_documents(raw_response)
+    if not documents:
         return None
     preferred = ("response", "answer", "output", "content", "text", "message", "completion", "status")
 
@@ -1245,7 +1244,11 @@ def _heuristic_json_path(raw_response: str) -> str | None:
                     return found
         return None
 
-    return walk(parsed)
+    for parsed in reversed(documents):
+        found = walk(parsed)
+        if found:
+            return found
+    return None
 
 
 def _deterministic_sse_response_mapping(raw_response: str) -> dict[str, Any] | None:
@@ -1305,19 +1308,14 @@ def _find_scalar_key_path(
 
 
 def _is_json_response(raw_response: str) -> bool:
-    try:
-        json.loads(raw_response)
-    except json.JSONDecodeError:
-        return False
-    return True
+    return bool(_json_documents(raw_response))
 
 
 def _json_path_for_selected_text(raw_response: str, selected_text: str) -> str | None:
     if not selected_text:
         return None
-    try:
-        parsed = json.loads(raw_response)
-    except json.JSONDecodeError:
+    documents = _json_documents(raw_response)
+    if not documents:
         return None
 
     def walk(value: Any, path: str = "$") -> str | None:
@@ -1335,4 +1333,27 @@ def _json_path_for_selected_text(raw_response: str, selected_text: str) -> str |
             return path
         return None
 
-    return walk(parsed)
+    for parsed in reversed(documents):
+        found = walk(parsed)
+        if found:
+            return found
+    return None
+
+
+def _json_documents(raw_response: str) -> list[Any]:
+    """Decode one or more complete JSON values from a single HTTP body."""
+    decoder = json.JSONDecoder()
+    documents: list[Any] = []
+    cursor = 0
+    while cursor < len(raw_response):
+        while cursor < len(raw_response) and raw_response[cursor].isspace():
+            cursor += 1
+        if cursor >= len(raw_response):
+            break
+        try:
+            value, end = decoder.raw_decode(raw_response, cursor)
+        except (TypeError, ValueError):
+            return []
+        documents.append(value)
+        cursor = end
+    return documents

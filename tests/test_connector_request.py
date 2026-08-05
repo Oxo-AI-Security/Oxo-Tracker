@@ -111,6 +111,42 @@ def test_legacy_sse_event_data_with_path_decodes_answer_fragments() -> None:
     assert extracted == "Hello"
 
 
+def test_http_json_sequence_extracts_selected_path_from_last_document() -> None:
+    raw = (
+        '{"history_metadata":{"title":"Initial Greeting"}}\n'
+        '{"choices":[{"messages":[{"role":"assistant","content":"Final answer"}]}]}'
+    )
+
+    extracted = moonshot_explicit._extract_connector_response(
+        raw,
+        {"type": "json-path", "path": "$.choices.0.messages.0.content"},
+    )
+
+    assert extracted == "Final answer"
+
+
+def test_legacy_text_fragment_sample_migrates_to_json_path_at_runtime() -> None:
+    sample = (
+        '{"history_metadata":{"title":"Initial Greeting"}}\n'
+        '{"choices":[{"messages":[{"role":"assistant","content":"{{ output }}"}]}]}'
+    )
+    raw = (
+        '{"history_metadata":{"title":"Initial Greeting"}}\n'
+        '{"choices":[{"messages":[{"role":"assistant","content":"Current answer"}]}]}'
+    )
+
+    extracted = moonshot_explicit._extract_connector_response(
+        raw,
+        {
+            "type": "text-fragment",
+            "selectedText": "Old answer",
+            "sampleResponse": sample,
+        },
+    )
+
+    assert extracted == "Current answer"
+
+
 def test_http_fetch_sends_real_request_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = {}
 
@@ -226,3 +262,60 @@ def test_runtime_asset_builds_multipart_body_with_matching_boundary() -> None:
     assert f"--{boundary}\r\n".encode() in body
     assert b'name="message"\r\n\r\nhello\r\n' in body
     assert connector._read_json_path({"items": []}, "$.items.4.answer") is None
+
+
+def test_runtime_asset_extracts_json_sequence_without_raw_response_fallback() -> None:
+    asset = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "integrations"
+        / "moonshot"
+        / "assets"
+        / "configurable-app-connector.py"
+    )
+    spec = importlib.util.spec_from_file_location("configurable_app_connector_asset_json_sequence", asset)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    connector = object.__new__(module.ConfigurableAppConnector)
+    connector.config = {
+        "response": {"type": "json-path", "path": "$.choices.0.messages.0.content"}
+    }
+    raw = (
+        '{"history_metadata":{"title":"Initial Greeting"}}\n'
+        '{"choices":[{"messages":[{"role":"assistant","content":"Final answer"}]}]}'
+    )
+
+    assert connector._extract_response(raw) == "Final answer"
+
+
+def test_runtime_asset_migrates_legacy_text_fragment_sample_to_json_path() -> None:
+    asset = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "integrations"
+        / "moonshot"
+        / "assets"
+        / "configurable-app-connector.py"
+    )
+    spec = importlib.util.spec_from_file_location("configurable_app_connector_asset_legacy_mapping", asset)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    connector = object.__new__(module.ConfigurableAppConnector)
+    connector.config = {
+        "response": {
+            "type": "text-fragment",
+            "selectedText": "Old answer",
+            "sampleResponse": (
+                '{"history_metadata":{"title":"Initial Greeting"}}\n'
+                '{"choices":[{"messages":[{"content":"{{ output }}"}]}]}'
+            ),
+        }
+    }
+    raw = (
+        '{"history_metadata":{"title":"Initial Greeting"}}\n'
+        '{"choices":[{"messages":[{"content":"Current answer"}]}]}'
+    )
+
+    assert connector._extract_response(raw) == "Current answer"

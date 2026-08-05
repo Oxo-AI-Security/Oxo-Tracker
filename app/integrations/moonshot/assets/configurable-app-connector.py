@@ -231,19 +231,26 @@ class ConfigurableAppConnector(Connector):
 
     def _extract_response(self, raw: str) -> str:
         response_config = self.config.get("response") or {}
-        if response_config.get("type") == "text":
+        response_type = response_config.get("type")
+        if response_type == "text":
             return raw
-        if response_config.get("type") == "text-fragment":
-            extracted = self._extract_text_fragment(raw, response_config)
-            return extracted if extracted is not None else raw
+        if response_type == "text-fragment":
+            inferred_path = self._json_path_from_output_sample(
+                str(response_config.get("sampleResponse") or "")
+            )
+            if inferred_path:
+                response_config = dict(response_config, type="json-path", path=inferred_path)
+            else:
+                extracted = self._extract_text_fragment(raw, response_config)
+                return extracted if extracted is not None else raw
         # Older endpoint records may contain both ``type: event-data`` and a
         # JSON path. A path is more specific and must win; otherwise streamed
         # JSON objects are rendered verbatim instead of their answer fragments.
-        if response_config.get("type") == "event-data" and not response_config.get("path"):
+        if response_type == "event-data" and not response_config.get("path"):
             payloads = self._event_payloads(raw)
             return "".join(payloads) if payloads else raw
-        data = self._parse_json_or_event_payload(raw)
         event_payloads = self._event_payloads(raw)
+        json_documents = self._json_documents(raw)
         for path in (response_config.get("path", "$.output"), response_config.get("fallbackPath")):
             if not path:
                 continue
@@ -257,11 +264,14 @@ class ConfigurableAppConnector(Connector):
                     streamed_values.append(str(value))
             if streamed_values:
                 return "".join(streamed_values)
-            if data is not None:
+            # Some HTTP APIs return a sequence of complete JSON documents in a
+            # single chunked body. This is not an SSE token stream: the last
+            # matching document is the final response and must be shown once.
+            for data in reversed(json_documents):
                 value = self._read_json_path(data, path)
                 if value is not None:
-                    return str(value)
-        return raw if data is None else ""
+                    return self._stringify_extracted_value(value)
+        return raw if not json_documents else ""
 
     def _extract_text_fragment(self, raw: str, response_config: dict):
         prefix = str(response_config.get("prefix") or "")
@@ -295,15 +305,65 @@ class ConfigurableAppConnector(Connector):
         return current
 
     def _parse_json_or_event_payload(self, raw: str):
-        try:
-            return json.loads(raw)
-        except Exception:
-            pass
+        documents = self._json_documents(raw)
+        if documents:
+            return documents[-1]
         for payload in self._event_payloads(raw):
             try:
                 return json.loads(payload)
             except Exception:
                 continue
+        return None
+
+    def _json_documents(self, raw: str):
+        decoder = json.JSONDecoder()
+        documents = []
+        cursor = 0
+        length = len(raw)
+        while cursor < length:
+            while cursor < length and raw[cursor].isspace():
+                cursor += 1
+            if cursor >= length:
+                break
+            try:
+                value, end = decoder.raw_decode(raw, cursor)
+            except (TypeError, ValueError):
+                return []
+            documents.append(value)
+            cursor = end
+        return documents
+
+    def _stringify_extracted_value(self, value) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        if value is True:
+            return "true"
+        if value is False:
+            return "false"
+        return str(value)
+
+    def _json_path_from_output_sample(self, sample: str):
+        def walk(value, path="$"):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    found = walk(child, f"{path}.{key}")
+                    if found:
+                        return found
+            elif isinstance(value, list):
+                for index, child in enumerate(value):
+                    found = walk(child, f"{path}.{index}")
+                    if found:
+                        return found
+            elif "{{ output }}" in str(value):
+                return path
+            return None
+
+        for document in reversed(self._json_documents(sample)):
+            found = walk(document)
+            if found:
+                return found
         return None
 
     def _event_payloads(self, raw: str):
